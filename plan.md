@@ -22,3 +22,14 @@ May involve some states since APIs are not always compliant. As such, the theore
 # Implementation of the PCD.
 
 We can generate some annotations on the expansion of the procedural macros, which the theorem prover takes as input and then can reason about the correctness.
+
+# Use Cases
+
+Case Study: Biobank search
+* Aggregate: Given length, how many people matches with this given length.
+* Redaction: For given genome string, how many maximum length should be accessed (redacted).
+* Boolean request: yes/no
+* Anonymization should be applied: noise be added to the result.
+* Different sources of policies: Merge policies.
+
+The scheme to search relative genome: (compressed) longest substring genome, longest >= threshold.
