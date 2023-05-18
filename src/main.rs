@@ -29,3 +29,6 @@ impl APCD {
     }
 }
 
+dp!(field_type: ty, dp_params: float) {}
+
+P(state) => forall (field_type: ty, dp_params: float) => policy_compliant(dp!(field_type: ty, dp_params: float))
