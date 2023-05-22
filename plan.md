@@ -10,14 +10,12 @@ We may need to prove the following facts (hopefully they can be achieved):
   ```
 
   Question: What does "Policy-Compliant" mean? We need to more explicitly define this property; or we just need to verify that
-
-  $$
-  \forall d^{\pi} \in \mathbb{D}^{\Pi}, \vec{f} \gets \mathsf{ApiGen}(d^{\pi}) \Longrightarrow \mathsf{PC}(\pi, \vec{f}).
-  $$
-
+  
+  $$\forall d^{\pi} \in \mathbb{D}^{\Pi}, \vec{f} \gets \mathsf{ApiGen}(d^{\pi}) \Longrightarrow \mathsf{PC}(\pi, \vec{f}).$$
+  
   That being said, for all policy-carrying data $d^{\pi}$, given our API generation algorithm $\mathsf{ApiGen}$, it generates a vector of API functions such that $\vec f$ conforms to the policy $\pi$. Thus, "Policy-Compliant" APIs might be a set of properties, like PoBF:
 
-  - The generation of each API is correct and meets the desired property. E.g., $f \gets \mathsf {dp\_max\_gen}(\tau, \langle \delta, \varepsilon \rangle) \Longrightarrow \mathsf{is\_dp}(f, \langle \delta, \varepsilon \rangle)$. In other words, "Policy-Compliant" has different meaning for different kinds of APIs.
+  - The generation of each API is correct and meets the desired property. E.g., $f \gets \mathsf{dp\\_gen}(\tau, \langle \delta, \varepsilon \rangle, \mathsf{max}) \Longrightarrow \mathsf{is\\_dp}(f, \langle \delta, \varepsilon \rangle)$. In other words, "Policy-Compliant" has different meaning for different kinds of APIs.
 
   - The compositional rule (we want the generated APIs to be modular):
 
