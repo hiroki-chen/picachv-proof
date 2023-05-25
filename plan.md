@@ -27,6 +27,10 @@ We may need to prove the following facts (hopefully they can be achieved):
 
 * If we use states, we need to model the state transition and the design thereof formally so that the APIs are policy-compliant.
 
+# The data organization
+
+Can model after the `arrow` crate by Apache.
+
 # Implementation of the PCD.
 
 We can generate some annotations on the expansion of the procedural macros, which the theorem prover takes as input and then can reason about the correctness.
