@@ -34,10 +34,10 @@
 // P(state) => forall (field_type: ty, dp_params: float) => policy_compliant(dp!(field_type: ty, dp_params: float))
 
 pub mod data_type;
+pub mod error;
 pub mod field;
 pub mod policy;
 pub mod schema;
 
 #[cfg(test)]
-mod test {
-}
+mod test {}

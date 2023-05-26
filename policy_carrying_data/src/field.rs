@@ -21,4 +21,14 @@ pub struct Field {
     metadata: FieldMetadata,
 }
 
+impl PartialEq for Field {
+    fn eq(&self, other: &Self) -> bool {
+        self.name == other.name
+            && self.data_type == other.data_type
+            && self.nullable == other.nullable
+    }
+}
+
+impl Eq for Field {}
+
 impl Field {}

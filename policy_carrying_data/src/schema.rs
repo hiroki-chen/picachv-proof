@@ -1,6 +1,6 @@
-use std::sync::Arc;
+use std::{ops::Add, sync::Arc};
 
-use crate::{field::FieldRef, policy::Policy};
+use crate::{error::PolicyCarryingResult, field::FieldRef, policy::Policy};
 
 pub type SchemaRef = Arc<Schema>;
 
@@ -20,9 +20,26 @@ pub struct Schema {
     policy: Box<dyn Policy>,
 }
 
+/// This allows us to join two schemas and returns new one.
+impl Add for Schema {
+    type Output = Self;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        match self.join(rhs) {
+            Ok(res) => res,
+            Err(e) => panic!("{e}"),
+        }
+    }
+}
+
 impl Schema {
     /// Constructs a new schema from an array of field descriptions.
     pub fn new() -> Self {
+        todo!()
+    }
+
+    /// Perform the `join` operation that allows us to merge different schemas.
+    pub fn join(self, other: Self) -> PolicyCarryingResult<Self> {
         todo!()
     }
 }
