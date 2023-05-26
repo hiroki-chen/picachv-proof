@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use crate::field::FieldRef;
+use crate::{field::FieldRef, policy::Policy};
 
 pub type SchemaRef = Arc<Schema>;
 
@@ -12,8 +12,12 @@ pub struct SchemaMetadata {}
 /// Schema for such data types, in fact, is something that describes the attribute/column of the table.
 #[derive(Clone, Debug)]
 pub struct Schema {
+    /// The fields of the table.
     fields: Vec<FieldRef>,
+    /// The matadata of the schema.
     metadata: SchemaMetadata,
+    /// The policy of the schema.
+    policy: Box<dyn Policy>,
 }
 
 impl Schema {

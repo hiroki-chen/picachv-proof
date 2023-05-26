@@ -39,4 +39,5 @@ pub mod policy;
 pub mod schema;
 
 #[cfg(test)]
-mod test {}
+mod test {
+}
