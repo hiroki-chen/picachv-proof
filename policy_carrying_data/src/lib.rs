@@ -37,6 +37,7 @@ pub mod data_type;
 pub mod error;
 pub mod field;
 pub mod policy;
+pub mod record;
 pub mod schema;
 
 #[cfg(test)]
