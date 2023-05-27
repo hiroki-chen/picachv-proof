@@ -1,2 +1,2 @@
 [workspace]
-members = ["policy_carrying_data", "policy_proc_macro", "policy_parse"]
+members = ["policy_carrying_data", "policy_proc_macro", "policy_parse", "policy_core"]

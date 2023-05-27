@@ -1,6 +1,8 @@
 use std::{ops::Add, sync::Arc};
 
-use crate::{error::PolicyCarryingResult, field::FieldRef, policy::Policy};
+use policy_core::error::PolicyCarryingResult;
+
+use crate::{field::FieldRef, policy::Policy};
 
 pub type SchemaRef = Arc<Schema>;
 
@@ -52,8 +54,12 @@ impl Add for Schema {
 
 impl Schema {
     /// Constructs a new schema from an array of field descriptions.
-    pub fn new() -> Self {
-        todo!()
+    pub fn new(fields: Vec<FieldRef>, metadata: SchemaMetadata, policy: Box<dyn Policy>) -> Self {
+        Self {
+            fields,
+            metadata,
+            policy,
+        }
     }
 
     /// Perform the `join` operation that allows us to merge different schemas.

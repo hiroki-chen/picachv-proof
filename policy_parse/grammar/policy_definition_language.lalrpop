@@ -1,0 +1,81 @@
+//! This `lalrpop` file defines the syntax of the Policy Definition Language (PDL) which is used to
+//! generate a parser that can be used to convert human-readable policies into a Rust struct.
+
+use std::str::FromStr;
+
+// Import all the types.
+use crate::ast::*;
+
+grammar;
+
+// Match between keywords and identifiers.
+match {
+    r"(?i)(allow)",
+    r"(?i)(attribute)",
+    r"(?i)(deny)",
+    r"(?i)(scheme)",
+    r"(?i)(filter)",
+    r"((?i)(dp))|((?i)(differential_privacy))",
+    r"((?i)(k_anon))|((?i)(k_anonymity))",
+    r"((?i)(t_closeness))|((?i)(t_close))",
+    r"((?i)(l_diversity))|((?i)(l_div))",
+} else {
+    r"[a-zA-Z_][a-zA-Z0-9_]*" => Identifier,
+} else {
+    _,
+}
+
+#[inline]
+Comma<T>: Vec<T> = { // (1)
+    <mut v:(<T> ",")*> <e:T?> => match e { // (2)
+        None => v,
+        Some(e) => {
+            v.push(e);
+            v
+        }
+    }
+};
+
+pub Num: f64 = {
+    <f: Float> => f,
+    "(" <n: Num> ")" => n,
+}
+
+pub Keyword: String = {
+    <allow: Allow> => allow,
+    <attribute: Attribute> => attribute,
+    <deny: Deny> => deny,
+    <scheme: PrivacyScheme> => scheme,
+    <filter: Filter> => filter,
+}
+
+pub Scheme: String = {
+    <dp: DifferentialPrivacy> => dp,
+    <tclose: TCloseness> => tclose,
+    <l_div: LDiversity> => l_div,
+    <k_anon: KAnon> => k_anon,
+    "(" <scheme: Scheme> ")" => scheme,
+}
+
+/// The attribute list: Attribute(id_1, id_2, ...)
+pub AttributeList: Vec<String> = {
+    <attribute: Attribute> "(" <list: Comma<Identifier>> ")" => 
+        list.into_iter().map(|s| s.to_string()).collect(),
+    "(" <list: AttributeList> ")" => list,
+}
+
+/// Numbers (floating by default)
+Float: f64 = <s:r"[+-]?([0-9]+([.][0-9]*)?|[.][0-9]+)"> => f64::from_str(s).unwrap();
+
+// Keywords.
+Allow: String = <s:r"(?i)(allow)"> => s.into();
+Attribute: String = <s:r"(?i)(attribute)"> => s.into();
+Deny: String = <s:r"(?i)(deny)"> => s.into();
+PrivacyScheme: String = <s:r"(?i)(scheme)"> => s.into();
+Filter: String = <s:r"(?i)(filter)"> => s.into();
+
+// Scheme types.
+DifferentialPrivacy: String = <s:r"((?i)(dp))|((?i)(differential_privacy))"> => s.into();
+KAnon: String = <s:r"((?i)(k_anon))|((?i)(k_anonymity))"> => s.into();
+TCloseness: String = <s:r"((?i)(t_closeness))|((?i)(t_close))"> => s.into();
+LDiversity: String = <s:r"((?i)(l_diversity))|((?i)(l_div))"> => s.into();
