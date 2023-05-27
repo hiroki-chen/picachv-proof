@@ -47,13 +47,14 @@ There are scenerios where data may come from different sources of owners and the
 
 Assuming that the schema $\sigma$ of a PCD has the form $\sigma \coloneqq \langle \mathbf{A}^{n} \Rightarrow \{A_i: D_i \mid i \in [n] \}, \pi \rangle$, where $\mathbf{A}^{n}$ is the set of the attributes, and $\pi$ is the policy on that schema, we thus consider the following two situations:
 
-* $\sigma_1 \bowtie \sigma_2 \Rightarrow \mathbf{A}^{n}_{1} \bowtie \mathbf{A}^{n}_{2}, \pi_1 \wedge \pi_2$, and
+* $\sigma_1 \bowtie \sigma_2 \Rightarrow \mathbf{A}^{n}\_{1} \bowtie \mathbf{A}^{n}\_{2}, \pi_1 \wedge \pi_2$, and
 * $\sigma_1 \cup \sigma_2 \Rightarrow \pi_1 \vee \pi_2$.
 
 Core questions:
 
 * How does $\pi$ look like?
 * How to define meet $\vee$ and join $\wedge$ operators on policies $\pi \in \Pi$? Can we just encode policies $\Pi$ as a partially ordered and complete lattice $\langle \Pi, \preceq, \vee, \wedge \rangle$?
+* When should policies be `join`ed or `union`ed?
 
 # Use Cases
 
