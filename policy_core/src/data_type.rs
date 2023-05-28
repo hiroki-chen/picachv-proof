@@ -72,7 +72,12 @@ impl DataType {
 }
 
 pub trait PritimiveDataType {
+    type PrimitiveType;
+
     const DATA_TYPE: DataType;
+
+    /// Returns the concrete primitive data.
+    fn get_inner(&self) -> Self::PrimitiveType;
 }
 
 #[macro_export]
@@ -82,7 +87,12 @@ macro_rules! declare_type {
         pub struct $name(pub $primitive);
 
         impl $crate::data_type::PritimiveDataType for $name {
+            type PrimitiveType = $primitive;
             const DATA_TYPE: $crate::data_type::DataType = $ty;
+
+            fn get_inner(&self) -> Self::PrimitiveType {
+                self.0.clone()
+            }
         }
     };
 }

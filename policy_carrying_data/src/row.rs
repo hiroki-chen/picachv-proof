@@ -2,10 +2,7 @@ use std::sync::Arc;
 
 use policy_core::error::{PolicyCarryingError, PolicyCarryingResult};
 
-use crate::{
-    field::{FieldData, FieldRef},
-    schema::SchemaRef,
-};
+use crate::{field::FieldData, schema::SchemaRef};
 
 /// The reader that reads each row of the policy-carrying data which is stored as columnar structure.
 #[derive(Debug)]

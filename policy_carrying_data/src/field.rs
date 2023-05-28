@@ -64,6 +64,26 @@ where
     inner: Vec<T>,
 }
 
+impl<T> IntoIterator for FieldDataArray<T>
+where
+    T: PritimiveDataType + Debug + Send + Sync + Clone + 'static,
+{
+    type Item = T::PrimitiveType;
+
+    type IntoIter = FieldDataArrayIterator<T, Self>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        let end = self.inner.len();
+
+        Self::IntoIter {
+            access: self,
+            cur: 0,
+            end,
+            _phantom: PhantomData,
+        }
+    }
+}
+
 /// Iterator that allows to iterate over the array.
 pub struct FieldDataArrayIterator<T, A>
 where
@@ -73,7 +93,7 @@ where
     access: A,
     cur: usize,
     end: usize,
-    _phamtom: PhantomData<T>,
+    _phantom: PhantomData<T>,
 }
 
 impl<T, A> Iterator for FieldDataArrayIterator<T, A>
@@ -102,7 +122,7 @@ where
 ///
 /// This feature is created as a trait because the array access behavior may vary with different types of the array.
 pub trait ArrayAccess {
-    type Item: Send + Sync + Debug + 'static;
+    type Item;
 
     /// Reads the index `idx` and returns [`Some`] if the index is within the range.
     fn index(&self, idx: usize) -> Option<Self::Item>;
@@ -135,6 +155,26 @@ where
 
             self.inner == arr.inner
         }
+    }
+}
+
+impl<T> PartialEq for FieldDataArray<T>
+where
+    T: PritimiveDataType + Debug + Send + Sync + Clone + PartialEq,
+{
+    fn eq(&self, other: &Self) -> bool {
+        self.inner == other.inner
+    }
+}
+
+impl<T> ArrayAccess for FieldDataArray<T>
+where
+    T: PritimiveDataType + Debug + Send + Sync + Clone,
+{
+    type Item = T::PrimitiveType;
+
+    fn index(&self, idx: usize) -> Option<Self::Item> {
+        self.inner.get(idx).map(|t| t.get_inner())
     }
 }
 
@@ -201,8 +241,25 @@ mod test {
     use super::*;
 
     #[test]
-    fn test_field_data_trait() {
+    fn test_iterator_works() {
         let int8_data = Int8FieldData::from(vec![1i8, 2, 3, 4, 5]);
-        println!("should work! {int8_data:?}");
+
+        for (idx, item) in int8_data.into_iter().enumerate() {
+            println!("{idx}: {item}");
+        }
+    }
+
+    #[test]
+    fn test_trait_eq_works() {
+        let int8_data_lhs: Box<dyn FieldData> =
+            Box::new(Int8FieldData::from(vec![1i8, 2, 3, 4, 5]));
+        let int8_data_rhs: Box<dyn FieldData> =
+            Box::new(Int8FieldData::from(vec![1i8, 2, 3, 4, 5]));
+        let string_data: Box<dyn FieldData> =
+            Box::new(StrFieldData::from(vec!["foo".into(), "bar".into()]));
+
+        // Compare at the trait level.
+        assert!(int8_data_lhs == int8_data_rhs);
+        assert!(string_data != int8_data_lhs);
     }
 }
