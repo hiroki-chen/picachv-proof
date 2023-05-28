@@ -37,6 +37,7 @@ mod test {
             "denY ",
             "scheMe   ",
             "filTer  ",
+            "   RoW",
         ];
         let keyword_parser = policy_parser::KeywordParser::new();
 
@@ -69,7 +70,7 @@ mod test {
 
     #[test]
     fn pdl_can_parse_attribute_list() {
-        let list = "((attribute (foo, bar, baz, __test, _random_data_abcd777)))";
+        let list = "((attribute (foo: str, bar: i64, baz: f32, __test: bool, (_random_data_abcd777: String))))";
 
         assert!(policy_parser::AttributeListParser::new()
             .parse(list)

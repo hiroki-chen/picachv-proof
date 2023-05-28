@@ -8,6 +8,8 @@ pub enum PolicyCarryingError {
     ImpossibleOperation(String),
     /// Inconsistent policies.
     InconsistentPolicy(String),
+    /// Schema mismatch.
+    SchemaMismatch(String),
     /// Unknown error.
     Unknown,
 }
@@ -17,6 +19,7 @@ impl Debug for PolicyCarryingError {
         match self {
             Self::ImpossibleOperation(info) => write!(f, "This operation is impossible: {}", info),
             Self::InconsistentPolicy(info) => write!(f, "Inconsistent policies: {}", info),
+            Self::SchemaMismatch(info) => write!(f, "Schema mismatch: {}", info),
             Self::Unknown => write!(
                 f,
                 "Unknown error. This may be due to some implementation bugs"

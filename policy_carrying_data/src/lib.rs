@@ -33,11 +33,54 @@
 
 // P(state) => forall (field_type: ty, dp_params: float) => policy_compliant(dp!(field_type: ty, dp_params: float))
 
-pub mod data_type;
+use schema::SchemaRef;
+
 pub mod field;
 pub mod policy;
-pub mod record;
+pub mod row;
 pub mod schema;
+
+/// The concrete struct that represents the policy-carrying data. This struct is used when we want to generate policy
+/// compliant APIs for a user-defined data schema. For example, say we have the following annotated struct that stands
+/// for the patient diagnosis data from a hospital:
+///
+/// ```
+/// #[policy_carrying(Allow)]
+/// pub struct DiagnosisData {
+///     #[allows(read)]
+///     #[implemens(min, max)]
+///     age: u8,
+/// }
+/// ```
+/// which will be then converted to `PolicyCarryingData` with APIs defines in a trait:
+///
+/// ```
+/// pub trait DiagnosisDataAPISet {
+///     fn max(&self, name: &str) -> u8;
+///     fn min(&self, name: &str) -> u8;
+/// }
+///
+/// impl DiagnosisDataAPISet for PolicyCarryingData {
+///     /* implementation */
+/// }
+/// ```
+pub struct PolicyCarryingData {
+    /// The schema of the data.
+    schema: SchemaRef,
+    /// The name of the data.
+    name: String,
+}
+
+impl PolicyCarryingData {
+    pub fn name(&self) -> &str {
+        self.name.as_str()
+    }
+
+    /// Returns all the columns.
+    pub fn columns(&self) -> Vec<&str> {
+        self.schema.columns()
+    }
+}
 
 #[cfg(test)]
 mod test {}

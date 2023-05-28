@@ -27,8 +27,6 @@ pub enum DataType {
     UInt32,
     /// An unsigned 64-bit integer.
     UInt64,
-    /// A 16-bit floating point number.
-    Float16,
     /// A 32-bit floating point number.
     Float32,
     /// A 64-bit floating point number.
@@ -56,7 +54,7 @@ impl DataType {
 
     #[inline]
     pub fn is_float(&self) -> bool {
-        matches!(self, Self::Float16 | Self::Float32 | Self::Float64)
+        matches!(self, Self::Float32 | Self::Float64)
     }
 
     #[inline]
@@ -70,5 +68,52 @@ impl DataType {
             self,
             Self::UInt8 | Self::UInt16 | Self::UInt32 | Self::UInt64
         )
+    }
+}
+
+pub trait PritimiveDataType {
+    const DATA_TYPE: DataType;
+}
+
+#[macro_export]
+macro_rules! declare_type {
+    ($name:ident, $ty:expr, $primitive:tt) => {
+        #[derive(Clone, Debug, PartialEq, PartialOrd)]
+        pub struct $name(pub $primitive);
+
+        impl $crate::data_type::PritimiveDataType for $name {
+            const DATA_TYPE: $crate::data_type::DataType = $ty;
+        }
+    };
+}
+
+declare_type!(Int8Type, DataType::Int8, i8);
+declare_type!(Int16Type, DataType::Int16, i16);
+declare_type!(Int32Type, DataType::Int32, i32);
+declare_type!(Int64Type, DataType::Int64, i64);
+declare_type!(UInt8Type, DataType::UInt8, u8);
+declare_type!(UInt16Type, DataType::UInt16, u16);
+declare_type!(UInt32Type, DataType::UInt32, u32);
+declare_type!(UInt64Type, DataType::UInt64, u64);
+declare_type!(Float32Type, DataType::Float32, f32);
+declare_type!(Float64Type, DataType::Float64, f64);
+declare_type!(Utf8StrType, DataType::Utf8Str, String);
+declare_type!(BooleanType, DataType::Boolean, bool);
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn type_correct() {
+        assert!(Int8Type::DATA_TYPE == DataType::Int8, "type mismatch");
+        assert!(Int16Type::DATA_TYPE == DataType::Int16, "type mismatch");
+        assert!(Int32Type::DATA_TYPE == DataType::Int32, "type mismatch");
+        assert!(Int64Type::DATA_TYPE == DataType::Int64, "type mismatch");
+        assert!(Int8Type::DATA_TYPE == DataType::Int8, "type mismatch");
+        assert!(UInt8Type::DATA_TYPE == DataType::UInt8, "type mismatch");
+        assert!(UInt16Type::DATA_TYPE == DataType::UInt16, "type mismatch");
+        assert!(UInt32Type::DATA_TYPE == DataType::UInt32, "type mismatch");
+        assert!(UInt64Type::DATA_TYPE == DataType::UInt64, "type mismatch");
     }
 }

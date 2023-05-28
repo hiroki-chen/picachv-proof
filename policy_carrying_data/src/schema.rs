@@ -62,7 +62,7 @@ impl Schema {
         }
     }
 
-    /// Perform the `join` operation that allows us to merge different schemas.
+    /// Performs the `join` operation that allows us to merge different schemas.
     pub fn join(self, other: Self) -> PolicyCarryingResult<Self> {
         todo!()
     }
@@ -70,5 +70,11 @@ impl Schema {
     /// Performs a union operation that allows us to merge the **same** schemas.
     pub fn union(self, other: Self) -> PolicyCarryingResult<Self> {
         todo!()
+    }
+
+    /// Gets the column names.
+    #[inline]
+    pub fn columns(&self) -> Vec<&str> {
+        self.fields.iter().map(|f| f.name.as_str()).collect()
     }
 }
