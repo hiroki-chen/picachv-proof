@@ -13,9 +13,9 @@ pub fn policy_carrying(args: TokenStream, input: TokenStream) -> TokenStream {
 }
 
 /// This attribute denotes the starting point of a policy that allows some operations on the data field.
-/// 
+///
 /// # Examples
-/// 
+///
 /// ```
 /// #[policy_carrying(Deny)]
 /// pub struct DiagnosisData {
@@ -31,9 +31,9 @@ pub fn allows(args: TokenStream, input: TokenStream) -> TokenStream {
 }
 
 /// This attribute denotes the starting point of a policy that denies some operations on the data field.
-/// 
+///
 /// # Examples
-/// 
+///
 /// ```
 /// #[policy_carrying(Allow)]
 /// pub struct DiagnosisData {

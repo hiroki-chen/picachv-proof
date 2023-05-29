@@ -52,11 +52,11 @@ mod test {
     #[test]
     fn pdl_can_parse_scheme() {
         let schemes = [
-            "differential_privacy",
-            "Dp",
-            "k_anon",
-            "T_closeness",
-            "L_diversity",
+            "differential_privacy(1)",
+            "Dp(2,4)",
+            "k_anon(3)",
+            "T_closeness(3.1415926535)",
+            "L_diversity(-999)",
         ];
         let scheme_parser = policy_parser::SchemeParser::new();
 

@@ -11,14 +11,16 @@ pub struct RowReader<'a> {
 }
 
 /// The iterator that allows us to iterate over the record set.
-pub struct RowIterator {
+pub struct RowIterator<'iter, 'a> {
     /// The schema of the row data.
     schema: SchemaRef,
+    /// Data reference.
+    data_ref: &'iter [&'a dyn FieldData],
     cur: usize,
     end: usize,
 }
 
-impl Iterator for RowIterator {
+impl<'iter, 'a> Iterator for RowIterator<'iter, 'a> {
     type Item = Row;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -46,9 +48,9 @@ impl<'a> RowReader<'a> {
             )));
         }
 
-        // TODO: Construct something.
         Ok(RowIterator {
             schema,
+            data_ref: self.data.as_ref(),
             cur: 0,
             end: 0,
         })

@@ -4,6 +4,8 @@ pub type PolicyCarryingResult<T> = std::result::Result<T, PolicyCarryingError>;
 
 /// Enums for the errors that would occur in the implementation of policy carrying data.
 pub enum PolicyCarryingError {
+    /// Data already loaded.
+    DataAlreadyLoaded,
     /// An operation is impossible or the operands are in-compatible.
     ImpossibleOperation(String),
     /// Inconsistent policies.
@@ -17,6 +19,9 @@ pub enum PolicyCarryingError {
 impl Debug for PolicyCarryingError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::DataAlreadyLoaded => {
+                write!(f, "Data already loaded to this policy-carrying data")
+            }
             Self::ImpossibleOperation(info) => write!(f, "This operation is impossible: {}", info),
             Self::InconsistentPolicy(info) => write!(f, "Inconsistent policies: {}", info),
             Self::SchemaMismatch(info) => write!(f, "Schema mismatch: {}", info),

@@ -33,10 +33,13 @@
 
 // P(state) => forall (field_type: ty, dp_params: float) => policy_compliant(dp!(field_type: ty, dp_params: float))
 
+use api::PolicyCompliantApiSet;
+use field::{FieldData, FieldRef};
+use policy_core::error::{PolicyCarryingError, PolicyCarryingResult};
 use schema::SchemaRef;
 
+pub mod api;
 pub mod field;
-pub mod policy;
 pub mod row;
 pub mod schema;
 
@@ -64,21 +67,85 @@ pub mod schema;
 ///     /* implementation */
 /// }
 /// ```
-pub struct PolicyCarryingData {
+pub struct PolicyCarryingData<T>
+where
+    T: PolicyCompliantApiSet,
+{
     /// The schema of the data.
     schema: SchemaRef,
     /// The name of the data.
     name: String,
+    /// The data api set.
+    api_set: T,
+    /// The concrete data.
+    data: Option<Vec<Box<dyn FieldData>>>,
 }
 
-impl PolicyCarryingData {
+impl<T> PolicyCarryingData<T>
+where
+    T: PolicyCompliantApiSet,
+{
+    #[inline]
+    pub fn new(schema: SchemaRef, name: String, api_set: T) -> Self {
+        Self {
+            schema,
+            name,
+            api_set,
+            data: None,
+        }
+    }
+
+    #[inline]
     pub fn name(&self) -> &str {
         self.name.as_str()
     }
 
     /// Returns all the columns.
-    pub fn columns(&self) -> Vec<&str> {
+    #[inline]
+    pub fn columns(&self) -> Vec<FieldRef> {
         self.schema.columns()
+    }
+
+    #[inline]
+    pub fn num_api_supported(&self) -> usize {
+        self.api_set.len()
+    }
+
+    #[inline]
+    pub fn loaded(&self) -> bool {
+        self.data.is_some()
+    }
+
+    pub fn load_data(&mut self, data: Vec<Box<dyn FieldData>>) -> PolicyCarryingResult<()> {
+        if self.loaded() {
+            return Err(PolicyCarryingError::DataAlreadyLoaded);
+        }
+
+        // Check schema consistency: length mismatch?
+        let schema_len = self.columns().len();
+        let data_len = data.len();
+        if schema_len != data_len {
+            return Err(PolicyCarryingError::SchemaMismatch(format!(
+                "schema length mismatch while loading data. Expecting {schema_len}, got {data_len}"
+            )));
+        }
+
+        // Check schema consistency: type mismatch?
+        for (idx, field) in self.schema.columns().into_iter().enumerate() {
+            let lhs_type = field.data_type;
+            let rhs_type = data[idx].data_type();
+
+            if lhs_type != rhs_type {
+                return Err(PolicyCarryingError::SchemaMismatch(format!(
+                    "schema type mismatch while loading {idx}-th field. Expecting {lhs_type:?}, got {rhs_type:?}"
+                )));
+            }
+        }
+
+        // Now everything is OK. We replace the data.
+        self.data.replace(data);
+
+        Ok(())
     }
 }
 

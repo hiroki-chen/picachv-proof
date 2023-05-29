@@ -4,6 +4,13 @@ use std::{
     fmt::{Debug, Formatter},
 };
 
+use crate::error::PolicyCarryingResult;
+
+pub type DpParam = (f64, f64);
+pub type TParam = f64;
+pub type LParam = f64;
+pub type KParam = f64;
+
 /// Denotes the level of the policy that enables direct partial ordering on it.
 #[derive(Clone, Debug)]
 pub enum PolicyLevel {
@@ -13,6 +20,45 @@ pub enum PolicyLevel {
     Mid,
     /// Indicates a bottom-level policy.
     Bottom,
+}
+
+/// Denotes the privacy schemes that should be applied to the result and/or the dataset.
+pub enum PrivacyScheme {
+    /// Differential privacy with a given set of parameters (`epsilon`, `delta`).
+    DifferentialPrivacy(DpParam),
+    /// t-closesness.
+    TCloseness(TParam),
+    /// l-diversity.
+    LDiversity(LParam),
+    /// k-anonymity.
+    KAnonymity(KParam),
+}
+
+/// Denotes the API type that an untrusted, may be policy breaching, and 3rd-party function source code
+/// wants to use. We only support a set of common APIs.
+pub enum ApiType {
+    /// Performs the aggregation operation.
+    Aggregate(ApiAggregateType),
+}
+
+/// Aggeration operations. E.g., `max`, `min`, `avg`, etc.
+pub enum ApiAggregateType {
+    /// Calculates the total sum of a set of values.
+    Sum,
+    /// Determines the number of items in a set.
+    Count,
+    /// Computes the arithmetic mean of a set of values.
+    Average,
+    /// Finds the smallest value in a set.
+    Minimum,
+    /// Finds the largest value in a set.
+    Maximum,
+    /// Determines the middle value in a set when it is arranged in ascending or descending order.
+    Median,
+    /// Identifies the most frequently occurring value(s) in a set.
+    Mode,
+    /// Measures the dispersion or variability of a set of values around the mean.
+    Variance,
 }
 
 /// The trait that represents a basic policy. For any data, in order to be policy-carrying, this trait
@@ -44,6 +90,9 @@ pub trait Policy: Debug + Send + Sync + 'static {
     /// Get the level.
     fn level(&self) -> PolicyLevel;
 }
+
+/// A marker trait that denotes a given struct is policy carrying.
+pub trait PolicyCarrying {}
 
 impl PartialEq for dyn Policy + '_ {
     fn eq(&self, other: &Self) -> bool {

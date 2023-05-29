@@ -64,11 +64,14 @@ pub Keyword: String = {
     <row: Row> => row,
 }
 
-pub Scheme: String = {
-    <dp: DifferentialPrivacy> => dp,
-    <tclose: TCloseness> => tclose,
-    <l_div: LDiversity> => l_div,
-    <k_anon: KAnon> => k_anon,
+pub Scheme: policy_core::policy::PrivacyScheme = {
+    <dp: DifferentialPrivacy> "(" <num: Float>  ")"=>
+        policy_core::policy::PrivacyScheme::DifferentialPrivacy((num, 0.0)),
+    <dp: DifferentialPrivacy> "(" <epsilon: Float> "," <delta: Float>  ")" =>
+        policy_core::policy::PrivacyScheme::DifferentialPrivacy((epsilon, delta)),
+    <tclose: TCloseness> "(" <t: Float> ")" => policy_core::policy::PrivacyScheme::TCloseness(t),
+    <l_div: LDiversity> "(" <l: Float> ")" => policy_core::policy::PrivacyScheme::LDiversity(l),
+    <k_anon: KAnon> "(" <k: Float> ")" => policy_core::policy::PrivacyScheme::KAnonymity(k),
     "(" <scheme: Scheme> ")" => scheme,
 }
 

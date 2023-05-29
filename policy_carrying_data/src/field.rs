@@ -21,12 +21,12 @@ pub type Float64FieldData = FieldDataArray<Float64Type>;
 pub type StrFieldData = FieldDataArray<Utf8StrType>;
 pub type BooleanFieldData = FieldDataArray<BooleanType>;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Hash)]
 pub struct FieldMetadata {}
 
 /// Represents a column/attribute in the data table which may carry some specific policies. This struct is an element in
 /// the schema's ([`crate::schema::Schema`]) vector of fields.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Hash)]
 pub struct Field {
     /// The name of the field
     pub name: String,
@@ -200,7 +200,16 @@ impl PartialEq for Field {
 
 impl Eq for Field {}
 
-impl Field {}
+impl Field {
+    pub fn new(name: String, data_type: DataType, nullable: bool, metadata: FieldMetadata) -> Self {
+        Self {
+            name,
+            data_type,
+            nullable,
+            metadata,
+        }
+    }
+}
 
 #[macro_export]
 macro_rules! define_from_arr {

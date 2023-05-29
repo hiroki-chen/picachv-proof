@@ -8,6 +8,7 @@ edition = "2021"
 [dependencies]
 opendp = "0.7.0"
 policy_core = { path = "../policy_core" }
+predicates = "3.0.3"
 
 [lib]
 doctest = false

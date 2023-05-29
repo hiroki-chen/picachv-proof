@@ -1,8 +1,8 @@
 use std::{ops::Add, sync::Arc};
 
-use policy_core::error::PolicyCarryingResult;
+use policy_core::{error::PolicyCarryingResult, policy::Policy};
 
-use crate::{field::FieldRef, policy::Policy};
+use crate::field::FieldRef;
 
 pub type SchemaRef = Arc<Schema>;
 
@@ -72,9 +72,9 @@ impl Schema {
         todo!()
     }
 
-    /// Gets the column names.
+    /// Gets the column references.
     #[inline]
-    pub fn columns(&self) -> Vec<&str> {
-        self.fields.iter().map(|f| f.name.as_str()).collect()
+    pub fn columns(&self) -> Vec<FieldRef> {
+        self.fields.iter().cloned().collect()
     }
 }

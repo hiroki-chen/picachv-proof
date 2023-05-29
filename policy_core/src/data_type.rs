@@ -5,7 +5,8 @@ use std::fmt::{Display, Formatter};
 /// Other data analytic systems or engines may support more complex and nested data types like lists, dicts, or even
 /// structs that may contain [`DataType`]s, but we do not seek to support such complex types because we only focus on
 /// primitive types (note that [`String`] or [`std::str`] are also primitive types in data analytics).
-#[derive(Clone, Debug, Hash, PartialOrd, PartialEq, Eq, Ord)]
+#[derive(Clone, Copy, Debug, Hash, PartialOrd, PartialEq, Eq, Ord)]
+#[repr(i64)]
 pub enum DataType {
     /// Denotes data types that contain null or empty data.
     Null,
@@ -71,8 +72,8 @@ impl DataType {
     }
 }
 
-pub trait PritimiveDataType {
-    type PrimitiveType;
+pub trait PritimiveDataType: Sized {
+    type PrimitiveType: Sized + 'static;
 
     const DATA_TYPE: DataType;
 
