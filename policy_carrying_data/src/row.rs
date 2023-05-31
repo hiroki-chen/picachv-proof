@@ -1,26 +1,25 @@
-use std::sync::Arc;
-
 use policy_core::error::{PolicyCarryingError, PolicyCarryingResult};
 
-use crate::{field::FieldData, schema::SchemaRef};
+use crate::{field::FieldDataRef, schema::SchemaRef};
 
 /// The reader that reads each row of the policy-carrying data which is stored as columnar structure.
 #[derive(Debug)]
-pub struct RowReader<'a> {
-    data: Vec<&'a dyn FieldData>,
+pub struct RowReader {
+    data: Vec<FieldDataRef>,
 }
 
 /// The iterator that allows us to iterate over the record set.
-pub struct RowIterator<'iter, 'a> {
+pub struct RowIterator<'a> {
     /// The schema of the row data.
     schema: SchemaRef,
-    /// Data reference.
-    data_ref: &'iter [&'a dyn FieldData],
+    /// TODO: Data reference: how to access the element?
+    /// hashmap: <field, data element>
+    data_ref: &'a [FieldDataRef],
     cur: usize,
     end: usize,
 }
 
-impl<'iter, 'a> Iterator for RowIterator<'iter, 'a> {
+impl<'a> Iterator for RowIterator<'a> {
     type Item = Row;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -33,8 +32,8 @@ impl<'iter, 'a> Iterator for RowIterator<'iter, 'a> {
     }
 }
 
-impl<'a> RowReader<'a> {
-    pub fn new(data: Vec<&'a dyn FieldData>) -> Self {
+impl RowReader {
+    pub fn new(data: Vec<FieldDataRef>) -> Self {
         Self { data }
     }
 
@@ -62,7 +61,7 @@ impl<'a> RowReader<'a> {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Row {
     schema: SchemaRef,
-    columns: Vec<Arc<dyn FieldData>>,
+    columns: Vec<FieldDataRef>,
 
     /// The number of rows in this record.
     ///
@@ -72,6 +71,8 @@ pub struct Row {
 
 #[cfg(test)]
 mod test {
+    use std::sync::Arc;
+
     use crate::field::{Int8FieldData, StrFieldData};
 
     use super::*;
@@ -81,6 +82,6 @@ mod test {
         let field1_data = Int8FieldData::from(vec![1, 2, 3, 4, 5, 6]);
         let field2_data = StrFieldData::from(vec!["foo".into(), "bar".into()]);
 
-        let _ = RowReader::new(vec![&field1_data, &field2_data]);
+        let _ = RowReader::new(vec![Arc::new(field1_data), Arc::new(field2_data)]);
     }
 }

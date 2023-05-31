@@ -1,4 +1,4 @@
-use std::{any::Any, fmt::Debug, marker::PhantomData, sync::Arc};
+use std::{any::Any, fmt::Debug, marker::PhantomData, ops::Index, sync::Arc};
 
 use policy_core::data_type::{
     BooleanType, DataType, Float32Type, Float64Type, Int16Type, Int32Type, Int64Type, Int8Type,
@@ -6,6 +6,7 @@ use policy_core::data_type::{
 };
 
 pub type FieldRef = Arc<Field>;
+pub type FieldDataRef = Arc<dyn FieldData>;
 
 // Column data arrays.
 pub type Int8FieldData = FieldDataArray<Int8Type>;
@@ -42,12 +43,30 @@ pub struct Field {
 /// to the type conversion.
 pub trait FieldData: Debug + Send + Sync {
     fn data_type(&self) -> DataType;
+
     /// Returns the length of the data.
     fn len(&self) -> usize;
-    /// Allows downcase conversion.
+
+    /// Allows convenient downcast conversion if we want to get the concrete type of the trait object.
     fn as_any_ref(&self) -> &dyn Any;
+
     /// The inner data.
     fn eq_impl(&self, other: &dyn FieldData) -> bool;
+
+    /// Returns true if the field data is empty.
+    fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+}
+
+impl dyn FieldData + '_ {
+    #[inline]
+    pub fn try_cast<T>(&self) -> Option<&FieldDataArray<T>>
+    where
+        T: PritimiveDataType + Debug + Send + Sync + Clone + 'static,
+    {
+        self.as_any_ref().downcast_ref::<FieldDataArray<T>>()
+    }
 }
 
 impl PartialEq for dyn FieldData + '_ {
@@ -62,6 +81,17 @@ where
     T: PritimiveDataType + Debug + Send + Sync + Clone + 'static,
 {
     inner: Vec<T>,
+}
+
+impl<T> Index<usize> for FieldDataArray<T>
+where
+    T: PritimiveDataType + Debug + Send + Sync + Clone + 'static,
+{
+    type Output = T;
+
+    fn index(&self, index: usize) -> &Self::Output {
+        &self.inner[index]
+    }
 }
 
 impl<T> IntoIterator for FieldDataArray<T>
@@ -107,7 +137,7 @@ where
         match self.cur >= self.end {
             true => None,
             false => {
-                let item = match self.access.index(self.cur) {
+                let item = match self.access.index_data(self.cur) {
                     Some(item) => item,
                     None => return None,
                 };
@@ -125,7 +155,7 @@ pub trait ArrayAccess {
     type Item;
 
     /// Reads the index `idx` and returns [`Some`] if the index is within the range.
-    fn index(&self, idx: usize) -> Option<Self::Item>;
+    fn index_data(&self, idx: usize) -> Option<Self::Item>;
 }
 
 impl<T> FieldData for FieldDataArray<T>
@@ -173,7 +203,7 @@ where
 {
     type Item = T::PrimitiveType;
 
-    fn index(&self, idx: usize) -> Option<Self::Item> {
+    fn index_data(&self, idx: usize) -> Option<Self::Item> {
         self.inner.get(idx).map(|t| t.get_inner())
     }
 }
@@ -270,5 +300,18 @@ mod test {
         // Compare at the trait level.
         assert!(int8_data_lhs == int8_data_rhs);
         assert!(string_data != int8_data_lhs);
+    }
+
+    #[test]
+    fn test_trait_cast() {
+        let int8_data_lhs: Box<dyn FieldData> =
+            Box::new(Int8FieldData::from(vec![1i8, 2, 3, 4, 5]));
+
+        // Compare at the trait level.
+        let arr = int8_data_lhs.try_cast::<Int8Type>();
+        assert!(arr.is_some());
+
+        let arr = arr.unwrap();
+        println!("{}", arr[0]);
     }
 }
