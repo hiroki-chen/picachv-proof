@@ -1,12 +1,82 @@
 use std::{ops::Add, sync::Arc};
 
-use policy_core::{error::PolicyCarryingResult, policy::Policy};
+use policy_core::{data_type::DataType, error::PolicyCarryingResult, policy::Policy};
 
-use crate::field::FieldRef;
+use crate::field::{Field, FieldMetadata, FieldRef};
 
 pub type SchemaRef = Arc<Schema>;
 
+/// A builder that avoids manually constructing a new [`Schema`].
+#[derive(Clone, Debug, Default)]
+pub struct SchemaBuilder {
+    fields: Vec<FieldRef>,
+}
+
+impl SchemaBuilder {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Push a [`FieldRef`] into schema.
+    pub fn add_field(mut self, field: FieldRef) -> Self {
+        // Check if there is name collision.
+        let name_repeat = self
+            .fields
+            .iter_mut()
+            .find(|this_field| this_field.name == field.name);
+
+        match name_repeat {
+            Some(this_field) => {
+                // Not the 'same' trait.
+                if !Arc::ptr_eq(this_field, &field) {
+                    // Replace the underlying field with the new one.
+                    match Arc::get_mut(this_field) {
+                        Some(old) => {
+                            // Move to `_` and drop it when out of scope.
+                            let _ = std::mem::replace(old, field.as_ref().clone());
+                        }
+                        None => {
+                            // Failed to mutate the inner value. We just let the Arc point to field.
+                            *this_field = Arc::new(field.as_ref().clone());
+                        }
+                    }
+                }
+            }
+            None => self.fields.push(field),
+        }
+
+        self
+    }
+
+    pub fn add_field_raw(
+        self,
+        name: &str,
+        data_type: DataType,
+        nullable: bool,
+        metadata: FieldMetadata,
+    ) -> Self {
+        let field = Arc::new(Field {
+            name: name.into(),
+            data_type,
+            nullable,
+            metadata,
+        });
+
+        self.add_field(field)
+    }
+
+    #[inline]
+    pub fn finish(self, policy: Box<dyn Policy>) -> Arc<Schema> {
+        Arc::new(Schema {
+            fields: self.fields,
+            metadata: SchemaMetadata {},
+            policy,
+        })
+    }
+}
+
 /// The metadata for the schema.
+/// TODO: Include something important components that can be added to this struct.
 #[derive(Clone, Debug)]
 pub struct SchemaMetadata {}
 

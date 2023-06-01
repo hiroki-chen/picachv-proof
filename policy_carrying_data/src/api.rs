@@ -3,8 +3,8 @@ use std::{
     fmt::{Debug, Formatter},
 };
 
-use policy_core::{data_type::PritimiveDataType, error::PolicyCarryingResult, policy::ApiType};
-use predicates::BoxPredicate;
+use policy_core::{data_type::PrimitiveDataType, error::PolicyCarryingResult, policy::ApiType};
+use predicates::Predicate;
 
 use crate::{
     field::{FieldData, FieldRef},
@@ -12,20 +12,19 @@ use crate::{
 };
 
 /// A struct that wraps a given query to the policy-carrying data.
-pub struct Query<T>
-where
-    T: PritimiveDataType,
-{
+pub struct Query {
     /// Allows us to do projection.
     schema: Option<SchemaRef>,
-    /// FIXME: More generic without the introduction of `T`?
-    predicates: Option<HashMap<FieldRef, BoxPredicate<T>>>,
+
+    /// Stores the conditional statements for each field, if any.
+    ///
+    /// The value type is a little bit complex, but this seems to be a nice workaround since
+    /// we would like to evaluate conditianal expressions on trait object, and thankfully,
+    /// the trait bound for [`predicates::Predicate`] is ?[`Sized`].
+    predicates: Option<HashMap<FieldRef, Box<dyn Predicate<dyn PrimitiveDataType>>>>,
 }
 
-impl<T> Debug for Query<T>
-where
-    T: PritimiveDataType,
-{
+impl Debug for Query {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let predicate_str = match self.predicates {
             Some(ref pred) => {
@@ -45,10 +44,7 @@ where
     }
 }
 
-impl<T> Query<T>
-where
-    T: PritimiveDataType,
-{
+impl Query {
     pub fn new() -> Self {
         Self {
             schema: None,
@@ -64,7 +60,11 @@ where
         self
     }
 
-    pub fn predicate(mut self, field: FieldRef, predicate: BoxPredicate<T>) -> Self {
+    pub fn predicate(
+        mut self,
+        field: FieldRef,
+        predicate: Box<dyn Predicate<dyn PrimitiveDataType>>,
+    ) -> Self {
         if self.predicates.is_none() {
             self.predicates.replace(HashMap::new());
         }
@@ -84,61 +84,55 @@ pub trait PolicyCompliantApiSet {
     fn support(&self, api_type: ApiType) -> bool;
 
     /// Performs the access operation.
-    fn entry<T: PritimiveDataType>(
+    fn entry(
         &self,
         policy_carrying_data: &[Box<dyn FieldData>],
-        query: Query<T>,
+        query: Query,
     ) -> PolicyCarryingResult<()>;
+}
+
+/// Another possible design?
+#[allow(dead_code)]
+pub struct ApiSet {
+    /// These APIs come from functions that are generated automatically.
+    apis: Vec<Box<dyn Fn() -> u64>>,
+    state: (),
 }
 
 #[cfg(test)]
 mod test {
-    use std::sync::Arc;
-
     use policy_core::{
         data_type::{DataType, UInt64Type},
         policy::TopPolicy,
     };
     use predicates::{
         prelude::{predicate, PredicateBooleanExt},
-        Predicate, PredicateBoxExt,
+        Predicate,
     };
 
-    use crate::{
-        field::{Field, FieldMetadata},
-        schema::{Schema, SchemaMetadata},
-    };
+    use crate::{field::FieldMetadata, schema::SchemaBuilder};
 
     use super::*;
 
     #[test]
     fn test_query() {
-        let fields = vec![Arc::new(Field::new(
-            "test".into(),
-            DataType::Utf8Str,
-            false,
-            FieldMetadata {},
-        ))];
+        let schema = SchemaBuilder::new()
+            .add_field_raw("test", DataType::Int8, false, FieldMetadata {})
+            .add_field_raw("test2", DataType::Utf8Str, false, FieldMetadata {})
+            .finish(Box::new(TopPolicy {}));
 
-        let schema = Arc::new(Schema::new(
-            fields.clone(),
-            SchemaMetadata {},
-            Box::new(TopPolicy {}),
-        ));
-
-        let predicate = predicate::lt(UInt64Type(233))
-            .and(predicate::gt(UInt64Type(1)))
-            .or(predicate::eq(UInt64Type(123)));
+        let predicate = predicate::lt(UInt64Type::new(233)).and(predicate::gt(UInt64Type::new(22)));
+        let predicate = Box::new(predicate) as Box<dyn Predicate<dyn PrimitiveDataType>>;
         let query = Query::new()
-            .schema(schema)
-            .predicate(fields[0].clone(), predicate.boxed());
+            .schema(schema.clone())
+            .predicate(schema.columns()[0].clone(), predicate);
 
         let res = query
             .predicates
             .unwrap()
-            .get(&fields[0])
+            .get(&schema.columns()[0])
             .unwrap()
-            .eval(&UInt64Type(23));
+            .eval(&UInt64Type::new(23));
 
         assert!(res);
     }

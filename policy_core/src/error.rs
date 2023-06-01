@@ -12,6 +12,12 @@ pub enum PolicyCarryingError {
     InconsistentPolicy(String),
     /// Schema mismatch.
     SchemaMismatch(String),
+    /// Type error.
+    TypeMismatch(String),
+    /// Unsupported operation.
+    OperationNotSupported,
+    /// Index out of bound.
+    OutOfBound(String),
     /// Unknown error.
     Unknown,
 }
@@ -25,6 +31,9 @@ impl Debug for PolicyCarryingError {
             Self::ImpossibleOperation(info) => write!(f, "This operation is impossible: {}", info),
             Self::InconsistentPolicy(info) => write!(f, "Inconsistent policies: {}", info),
             Self::SchemaMismatch(info) => write!(f, "Schema mismatch: {}", info),
+            Self::TypeMismatch(info) => write!(f, "Type mismatch: {}", info),
+            Self::OutOfBound(info) => write!(f, "Index out of bound: {}", info),
+            Self::OperationNotSupported => write!(f, "Operation not supported"),
             Self::Unknown => write!(
                 f,
                 "Unknown error. This may be due to some implementation bugs"

@@ -33,6 +33,8 @@
 
 // P(state) => forall (field_type: ty, dp_params: float) => policy_compliant(dp!(field_type: ty, dp_params: float))
 
+use std::collections::HashMap;
+
 use api::PolicyCompliantApiSet;
 use field::{FieldData, FieldRef};
 use policy_core::error::{PolicyCarryingError, PolicyCarryingResult};
@@ -42,6 +44,9 @@ pub mod api;
 pub mod field;
 pub mod row;
 pub mod schema;
+
+#[cfg(feature = "prettyprint")]
+pub mod pretty;
 
 /// The concrete struct that represents the policy-carrying data. This struct is used when we want to generate policy
 /// compliant APIs for a user-defined data schema. For example, say we have the following annotated struct that stands
@@ -78,7 +83,7 @@ where
     /// The data api set.
     api_set: T,
     /// The concrete data.
-    data: Option<Vec<Box<dyn FieldData>>>,
+    data: HashMap<FieldRef, Box<dyn FieldData>>,
 }
 
 impl<T> PolicyCarryingData<T>
@@ -91,7 +96,7 @@ where
             schema,
             name,
             api_set,
-            data: None,
+            data: HashMap::new(),
         }
     }
 
@@ -113,7 +118,7 @@ where
 
     #[inline]
     pub fn loaded(&self) -> bool {
-        self.data.is_some()
+        !self.data.is_empty()
     }
 
     pub fn load_data(&mut self, data: Vec<Box<dyn FieldData>>) -> PolicyCarryingResult<()> {
@@ -142,8 +147,13 @@ where
             }
         }
 
-        // Now everything is OK. We replace the data.
-        self.data.replace(data);
+        self.data = self
+            .schema
+            .columns()
+            .iter()
+            .cloned()
+            .zip(data.into_iter())
+            .collect();
 
         Ok(())
     }

@@ -1,15 +1,13 @@
-use std::sync::Arc;
-
 use policy_carrying_data::{
     api::{PolicyCompliantApiSet, Query},
-    field::{Field, FieldData, FieldMetadata},
-    schema::{Schema, SchemaMetadata},
+    field::{FieldData, FieldMetadata},
+    schema::SchemaBuilder,
     PolicyCarryingData,
 };
 use policy_core::{
-    data_type::{DataType, PritimiveDataType},
+    data_type::DataType,
     error::PolicyCarryingResult,
-    policy::{ApiType, TopPolicy},
+    policy::{ApiType, BottomPolicy},
 };
 
 /// First, we need to define a new struct that implements the ApiSet.
@@ -24,28 +22,19 @@ impl PolicyCompliantApiSet for SamplePolicyCompliantApiSet {
         false
     }
 
-    fn entry<T: PritimiveDataType>(
+    fn entry(
         &self,
         policy_carrying_data: &[Box<dyn FieldData>],
-        query: Query<T>,
+        query: Query,
     ) -> PolicyCarryingResult<()> {
         Ok(())
     }
 }
 
 fn main() {
-    let fields = vec![Arc::new(Field::new(
-        "test".into(),
-        DataType::Utf8Str,
-        false,
-        FieldMetadata {},
-    ))];
-
-    let schema = Arc::new(Schema::new(
-        fields,
-        SchemaMetadata {},
-        Box::new(TopPolicy {}),
-    ));
+    let schema = SchemaBuilder::new()
+        .add_field_raw("test", DataType::UInt8, false, FieldMetadata {})
+        .finish(Box::new(BottomPolicy {}));
 
     let pcd = PolicyCarryingData::new(schema, "foo".into(), SamplePolicyCompliantApiSet {});
 }

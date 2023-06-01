@@ -4,8 +4,6 @@ use std::{
     fmt::{Debug, Formatter},
 };
 
-use crate::error::PolicyCarryingResult;
-
 pub type DpParam = (f64, f64);
 pub type TParam = f64;
 pub type LParam = f64;

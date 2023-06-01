@@ -1,4 +1,8 @@
-use std::fmt::{Display, Formatter};
+use std::{
+    any::Any,
+    cmp::Ordering,
+    fmt::{Debug, Display, Formatter},
+};
 
 /// The set of datatypes that are supported. Typically, this enum is used to describe the type of a column.
 ///
@@ -72,33 +76,81 @@ impl DataType {
     }
 }
 
-pub trait PritimiveDataType: Sized {
-    type PrimitiveType: Sized + 'static;
+/// This trait is a workaround for getting the concrete type of a primitive type that we store
+/// as a trait object `dyn PritimiveDataType`.
+pub trait PrimitiveDataType: Debug + ToString + 'static {
+    fn data_type(&self) -> DataType;
 
-    const DATA_TYPE: DataType;
+    fn as_any_ref(&self) -> &dyn Any;
 
-    /// Returns the concrete primitive data.
-    fn get_inner(&self) -> Self::PrimitiveType;
+    fn eq_impl(&self, other: &dyn PrimitiveDataType) -> bool;
+
+    fn ord_impl(&self, other: &dyn PrimitiveDataType) -> Option<Ordering>;
+}
+
+impl PartialEq for dyn PrimitiveDataType {
+    fn eq(&self, other: &Self) -> bool {
+        self.eq_impl(other)
+    }
+}
+
+impl PartialOrd for dyn PrimitiveDataType {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        self.ord_impl(other)
+    }
 }
 
 #[macro_export]
 macro_rules! declare_type {
     ($name:ident, $ty:expr, $primitive:tt) => {
         #[derive(Clone, Debug, PartialEq, PartialOrd)]
-        pub struct $name(pub $primitive);
+        pub struct $name(pub $primitive, pub $crate::data_type::DataType);
 
-        impl $crate::data_type::PritimiveDataType for $name {
-            type PrimitiveType = $primitive;
-            const DATA_TYPE: $crate::data_type::DataType = $ty;
+        impl $crate::data_type::PrimitiveDataType for $name {
+            fn data_type(&self) -> $crate::data_type::DataType {
+                self.1
+            }
 
-            fn get_inner(&self) -> Self::PrimitiveType {
-                self.0.clone()
+            fn as_any_ref(&self) -> &dyn std::any::Any {
+                self
+            }
+
+            fn eq_impl(&self, other: &dyn $crate::data_type::PrimitiveDataType) -> bool {
+                let other_downcast = match other.as_any_ref().downcast_ref::<$name>() {
+                    Some(value) => value,
+                    // Not the same type
+                    None => return false,
+                };
+
+                self.0 == other_downcast.0
+            }
+
+            fn ord_impl(
+                &self,
+                other: &dyn $crate::data_type::PrimitiveDataType,
+            ) -> Option<Ordering> {
+                match other.as_any_ref().downcast_ref::<$name>() {
+                    Some(value) => self.0.partial_cmp(&value.0),
+                    None => None,
+                }
+            }
+        }
+
+        impl $name {
+            pub fn new(value: $primitive) -> Self {
+                Self(value, $ty)
             }
         }
 
         impl std::fmt::Display for $name {
             fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                write!(f, "{:?}", self)
+                write!(f, "{:?}", self.0)
+            }
+        }
+
+        impl std::borrow::Borrow<dyn $crate::data_type::PrimitiveDataType> for $name {
+            fn borrow(&self) -> &dyn $crate::data_type::PrimitiveDataType {
+                self
             }
         }
     };
@@ -123,14 +175,13 @@ mod test {
 
     #[test]
     fn type_correct() {
-        assert!(Int8Type::DATA_TYPE == DataType::Int8, "type mismatch");
-        assert!(Int16Type::DATA_TYPE == DataType::Int16, "type mismatch");
-        assert!(Int32Type::DATA_TYPE == DataType::Int32, "type mismatch");
-        assert!(Int64Type::DATA_TYPE == DataType::Int64, "type mismatch");
-        assert!(Int8Type::DATA_TYPE == DataType::Int8, "type mismatch");
-        assert!(UInt8Type::DATA_TYPE == DataType::UInt8, "type mismatch");
-        assert!(UInt16Type::DATA_TYPE == DataType::UInt16, "type mismatch");
-        assert!(UInt32Type::DATA_TYPE == DataType::UInt32, "type mismatch");
-        assert!(UInt64Type::DATA_TYPE == DataType::UInt64, "type mismatch");
+        let int8_data1: Box<dyn PrimitiveDataType> = Box::new(Int8Type::new(0));
+        let int8_data2: Box<dyn PrimitiveDataType> = Box::new(Int8Type::new(100));
+        let int8_data3: Box<dyn PrimitiveDataType> = Box::new(Int8Type::new(0));
+        let int8_data4: Box<dyn PrimitiveDataType> = Box::new(UInt8Type::new(0));
+
+        assert!(&int8_data1 != &int8_data2);
+        assert!(&int8_data3 != &int8_data4);
+        assert!(&int8_data1 == &int8_data3);
     }
 }
