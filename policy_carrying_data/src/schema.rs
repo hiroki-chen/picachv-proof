@@ -48,18 +48,12 @@ impl SchemaBuilder {
         self
     }
 
-    pub fn add_field_raw(
-        self,
-        name: &str,
-        data_type: DataType,
-        nullable: bool,
-        metadata: FieldMetadata,
-    ) -> Self {
+    pub fn add_field_raw(self, name: &str, data_type: DataType, nullable: bool) -> Self {
         let field = Arc::new(Field {
             name: name.into(),
             data_type,
             nullable,
-            metadata,
+            metadata: FieldMetadata {},
         });
 
         self.add_field(field)

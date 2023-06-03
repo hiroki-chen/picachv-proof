@@ -197,8 +197,8 @@ mod test {
         let field_data: Vec<FieldDataRef> = vec![Arc::new(field1_data), Arc::new(field2_data)];
 
         let schema = SchemaBuilder::new()
-            .add_field_raw("test", DataType::Int8, false, FieldMetadata {})
-            .add_field_raw("test2", DataType::Utf8Str, false, FieldMetadata {})
+            .add_field_raw("test", DataType::Int8, false)
+            .add_field_raw("test2", DataType::Utf8Str, false)
             .finish(Box::new(BottomPolicy {}));
 
         let row_reader = RowReader::new(field_data, schema.clone());

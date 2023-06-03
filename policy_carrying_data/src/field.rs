@@ -197,6 +197,18 @@ where
     _phantom: PhantomData<T>,
 }
 
+/// Iterator that allows to iterate over the array.
+pub struct FieldDataArrayIteratorBorrow<'a, T, A>
+where
+    T: PrimitiveDataType + Debug + Send + Sync + Clone + 'static,
+    A: ArrayAccess,
+{
+    access: &'a A,
+    cur: usize,
+    end: usize,
+    _phantom: PhantomData<T>,
+}
+
 impl<T, A> Iterator for FieldDataArrayIterator<T, A>
 where
     T: PrimitiveDataType + Debug + Send + Sync + Clone + 'static,
@@ -214,6 +226,28 @@ where
                 };
                 self.cur += 1;
                 Some(item.clone())
+            }
+        }
+    }
+}
+
+impl<'a, T, A> Iterator for FieldDataArrayIteratorBorrow<'a, T, A>
+where
+    T: PrimitiveDataType + Debug + Send + Sync + Clone + 'static,
+    A: ArrayAccess,
+{
+    type Item = &'a A::Item;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self.cur >= self.end {
+            true => None,
+            false => {
+                let item = match self.access.index_data(self.cur) {
+                    Some(item) => item,
+                    None => return None,
+                };
+                self.cur += 1;
+                Some(item)
             }
         }
     }
@@ -289,6 +323,17 @@ where
     }
 }
 
+impl<'a, T> ArrayAccess for &'a FieldDataArray<T>
+where
+    T: PrimitiveDataType + Debug + Send + Sync + Clone,
+{
+    type Item = T;
+
+    fn index_data(&self, idx: usize) -> Option<&Self::Item> {
+        self.inner.get(idx)
+    }
+}
+
 unsafe impl<T> Send for FieldDataArray<T> where T: PrimitiveDataType + Debug + Send + Sync + Clone {}
 unsafe impl<T> Sync for FieldDataArray<T> where T: PrimitiveDataType + Debug + Send + Sync + Clone {}
 
@@ -308,6 +353,18 @@ where
             None
         } else {
             Some(Self::new(self.inner[range].to_vec(), self.data_type))
+        }
+    }
+
+    /// Returns an iterator on borrowed array.
+    pub fn iter(&self) -> FieldDataArrayIteratorBorrow<T, Self> {
+        let end = self.inner.len();
+
+        FieldDataArrayIteratorBorrow {
+            access: self,
+            cur: 0,
+            end,
+            _phantom: PhantomData,
         }
     }
 }
