@@ -43,6 +43,8 @@ pub enum ApiType {
 pub enum ApiAggregateType {
     /// Calculates the total sum of a set of values.
     Sum,
+    /// Returns the unique records.
+    Distinct,
     /// Determines the number of items in a set.
     Count,
     /// Computes the arithmetic mean of a set of values.
@@ -57,6 +59,13 @@ pub enum ApiAggregateType {
     Mode,
     /// Measures the dispersion or variability of a set of values around the mean.
     Variance,
+}
+
+impl ApiAggregateType {
+    /// Returns true if this operation has bounded sensitivity.
+    pub fn bounded(&self) -> bool {
+        matches!(self, Self::Distinct | Self::Count)
+    }
 }
 
 /// The trait that represents a basic policy. For any data, in order to be policy-carrying, this trait

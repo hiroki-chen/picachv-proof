@@ -33,9 +33,13 @@ where
 }
 
 /// Sums up the value.
-pub fn pcd_sum<T>(input: &FieldDataArray<T>, init: T) -> PolicyCarryingResult<T>
+pub fn pcd_sum<R, T>(
+    input: &FieldDataArray<T>,
+    init: R,
+    upper: Option<T>,
+) -> PolicyCarryingResult<R>
 where
-    T: PrimitiveDataType + Add<T, Output = T> + Debug + Send + Sync + Clone + 'static,
+    T: PrimitiveDataType + Add<R, Output = R> + PartialOrd + Debug + Send + Sync + Clone + 'static,
 {
     // Can we really add on utf8 strings?
     if !(input.data_type().is_numeric() || input.data_type().is_utf8()) {
@@ -45,7 +49,20 @@ where
     } else {
         // A bad thing is, we cannot directly call `sum()` on iterator on a generic type `T`,
         // but we may call the `fold()` method to aggregate all the elements together.
-        Ok(input.iter().fold(init, |acc, e| acc + e.clone()))
+        Ok(input.iter().fold(init, |acc, e| {
+            let cur = match upper {
+                Some(ref upper) => {
+                    if upper >= e {
+                        e.clone()
+                    } else {
+                        upper.clone()
+                    }
+                }
+                None => e.clone(),
+            };
+
+            cur + acc
+        }))
     }
 }
 
@@ -191,7 +208,7 @@ mod test {
         let res = res.unwrap();
         assert_eq!(res.0, 5);
 
-        let res = pcd_sum(&int8_data_lhs, Int8Type::new(0));
+        let res = pcd_sum(&int8_data_lhs, Int8Type::new(0), None);
         assert!(res.is_ok());
         let res = res.unwrap();
         assert_eq!(res.0, 15);

@@ -18,6 +18,8 @@ pub enum PolicyCarryingError {
     OperationNotSupported,
     /// Index out of bound.
     OutOfBound(String),
+    /// Privacy error.
+    PrivacyError(String),
     /// Unknown error.
     Unknown,
 }
@@ -34,6 +36,9 @@ impl Debug for PolicyCarryingError {
             Self::TypeMismatch(info) => write!(f, "Type mismatch: {}", info),
             Self::OutOfBound(info) => write!(f, "Index out of bound: {}", info),
             Self::OperationNotSupported => write!(f, "Operation not supported"),
+            Self::PrivacyError(info) => {
+                write!(f, "Privacy scheme encountered a fatal error: {}", info)
+            }
             Self::Unknown => write!(
                 f,
                 "Unknown error. This may be due to some implementation bugs"

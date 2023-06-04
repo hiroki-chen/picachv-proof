@@ -1,6 +1,100 @@
 //! Play with differential privacy.
+use std::{
+    fmt::Debug,
+    ops::{Add, Range},
+};
 
-use policy_core::policy::DpParam;
+use opendp::traits::samplers::SampleDiscreteLaplaceZ2k;
+use policy_core::{
+    data_type::PrimitiveDataType,
+    error::{PolicyCarryingError, PolicyCarryingResult},
+    policy::{ApiType, DpParam},
+};
+
+use crate::{api::pcd_sum, field::FieldDataArray};
+
+/// This function computes the optimal upper bound for queries like summation using the
+/// Sparse Vector Technique (SVT). It returns an index!
+///
+/// The `above_threshold` algorithm returns (approximately) the index of the first query in
+/// queries whose result exceeds the threshold. However, one must note that for small-domained
+/// dataset, the result may be *inaccurate*.
+///
+/// # Reference
+///
+/// * Programming differential privacy: <https://programming-dp.com/ch10.html>
+pub fn above_threshold<F, T>(
+    queries: &[F],
+    df: &FieldDataArray<T>,
+    threshold: T,
+    epsilon: f64,
+) -> PolicyCarryingResult<usize>
+where
+    T: PrimitiveDataType + Add<f64, Output = f64> + Debug + Send + Sync + Clone + 'static,
+    F: Fn(&FieldDataArray<T>) -> f64,
+{
+    let scale = 2.0 / epsilon;
+    let t_hat = threshold
+        + f64::sample_discrete_laplace_Z2k(0.0, scale, -1024)
+            .map_err(|e| PolicyCarryingError::PrivacyError(e.to_string()))?;
+
+    for (idx, q) in queries.into_iter().enumerate() {
+        // 2^{-k}: the granularity of the floating number.
+        let nu_i = f64::sample_discrete_laplace_Z2k(0.0, scale * 2.0, -1024)
+            .map_err(|e| PolicyCarryingError::PrivacyError(e.to_string()))?;
+
+        if q(df) + nu_i >= t_hat {
+            return Ok(idx);
+        }
+    }
+
+    // Nothing is selected: returns error.
+    Err(PolicyCarryingError::PrivacyError(
+        "SVT failed. Consider changing the threshold?".into(),
+    ))
+}
+
+/// Computes the clamped upper bound for sum queries that should be \epsilon-differentially private.
+pub fn sum_upper_bound<T>(
+    range: Range<usize>,
+    data: &FieldDataArray<T>,
+    epsilon: f64,
+) -> PolicyCarryingResult<usize>
+where
+    T: PrimitiveDataType
+        + Add<f64, Output = f64>
+        + From<usize>
+        + PartialOrd
+        + Debug
+        + Send
+        + Sync
+        + Clone
+        + 'static,
+{
+    // Generate a series of queries that is each 1-sensitive.
+    let queries = range
+        .map(|i| {
+            move |df: &FieldDataArray<T>| {
+                let prev = pcd_sum::<f64, T>(df, 0.0, Some(T::from(i))).unwrap();
+                let cur = pcd_sum::<f64, T>(df, 0.0, Some(T::from(i + 1))).unwrap();
+
+                prev - cur
+            }
+        })
+        .collect::<Vec<_>>();
+
+    above_threshold(&queries, data, T::from(0), epsilon)
+}
+
+/// Denotes the differentially private mechanism.
+pub enum DpMechanism {
+    /// The Laplace mechanism.
+    Laplace,
+    /// The Gaussian mechanism but only works for approxiamte DP.
+    Gaussian,
+    /// The Exponential mechanism.
+    Exponential,
+}
 
 /// Manager of differential privacy for tracking privacy budget and privacy loss. It may also
 /// help maintain the internal state of privacy schemes.
@@ -9,13 +103,19 @@ pub struct DpManager {
     /// The unique identifier of this manager.
     id: usize,
     /// The parameter of differential privacy.
-    dp_param: DpParam,
+    ///
+    /// Budget: a pipeline may include multiple DP calculations, each of which has its own (\epsilon, \delta).
+    /// each invocation of the dp mechanism *will* consume the budget (we can use the composition theorem).
+    dp_budget: DpParam,
 }
 
 impl DpManager {
     #[inline]
     pub fn new(id: usize, dp_param: DpParam) -> Self {
-        Self { id, dp_param }
+        Self {
+            id,
+            dp_budget: dp_param,
+        }
     }
 
     #[inline]
@@ -25,6 +125,63 @@ impl DpManager {
 
     #[inline]
     pub fn dp_param(&self) -> DpParam {
-        self.dp_param
+        self.dp_budget
+    }
+
+    /// Converts a query `q` into a differentially private query on *scalar* types.
+    ///
+    /// In order to operate on vector types, we must re-define the global sensitivity
+    /// by means of norms like L2 norms and then apply Gaussian mechanism.
+    ///
+    /// One should also note that this function takes the query function `q` as an
+    /// immutable function trait [`Fn`] that takes no input. The caller may wrap the
+    /// query function in another closure like below.
+    ///
+    /// ```
+    /// let wrapper_query = || pcd_max(&arr);
+    /// let dp_query = dp_manager.make_dp_compliant_scalar(wrapper_query);
+    /// ```
+    pub fn make_dp_compliant_scalar<F, T>(
+        &mut self,
+        api_type: ApiType,
+        q: F,
+        dp_param: DpParam,
+    ) -> PolicyCarryingResult<F>
+    where
+        T: PrimitiveDataType + PartialOrd + Debug + Send + Sync + Clone + 'static,
+        F: Fn() -> T,
+    {
+        let epsilon = self.dp_budget.0;
+
+        // Some key problems:
+        //     1. How to determine the global sensitivity s?
+        //     2. How to properly perform clamping on unbounded sensitivity? The tricky thing is,
+        //        we do not want the query generator to specify its output range.
+
+        // Queries with unbounded sensitivity cannot be directly answered with differential privacy
+        // using the Laplace mechanism.
+        todo!()
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use crate::field::Int64FieldData;
+
+    use super::*;
+
+    #[test]
+    fn test_svt_correct() {
+        let df = csv::Reader::from_path("../test_data/adult_with_pii.csv")
+            .unwrap()
+            .records()
+            .into_iter()
+            .map(|r| r.unwrap().get(4).unwrap().parse::<i64>().unwrap())
+            .collect::<Vec<_>>();
+        let df = Int64FieldData::from(df);
+
+        // Should be larger than 85.
+        let idx = sum_upper_bound(0..150, &df, 1.0);
+        println!("{idx:?}");
     }
 }

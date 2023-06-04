@@ -156,13 +156,51 @@ macro_rules! declare_type {
     };
 }
 
-macro_rules! declare_additive_type {
+macro_rules! declare_numeric_type {
     ($name:ident) => {
+        impl From<usize> for $name {
+            fn from(value: usize) -> Self {
+                Self::new(value as _)
+            }
+        }
+
         impl std::ops::Add<$name> for $name {
             type Output = $name;
 
             fn add(self, other: Self) -> Self {
                 Self::new(self.0.add(&other.0))
+            }
+        }
+
+        impl std::ops::Sub<$name> for $name {
+            type Output = $name;
+
+            fn sub(self, other: Self) -> Self {
+                Self::new(self.0.sub(&other.0))
+            }
+        }
+
+        impl std::ops::Add<f64> for $name {
+            type Output = f64;
+
+            fn add(self, other: f64) -> f64 {
+                self.0 as f64 + other
+            }
+        }
+
+        impl std::ops::Add<usize> for $name {
+            type Output = usize;
+
+            fn add(self, other: usize) -> usize {
+                self.0 as usize + other
+            }
+        }
+
+        impl std::ops::Div<$name> for $name {
+            type Output = f64;
+
+            fn div(self, other: Self) -> f64 {
+                (self.0 as f64).div(&(other.0 as f64))
             }
         }
     };
@@ -181,17 +219,17 @@ declare_type!(Float64Type, DataType::Float64, f64);
 declare_type!(Utf8StrType, DataType::Utf8Str, String);
 declare_type!(BooleanType, DataType::Boolean, bool);
 
-declare_additive_type!(Int8Type);
-declare_additive_type!(Int16Type);
-declare_additive_type!(Int32Type);
-declare_additive_type!(Int64Type);
-declare_additive_type!(UInt8Type);
-declare_additive_type!(UInt16Type);
-declare_additive_type!(UInt32Type);
-declare_additive_type!(UInt64Type);
-declare_additive_type!(Float32Type);
-declare_additive_type!(Float64Type);
-declare_additive_type!(Utf8StrType);
+declare_numeric_type!(Int8Type);
+declare_numeric_type!(Int16Type);
+declare_numeric_type!(Int32Type);
+declare_numeric_type!(Int64Type);
+declare_numeric_type!(UInt8Type);
+declare_numeric_type!(UInt16Type);
+declare_numeric_type!(UInt32Type);
+declare_numeric_type!(UInt64Type);
+declare_numeric_type!(Float32Type);
+declare_numeric_type!(Float64Type);
+// declare_numeric_type!(Utf8StrType);
 
 #[cfg(test)]
 mod test {
