@@ -156,6 +156,18 @@ macro_rules! declare_type {
     };
 }
 
+macro_rules! declare_additive_type {
+    ($name:ident) => {
+        impl std::ops::Add<$name> for $name {
+            type Output = $name;
+
+            fn add(self, other: Self) -> Self {
+                Self::new(self.0.add(&other.0))
+            }
+        }
+    };
+}
+
 declare_type!(Int8Type, DataType::Int8, i8);
 declare_type!(Int16Type, DataType::Int16, i16);
 declare_type!(Int32Type, DataType::Int32, i32);
@@ -168,6 +180,18 @@ declare_type!(Float32Type, DataType::Float32, f32);
 declare_type!(Float64Type, DataType::Float64, f64);
 declare_type!(Utf8StrType, DataType::Utf8Str, String);
 declare_type!(BooleanType, DataType::Boolean, bool);
+
+declare_additive_type!(Int8Type);
+declare_additive_type!(Int16Type);
+declare_additive_type!(Int32Type);
+declare_additive_type!(Int64Type);
+declare_additive_type!(UInt8Type);
+declare_additive_type!(UInt16Type);
+declare_additive_type!(UInt32Type);
+declare_additive_type!(UInt64Type);
+declare_additive_type!(Float32Type);
+declare_additive_type!(Float64Type);
+declare_additive_type!(Utf8StrType);
 
 #[cfg(test)]
 mod test {

@@ -1,15 +1,53 @@
 use std::{
     collections::HashMap,
     fmt::{Debug, Formatter},
+    ops::Add,
 };
 
-use policy_core::{data_type::PrimitiveDataType, error::PolicyCarryingResult, policy::ApiType};
+use policy_core::{
+    data_type::PrimitiveDataType,
+    error::{PolicyCarryingError, PolicyCarryingResult},
+    policy::ApiType,
+};
 use predicates::Predicate;
 
 use crate::{
-    field::{FieldData, FieldRef},
+    field::{FieldData, FieldDataArray, FieldRef},
     schema::SchemaRef,
 };
+
+// Some common APIs.
+
+/// Returns the maximum value of the array. Deal with f64?
+pub fn pcd_max<T>(input: &FieldDataArray<T>) -> PolicyCarryingResult<T>
+where
+    T: PrimitiveDataType + PartialOrd + Debug + Send + Sync + Clone + 'static,
+{
+    input
+        .into_iter()
+        .max_by(|&lhs, &rhs| lhs.partial_cmp(rhs).unwrap()) // May panic when NaN
+        .cloned()
+        .ok_or(PolicyCarryingError::ImpossibleOperation(
+            "Input is empty".into(),
+        ))
+}
+
+/// Sums up the value.
+pub fn pcd_sum<T>(input: &FieldDataArray<T>, init: T) -> PolicyCarryingResult<T>
+where
+    T: PrimitiveDataType + Add<T, Output = T> + Debug + Send + Sync + Clone + 'static,
+{
+    // Can we really add on utf8 strings?
+    if !(input.data_type().is_numeric() || input.data_type().is_utf8()) {
+        Err(PolicyCarryingError::ImpossibleOperation(
+            "Cannot add on non-numeric types".into(),
+        ))
+    } else {
+        // A bad thing is, we cannot directly call `sum()` on iterator on a generic type `T`,
+        // but we may call the `fold()` method to aggregate all the elements together.
+        Ok(input.iter().fold(init, |acc, e| acc + e.clone()))
+    }
+}
 
 /// A struct that wraps a given query to the policy-carrying data.
 pub struct Query {
@@ -76,19 +114,26 @@ impl Query {
 }
 
 /// A trait that denotes the given data implements the policy-compliant API set.
+#[allow(unused)]
 pub trait PolicyCompliantApiSet {
     /// Returns the size of the set.
-    fn len(&self) -> usize;
+    fn len(&self) -> usize {
+        0
+    }
 
     /// Check if the given operation is supported.
-    fn support(&self, api_type: ApiType) -> bool;
+    fn support(&self, api_type: ApiType) -> bool {
+        false
+    }
 
     /// Performs the access operation.
     fn entry(
         &self,
         policy_carrying_data: &[Box<dyn FieldData>],
         query: Query,
-    ) -> PolicyCarryingResult<()>;
+    ) -> PolicyCarryingResult<()> {
+        Err(PolicyCarryingError::OperationNotSupported)
+    }
 }
 
 /// Another possible design?
@@ -102,7 +147,7 @@ pub struct ApiSet {
 #[cfg(test)]
 mod test {
     use policy_core::{
-        data_type::{DataType, UInt64Type},
+        data_type::{DataType, Int8Type, UInt64Type},
         policy::TopPolicy,
     };
     use predicates::{
@@ -110,15 +155,15 @@ mod test {
         Predicate,
     };
 
-    use crate::{field::FieldMetadata, schema::SchemaBuilder};
+    use crate::{field::Int8FieldData, schema::SchemaBuilder};
 
     use super::*;
 
     #[test]
     fn test_query() {
         let schema = SchemaBuilder::new()
-            .add_field_raw("test", DataType::Int8, false, FieldMetadata {})
-            .add_field_raw("test2", DataType::Utf8Str, false, FieldMetadata {})
+            .add_field_raw("test", DataType::Int8, false)
+            .add_field_raw("test2", DataType::Utf8Str, false)
             .finish(Box::new(TopPolicy {}));
 
         let predicate = predicate::lt(UInt64Type::new(233)).and(predicate::gt(UInt64Type::new(22)));
@@ -135,5 +180,20 @@ mod test {
             .eval(&UInt64Type::new(23));
 
         assert!(res);
+    }
+
+    #[test]
+    fn test_basic_pcd_apis() {
+        let int8_data_lhs = Int8FieldData::from(vec![1i8, 2, 3, 4, 5]);
+
+        let res = pcd_max(&int8_data_lhs);
+        assert!(res.is_ok());
+        let res = res.unwrap();
+        assert_eq!(res.0, 5);
+
+        let res = pcd_sum(&int8_data_lhs, Int8Type::new(0));
+        assert!(res.is_ok());
+        let res = res.unwrap();
+        assert_eq!(res.0, 15);
     }
 }

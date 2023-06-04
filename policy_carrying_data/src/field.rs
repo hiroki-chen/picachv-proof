@@ -165,6 +165,19 @@ where
     }
 }
 
+impl<'a, T> IntoIterator for &'a FieldDataArray<T>
+where
+    T: PrimitiveDataType + Debug + Send + Sync + Clone + 'static,
+{
+    type Item = &'a T;
+
+    type IntoIter = FieldDataArrayIteratorBorrow<'a, T, FieldDataArray<T>>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
+}
+
 impl<T> IntoIterator for FieldDataArray<T>
 where
     T: PrimitiveDataType + Debug + Send + Sync + Clone + 'static,
@@ -344,6 +357,11 @@ where
     #[inline]
     pub fn new(inner: Vec<T>, data_type: DataType) -> Self {
         Self { inner, data_type }
+    }
+
+    #[inline]
+    pub fn data_type(&self) -> DataType {
+        self.data_type
     }
 
     /// Performs slicing on a field data array and returns a cloned `Self`.

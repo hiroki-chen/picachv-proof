@@ -42,6 +42,7 @@ use schema::SchemaRef;
 
 pub mod api;
 pub mod field;
+pub mod privacy;
 pub mod row;
 pub mod schema;
 
