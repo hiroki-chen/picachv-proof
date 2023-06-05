@@ -69,7 +69,7 @@ pub struct Field {
 
 /// This trait allows us to store various types of columns into one concrete array without all the boilerplate related
 /// to the type conversion. Note however, that in our implementation, this trait is only implemented for the type
-/// [`FieldDataArray<T>], and we will frequently case between trait objects.
+/// [`FieldDataArray<T>`], and we will frequently case between trait objects.
 pub trait FieldData: Debug + Send + Sync {
     fn data_type(&self) -> DataType;
 
@@ -78,6 +78,9 @@ pub trait FieldData: Debug + Send + Sync {
 
     /// Allows convenient downcast conversion if we want to get the concrete type of the trait object.
     fn as_any_ref(&self) -> &dyn Any;
+
+    /// Allows convenient downcast conversion if we want to get the concrete type of the trait object.
+    fn as_mut_ref(&mut self) -> &mut dyn Any;
 
     /// The inner data.
     fn eq_impl(&self, other: &dyn FieldData) -> bool;
@@ -103,6 +106,15 @@ impl dyn FieldData + '_ {
         T: PrimitiveDataType + Debug + Send + Sync + Clone + 'static,
     {
         self.as_any_ref().downcast_ref::<FieldDataArray<T>>()
+    }
+
+    /// A similar operation as [`try_cast`] but uses a mutable borrow to `self` instead.
+    #[inline]
+    pub fn try_cast_mut<T>(&mut self) -> Option<&mut FieldDataArray<T>>
+    where
+        T: PrimitiveDataType + Debug + Send + Sync + Clone + 'static,
+    {
+        self.as_mut_ref().downcast_mut::<FieldDataArray<T>>()
     }
 
     /// This is a helper function that allows us to index the [`FieldData`] by a series of
@@ -137,6 +149,15 @@ impl dyn FieldData + '_ {
 
         Ok(data)
     }
+
+    /// Pushes a data into itself.
+    #[inline]
+    pub fn push<T>(&mut self, data: T)
+    where
+        T: PrimitiveDataType + Debug + Send + Sync + Clone + 'static,
+    {
+        self.try_cast_mut::<T>().unwrap().inner.push(data)
+    }
 }
 
 impl PartialEq for dyn FieldData + '_ {
@@ -151,6 +172,8 @@ where
     T: PrimitiveDataType + Debug + Send + Sync + Clone + 'static,
 {
     inner: Vec<T>,
+    /// Since [`FieldData`] is a trait that involves `&dyn FieldData` in its method, we cannot 
+    /// store `data_type` as its associated constant because this is object-unsafe.
     data_type: DataType,
 }
 
@@ -284,6 +307,10 @@ where
         self
     }
 
+    fn as_mut_ref(&mut self) -> &mut dyn Any {
+        self
+    }
+
     fn len(&self) -> usize {
         self.inner.len()
     }
@@ -357,6 +384,14 @@ where
     #[inline]
     pub fn new(inner: Vec<T>, data_type: DataType) -> Self {
         Self { inner, data_type }
+    }
+
+    #[inline]
+    pub fn new_empty(data_type: DataType) -> Self {
+        Self {
+            inner: Vec::new(),
+            data_type,
+        }
     }
 
     #[inline]

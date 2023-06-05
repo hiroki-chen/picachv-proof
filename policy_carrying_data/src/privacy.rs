@@ -54,7 +54,50 @@ where
     ))
 }
 
+/// This function also implementes the Sparse Vector Technique (SVT) but returns multiple values at once.
+/// This is because in many other applications we would like to find the indices of all queries that ex-
+/// ceed the threshold.
+///
+/// Note that this function pays *higher* privacy cost to fulfill the task.
+///
+/// # Reference
+///
+/// * Programming differential privacy: <https://programming-dp.com/ch10.html>
+/// * C Dwork, A Roth. The algorithmic foundations of differential privacy.
+///   Foundations and Trends(R) in Theoretical Computer Science, 9(3–4):211–407, 2014.
+pub fn above_threshold_multiple<F, T>(
+    queries: &[F],
+    df: &FieldDataArray<T>,
+    threshold: T,
+    size: usize,
+    epsilon: f64,
+) -> PolicyCarryingResult<Vec<usize>>
+where
+    T: PrimitiveDataType + Add<f64, Output = f64> + Debug + Send + Sync + Clone + 'static,
+    F: Fn(&FieldDataArray<T>) -> f64,
+{
+    let mut indices = Vec::new();
+    let mut pos = 0usize;
+    let epsilon_i = epsilon / size as f64;
+    // Stop if we reach the end of the stream of queries, or if we find c queries above the threshold.
+    while pos < queries.len() && indices.len() < size {
+        // Run `above_threshold` to find the next query above the threshold.
+        let next_idx = match above_threshold(&queries[pos..], df, threshold.clone(), epsilon_i) {
+            Ok(next_idx) => next_idx,
+            Err(_) => return Ok(indices),
+        };
+
+        pos = next_idx + pos;
+        indices.push(pos);
+        pos += 1;
+    }
+
+    Ok(indices)
+}
+
 /// Computes the clamped upper bound for sum queries that should be \epsilon-differentially private.
+///
+/// Note that this operation *consumes* `epsilon` privacy budget.
 pub fn sum_upper_bound<T>(
     range: Range<usize>,
     data: &FieldDataArray<T>,

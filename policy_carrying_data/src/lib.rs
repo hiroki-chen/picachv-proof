@@ -36,8 +36,15 @@
 use std::collections::HashMap;
 
 use api::PolicyCompliantApiSet;
+use csv::Reader;
 use field::{FieldData, FieldRef};
-use policy_core::error::{PolicyCarryingError, PolicyCarryingResult};
+use policy_core::{
+    data_type::{
+        BooleanType, DataType, Float32Type, Float64Type, Int16Type, Int32Type, Int64Type, Int8Type,
+        UInt16Type, UInt32Type, UInt64Type, UInt8Type, Utf8StrType,
+    },
+    error::{PolicyCarryingError, PolicyCarryingResult},
+};
 use schema::SchemaRef;
 
 pub mod api;
@@ -48,6 +55,16 @@ pub mod schema;
 
 #[cfg(feature = "prettyprint")]
 pub mod pretty;
+
+macro_rules! push_type {
+    ($vec:expr, $data:ident, $ty:tt, $data_type:ident) => {
+        $vec.push($data_type::new(
+            $data
+                .parse::<$ty>()
+                .map_err(|e| PolicyCarryingError::TypeMismatch(e.to_string()))?,
+        ))
+    };
+}
 
 /// The concrete struct that represents the policy-carrying data. This struct is used when we want to generate policy
 /// compliant APIs for a user-defined data schema. For example, say we have the following annotated struct that stands
@@ -82,7 +99,7 @@ where
     /// The name of the data.
     name: String,
     /// The data api set.
-    api_set: T,
+    api_set: Option<T>,
     /// The concrete data.
     data: HashMap<FieldRef, Box<dyn FieldData>>,
 }
@@ -92,11 +109,11 @@ where
     T: PolicyCompliantApiSet,
 {
     #[inline]
-    pub fn new(schema: SchemaRef, name: String, api_set: T) -> Self {
+    pub fn new(schema: SchemaRef, name: String) -> Self {
         Self {
             schema,
             name,
-            api_set,
+            api_set: None,
             data: HashMap::new(),
         }
     }
@@ -114,12 +131,106 @@ where
 
     #[inline]
     pub fn num_api_supported(&self) -> usize {
-        self.api_set.len()
+        match self.api_set {
+            Some(ref api) => api.len(),
+            None => 0,
+        }
     }
 
     #[inline]
     pub fn loaded(&self) -> bool {
         !self.data.is_empty()
+    }
+
+    #[inline]
+    pub fn set_api(&mut self, api: T) {
+        self.api_set.replace(api);
+    }
+
+    /// Loads the CSV file into the pcd.
+    pub fn load_csv(&mut self, path: &str) -> PolicyCarryingResult<()> {
+        let mut reader =
+            Reader::from_path(path).map_err(|e| PolicyCarryingError::FsError(e.to_string()))?;
+        let columns = self.schema.columns();
+
+        // If this CSV file has header, we check if this matches the schema.
+        if let Ok(headers) = reader.headers() {
+            if headers.len() != columns.len() {
+                return Err(PolicyCarryingError::SchemaMismatch(format!(
+                    "csv file has incorrect header length {}",
+                    headers.len()
+                )));
+            }
+
+            for (idx, header) in headers.into_iter().enumerate() {
+                if header != columns[idx].name {
+                    return Err(PolicyCarryingError::SchemaMismatch(format!(
+                        "csv file has incorrect column name {} @ {}",
+                        header, idx
+                    )));
+                }
+            }
+        }
+
+        // Iterator over the csv file records, and construct column-oriented data structure.
+        let mut field_data = self.schema.get_empty_vec();
+        for record in reader.records().into_iter() {
+            if let Ok(record) = record {
+                // idx is used to consult the schema for the data type.
+                for (idx, data) in record.into_iter().enumerate() {
+                    match columns[idx].data_type {
+                        DataType::Boolean => {
+                            push_type!(field_data[idx], data, bool, BooleanType);
+                        }
+                        DataType::Int8 => {
+                            push_type!(field_data[idx], data, i8, Int8Type);
+                        }
+                        DataType::Int16 => {
+                            push_type!(field_data[idx], data, i16, Int16Type);
+                        }
+                        DataType::Int32 => {
+                            push_type!(field_data[idx], data, i32, Int32Type);
+                        }
+                        DataType::Int64 => {
+                            push_type!(field_data[idx], data, i64, Int64Type);
+                        }
+                        DataType::UInt8 => {
+                            push_type!(field_data[idx], data, u8, UInt8Type);
+                        }
+                        DataType::UInt16 => {
+                            push_type!(field_data[idx], data, u16, UInt16Type);
+                        }
+                        DataType::UInt32 => {
+                            push_type!(field_data[idx], data, u32, UInt32Type);
+                        }
+                        DataType::UInt64 => {
+                            push_type!(field_data[idx], data, u64, UInt64Type);
+                        }
+                        DataType::Float32 => {
+                            push_type!(field_data[idx], data, f32, Float32Type);
+                        }
+                        DataType::Float64 => {
+                            push_type!(field_data[idx], data, f64, Float64Type);
+                        }
+                        DataType::Utf8Str => {
+                            push_type!(field_data[idx], data, String, Utf8StrType);
+                        }
+
+                        _ => (),
+                    }
+                }
+            }
+        }
+
+        self.data = self
+            .schema
+            .columns()
+            .iter()
+            .cloned()
+            .zip(field_data.into_iter())
+            .collect();
+
+        Ok(())
     }
 
     pub fn load_data(&mut self, data: Vec<Box<dyn FieldData>>) -> PolicyCarryingResult<()> {
@@ -161,4 +272,28 @@ where
 }
 
 #[cfg(test)]
-mod test {}
+mod test {
+    use policy_core::policy::TopPolicy;
+
+    use crate::schema::SchemaBuilder;
+
+    use super::*;
+
+    struct Foo {}
+    impl PolicyCompliantApiSet for Foo {}
+
+    #[test]
+    fn test_load_csv() {
+        let schema = SchemaBuilder::new()
+            .add_field_raw("column_1", DataType::Int64, false)
+            .add_field_raw("column_2", DataType::Float64, false)
+            .finish(Box::new(TopPolicy {}));
+
+        let mut pcd = PolicyCarryingData::<Foo>::new(schema, "foo".into());
+        let res = pcd.load_csv("../test_data/simple_csv.csv");
+
+        assert!(res.is_ok());
+
+        println!("{:#?}", pcd.data);
+    }
+}

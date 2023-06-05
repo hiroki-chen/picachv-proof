@@ -2,7 +2,11 @@ use std::{ops::Add, sync::Arc};
 
 use policy_core::{data_type::DataType, error::PolicyCarryingResult, policy::Policy};
 
-use crate::field::{Field, FieldMetadata, FieldRef};
+use crate::field::{
+    BooleanFieldData, Field, FieldData, FieldMetadata, FieldRef, Float32FieldData, Int16FieldData,
+    Int32FieldData, Int64FieldData, Int8FieldData, StrFieldData, UInt16FieldData, UInt32FieldData,
+    UInt64FieldData, UInt8FieldData, Float64FieldData,
+};
 
 pub type SchemaRef = Arc<Schema>;
 
@@ -140,5 +144,35 @@ impl Schema {
     #[inline]
     pub fn columns(&self) -> Vec<FieldRef> {
         self.fields.iter().cloned().collect()
+    }
+
+    /// Creates a vector of trait object that represents the [`FieldData`] type.
+    pub fn get_empty_vec(&self) -> Vec<Box<dyn FieldData>> {
+        let mut ans = Vec::new();
+        for column in self.fields.iter() {
+            let ty = column.data_type;
+            let arr: Box<dyn FieldData> = match ty {
+                DataType::Boolean => Box::new(BooleanFieldData::new_empty(ty)),
+                DataType::Int8 => Box::new(Int8FieldData::new_empty(ty)),
+                DataType::Int16 => Box::new(Int16FieldData::new_empty(ty)),
+                DataType::Int32 => Box::new(Int32FieldData::new_empty(ty)),
+                DataType::Int64 => Box::new(Int64FieldData::new_empty(ty)),
+                DataType::UInt8 => Box::new(UInt8FieldData::new_empty(ty)),
+                DataType::UInt16 => Box::new(UInt16FieldData::new_empty(ty)),
+                DataType::UInt32 => Box::new(UInt32FieldData::new_empty(ty)),
+                DataType::UInt64 => Box::new(UInt64FieldData::new_empty(ty)),
+                DataType::Float32 => Box::new(Float32FieldData::new_empty(ty)),
+                DataType::Float64 => Box::new(Float64FieldData::new_empty(ty)),
+                DataType::Utf8Str => Box::new(StrFieldData::new_empty(ty)),
+
+                _ => {
+                    panic!()
+                }
+            };
+
+            ans.push(arr);
+        }
+
+        ans
     }
 }

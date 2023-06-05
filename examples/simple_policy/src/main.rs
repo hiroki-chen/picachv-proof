@@ -15,11 +15,5 @@ fn main() {
         .add_field_raw("age", DataType::UInt8, false)
         .finish(Box::new(BottomPolicy {}));
 
-    let pcd = PolicyCarryingData::new(
-        schema,
-        "foo".into(),
-        SamplePolicyCompliantApiSet {
-            dp_manager: DpManager::new(0, (1.0, 0.01)),
-        },
-    );
+    let pcd = PolicyCarryingData::<SamplePolicyCompliantApiSet>::new(schema, "foo".into());
 }

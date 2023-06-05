@@ -103,7 +103,7 @@ impl PartialOrd for dyn PrimitiveDataType {
 #[macro_export]
 macro_rules! declare_type {
     ($name:ident, $ty:expr, $primitive:tt) => {
-        #[derive(Clone, Debug, PartialEq, PartialOrd)]
+        #[derive(Clone, PartialEq, PartialOrd)]
         pub struct $name(pub $primitive, pub $crate::data_type::DataType);
 
         impl $crate::data_type::PrimitiveDataType for $name {
@@ -139,6 +139,12 @@ macro_rules! declare_type {
         impl $name {
             pub fn new(value: $primitive) -> Self {
                 Self(value, $ty)
+            }
+        }
+
+        impl std::fmt::Debug for $name {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(f, "{}: {:?}", self.0, self.1)
             }
         }
 
