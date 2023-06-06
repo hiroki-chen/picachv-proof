@@ -66,6 +66,11 @@ where
     }
 }
 
+pub enum JoinType {
+    Left,
+    Right,
+}
+
 /// A struct that wraps a given query to the policy-carrying data.
 pub struct Query {
     /// Allows us to do projection.
@@ -163,10 +168,7 @@ pub struct ApiSet {
 
 #[cfg(test)]
 mod test {
-    use policy_core::{
-        data_type::{DataType, Int8Type, UInt64Type},
-        policy::TopPolicy,
-    };
+    use policy_core::data_type::{DataType, Int8Type, UInt64Type};
     use predicates::{
         prelude::{predicate, PredicateBooleanExt},
         Predicate,
@@ -181,7 +183,7 @@ mod test {
         let schema = SchemaBuilder::new()
             .add_field_raw("test", DataType::Int8, false)
             .add_field_raw("test2", DataType::Utf8Str, false)
-            .finish(Box::new(TopPolicy {}));
+            .finish_with_top();
 
         let predicate = predicate::lt(UInt64Type::new(233)).and(predicate::gt(UInt64Type::new(22)));
         let predicate = Box::new(predicate) as Box<dyn Predicate<dyn PrimitiveDataType>>;

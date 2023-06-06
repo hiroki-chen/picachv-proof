@@ -1,12 +1,12 @@
 use std::{ops::Add, sync::Arc};
 
-use policy_core::{data_type::DataType, error::PolicyCarryingResult, policy::Policy};
-
-use crate::field::{
-    BooleanFieldData, Field, FieldData, FieldMetadata, FieldRef, Float32FieldData, Int16FieldData,
-    Int32FieldData, Int64FieldData, Int8FieldData, StrFieldData, UInt16FieldData, UInt32FieldData,
-    UInt64FieldData, UInt8FieldData, Float64FieldData,
+use policy_core::{
+    data_type::DataType,
+    error::PolicyCarryingResult,
+    policy::{Policy, TopPolicy},
 };
+
+use crate::field::{new_empty, Field, FieldData, FieldMetadata, FieldRef};
 
 pub type SchemaRef = Arc<Schema>;
 
@@ -69,6 +69,15 @@ impl SchemaBuilder {
             fields: self.fields,
             metadata: SchemaMetadata {},
             policy,
+        })
+    }
+
+    #[inline]
+    pub fn finish_with_top(self) -> Arc<Schema> {
+        Arc::new(Schema {
+            fields: self.fields,
+            metadata: SchemaMetadata {},
+            policy: Box::new(TopPolicy {}),
         })
     }
 }
@@ -151,24 +160,7 @@ impl Schema {
         let mut ans = Vec::new();
         for column in self.fields.iter() {
             let ty = column.data_type;
-            let arr: Box<dyn FieldData> = match ty {
-                DataType::Boolean => Box::new(BooleanFieldData::new_empty(ty)),
-                DataType::Int8 => Box::new(Int8FieldData::new_empty(ty)),
-                DataType::Int16 => Box::new(Int16FieldData::new_empty(ty)),
-                DataType::Int32 => Box::new(Int32FieldData::new_empty(ty)),
-                DataType::Int64 => Box::new(Int64FieldData::new_empty(ty)),
-                DataType::UInt8 => Box::new(UInt8FieldData::new_empty(ty)),
-                DataType::UInt16 => Box::new(UInt16FieldData::new_empty(ty)),
-                DataType::UInt32 => Box::new(UInt32FieldData::new_empty(ty)),
-                DataType::UInt64 => Box::new(UInt64FieldData::new_empty(ty)),
-                DataType::Float32 => Box::new(Float32FieldData::new_empty(ty)),
-                DataType::Float64 => Box::new(Float64FieldData::new_empty(ty)),
-                DataType::Utf8Str => Box::new(StrFieldData::new_empty(ty)),
-
-                _ => {
-                    panic!()
-                }
-            };
+            let arr = new_empty(ty);
 
             ans.push(arr);
         }

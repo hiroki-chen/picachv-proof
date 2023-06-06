@@ -1,4 +1,4 @@
-use std::{fmt::Debug, ops::Index, sync::Arc};
+use std::{collections::HashMap, fmt::Debug, ops::Index, sync::Arc};
 
 use policy_core::{
     data_type::PrimitiveDataType,
@@ -12,80 +12,63 @@ use crate::{
 
 /// The reader that reads each row of the policy-carrying data which is stored as columnar structure.
 #[derive(Debug)]
-pub struct RowReader {
+pub struct RowReader<'a> {
     /// The schema of the original data format.
     schema: SchemaRef,
-    data: Vec<FieldDataRef>,
+    data: &'a HashMap<FieldRef, FieldDataRef>,
 }
 
-impl RowReader {
-    pub fn new(data: Vec<FieldDataRef>, schema: SchemaRef) -> Self {
-        Self { data, schema }
+impl<'a> RowReader<'a> {
+    pub fn new(schema: SchemaRef, data: &'a HashMap<FieldRef, FieldDataRef>) -> Self {
+        Self { schema, data }
     }
 
     /// Takes a schema of the columnar data and converts the column-oriented data into row-oriented
-    /// data using data conversion. The parameter `schema` is used to perform the projection.
+    /// data using data conversion.
     ///
     /// [`RowReader`] must be constructed by the policy-compliant API set to perform the necessary
     /// checks on the data the untrusted entities are trying to access.
-    pub fn convert_rows(&self, schema: SchemaRef) -> PolicyCarryingResult<RowSet> {
+    pub fn convert_rows(&self) -> PolicyCarryingResult<RowSet> {
         if self.data.is_empty() {
-            return Ok(RowSet::new(schema));
+            return Ok(RowSet::new(Vec::new()));
         }
 
-        if self.data.len() < schema.columns().len() {
+        // Make sure the column and its data match.
+        let converted_data = self.data.iter().collect::<Vec<_>>();
+
+        if self.data.len() < self.schema.columns().len() {
             return Err(PolicyCarryingError::SchemaMismatch(format!(
                 "invalid projection type: projecting {} columns, but this only has {} columns",
                 self.data.len(),
-                schema.columns().len(),
+                self.schema.columns().len(),
             )));
         }
 
-        // Check if the field schema is a subset of the current one.
-        if !schema
-            .columns()
-            .iter()
-            .all(|field| self.schema.columns().contains(field))
-        {
-            return Err(PolicyCarryingError::SchemaMismatch(
-                "invalid projection type: data type error".into(),
-            ));
-        }
-
         // Check if length is correct.
-        if self
-            .data
-            .iter()
-            .any(|field| field.len() != self.data[0].len())
-        {
+        let lengths = converted_data.iter().map(|v| v.1.len()).collect::<Vec<_>>();
+        if !lengths.len() > 1 && lengths.iter().any(|&v| v != lengths[0]) {
             return Err(PolicyCarryingError::ImpossibleOperation(
                 "not all columns have the same length".into(),
             ));
         }
 
-        let data_types = schema
-            .columns()
-            .iter()
-            .map(|field| field.data_type)
-            .collect::<Vec<_>>();
-
         // Cast all columns to their concrete `FieldDataArray<T>` types.
-        // FieldDataRef: Arc<dyn FieldData> -> &dyn Any -> arr: FieldDataArray<T> -> arr[idx] ->
+        // FieldDataRef: FieldDataRef -> &dyn Any -> arr: FieldDataArray<T> -> arr[idx] ->
         // &dyn Any -> data: XXXType -> Arc<dyn Primitive>.
         // FIXME: Handle null case? Currently we do not support nullable values.
-        let row_count = self.data[0].len();
-        let mut rows = RowSet::new(schema.clone());
+        let row_count = lengths[0];
+        let mut rows = RowSet::new(converted_data.iter().map(|e| e.0.clone()).collect());
         for i in 0..row_count {
             let mut row = Vec::<Arc<dyn PrimitiveDataType>>::new();
 
-            for (idx, column) in self.data.iter().enumerate() {
+            for (field, column) in converted_data.iter() {
                 // Try to convert the data to its concrete type and return its trait object.
-                let data = column.get_primitive_data(data_types[idx], i)?;
+                let data = column.get_primitive_data(field.data_type, i)?;
                 row.push(data);
             }
 
             rows.rows.push(Row {
-                schema: schema.clone(),
+                schema: self.schema.clone(),
                 row_data: row,
             });
         }
@@ -95,13 +78,13 @@ impl RowReader {
 }
 
 pub struct RowSet {
-    pub(crate) schema: SchemaRef,
+    pub(crate) schema: Vec<FieldRef>,
     pub(crate) rows: Vec<Row>,
 }
 
 impl RowSet {
     #[inline]
-    pub fn new(schema: SchemaRef) -> Self {
+    pub fn new(schema: Vec<FieldRef>) -> Self {
         Self {
             schema,
             rows: Vec::new(),
@@ -184,7 +167,7 @@ impl Row {
 mod test {
     use std::sync::Arc;
 
-    use policy_core::{data_type::DataType, policy::BottomPolicy};
+    use policy_core::data_type::DataType;
 
     use crate::{field::*, schema::SchemaBuilder};
 
@@ -199,10 +182,16 @@ mod test {
         let schema = SchemaBuilder::new()
             .add_field_raw("test", DataType::Int8, false)
             .add_field_raw("test2", DataType::Utf8Str, false)
-            .finish(Box::new(BottomPolicy {}));
+            .finish_with_top();
 
-        let row_reader = RowReader::new(field_data, schema.clone());
-        let rows = row_reader.convert_rows(schema.clone());
+        let field_data = schema
+            .columns()
+            .iter()
+            .cloned()
+            .zip(field_data.into_iter())
+            .collect::<HashMap<_, _>>();
+        let row_reader = RowReader::new(schema.clone(), &field_data);
+        let rows = row_reader.convert_rows();
         assert!(rows.is_ok());
 
         let rows = rows.unwrap();

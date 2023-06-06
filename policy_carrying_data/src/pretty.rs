@@ -50,12 +50,11 @@ pub fn print_rows(rows: &RowSet) -> String {
         ));
 
     let dim = ConstDims(&[40, 40, 80, 6], 4);
-    let column_num = rows.schema.columns().len();
+    let column_num = rows.schema.len();
     let row_num = rows.rows.len();
 
     let mut content = vec![rows
         .schema
-        .columns()
         .iter()
         .map(|field| field.name.clone())
         .collect::<Vec<_>>()];

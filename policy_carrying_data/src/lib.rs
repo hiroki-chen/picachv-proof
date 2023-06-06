@@ -33,11 +33,15 @@
 
 // P(state) => forall (field_type: ty, dp_params: float) => policy_compliant(dp!(field_type: ty, dp_params: float))
 
-use std::collections::HashMap;
+use std::{
+    collections::HashMap,
+    fmt::{Debug, Formatter},
+    sync::Arc,
+};
 
-use api::PolicyCompliantApiSet;
+use api::{JoinType, PolicyCompliantApiSet};
 use csv::Reader;
-use field::{FieldData, FieldRef};
+use field::{new_empty, FieldDataRef, FieldRef};
 use policy_core::{
     data_type::{
         BooleanType, DataType, Float32Type, Float64Type, Int16Type, Int32Type, Int64Type, Int8Type,
@@ -46,6 +50,8 @@ use policy_core::{
     error::{PolicyCarryingError, PolicyCarryingResult},
 };
 use schema::SchemaRef;
+
+use crate::row::RowReader;
 
 pub mod api;
 pub mod field;
@@ -58,7 +64,7 @@ pub mod pretty;
 
 macro_rules! push_type {
     ($vec:expr, $data:ident, $ty:tt, $data_type:ident) => {
-        $vec.push($data_type::new(
+        Arc::get_mut($vec).unwrap().push($data_type::new(
             $data
                 .parse::<$ty>()
                 .map_err(|e| PolicyCarryingError::TypeMismatch(e.to_string()))?,
@@ -101,20 +107,68 @@ where
     /// The data api set.
     api_set: Option<T>,
     /// The concrete data.
-    data: HashMap<FieldRef, Box<dyn FieldData>>,
+    data: HashMap<FieldRef, FieldDataRef>,
+    /// Look up map for locating the columns by their names.
+    lookup: HashMap<String, FieldRef>,
+}
+
+impl<T> Debug for PolicyCarryingData<T>
+where
+    T: PolicyCompliantApiSet,
+{
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let data_len = self
+            .data
+            .values()
+            .max_by(|lhs, rhs| lhs.len().cmp(&rhs.len()))
+            .map(|d| d.len())
+            .unwrap_or(0);
+        writeln!(f, "shape: ({}, {})", self.lookup.len(), data_len)?;
+
+        #[cfg(feature = "prettyprint")]
+        return write!(
+            f,
+            "{}",
+            crate::pretty::print_rows(
+                &RowReader::new(self.schema.clone(), &self.data)
+                    .convert_rows()
+                    .unwrap(),
+            )
+        );
+
+        #[cfg(not(feature = "prettyprint"))]
+        return write!(f, "{:?}", self.data);
+    }
 }
 
 impl<T> PolicyCarryingData<T>
 where
     T: PolicyCompliantApiSet,
 {
-    #[inline]
     pub fn new(schema: SchemaRef, name: String) -> Self {
+        let data = schema
+            .columns()
+            .iter()
+            .cloned()
+            .zip(
+                schema
+                    .columns()
+                    .iter()
+                    .map(|f| Arc::from(new_empty(f.data_type))),
+            )
+            .collect();
+        let lookup = schema
+            .columns()
+            .iter()
+            .map(|f| f.name.clone())
+            .zip(schema.columns().iter().cloned())
+            .collect();
         Self {
             schema,
             name,
             api_set: None,
-            data: HashMap::new(),
+            data,
+            lookup,
         }
     }
 
@@ -154,86 +208,87 @@ where
         let columns = self.schema.columns();
 
         // If this CSV file has header, we check if this matches the schema.
-        if let Ok(headers) = reader.headers() {
-            if headers.len() != columns.len() {
-                return Err(PolicyCarryingError::SchemaMismatch(format!(
-                    "csv file has incorrect header length {}",
-                    headers.len()
-                )));
-            }
-
-            for (idx, header) in headers.into_iter().enumerate() {
-                if header != columns[idx].name {
+        let headers = match reader.headers().cloned() {
+            Ok(headers) => {
+                if headers.len() != columns.len() {
                     return Err(PolicyCarryingError::SchemaMismatch(format!(
-                        "csv file has incorrect column name {} @ {}",
-                        header, idx
+                        "csv file has incorrect header length {}",
+                        headers.len()
                     )));
                 }
+
+                for (idx, header) in headers.into_iter().enumerate() {
+                    if header != columns[idx].name {
+                        return Err(PolicyCarryingError::SchemaMismatch(format!(
+                            "csv file has incorrect column name {} @ {}",
+                            header, idx
+                        )));
+                    }
+                }
+
+                headers
             }
-        }
+
+            Err(_) => return Err(PolicyCarryingError::OperationNotSupported),
+        };
 
         // Iterator over the csv file records, and construct column-oriented data structure.
-        let mut field_data = self.schema.get_empty_vec();
         for record in reader.records().into_iter() {
             if let Ok(record) = record {
                 // idx is used to consult the schema for the data type.
                 for (idx, data) in record.into_iter().enumerate() {
-                    match columns[idx].data_type {
-                        DataType::Boolean => {
-                            push_type!(field_data[idx], data, bool, BooleanType);
-                        }
-                        DataType::Int8 => {
-                            push_type!(field_data[idx], data, i8, Int8Type);
-                        }
-                        DataType::Int16 => {
-                            push_type!(field_data[idx], data, i16, Int16Type);
-                        }
-                        DataType::Int32 => {
-                            push_type!(field_data[idx], data, i32, Int32Type);
-                        }
-                        DataType::Int64 => {
-                            push_type!(field_data[idx], data, i64, Int64Type);
-                        }
-                        DataType::UInt8 => {
-                            push_type!(field_data[idx], data, u8, UInt8Type);
-                        }
-                        DataType::UInt16 => {
-                            push_type!(field_data[idx], data, u16, UInt16Type);
-                        }
-                        DataType::UInt32 => {
-                            push_type!(field_data[idx], data, u32, UInt32Type);
-                        }
-                        DataType::UInt64 => {
-                            push_type!(field_data[idx], data, u64, UInt64Type);
-                        }
-                        DataType::Float32 => {
-                            push_type!(field_data[idx], data, f32, Float32Type);
-                        }
-                        DataType::Float64 => {
-                            push_type!(field_data[idx], data, f64, Float64Type);
-                        }
-                        DataType::Utf8Str => {
-                            push_type!(field_data[idx], data, String, Utf8StrType);
-                        }
+                    if let Some(field) = self.lookup.get(&headers[idx]) {
+                        if let Some(field_data) = self.data.get_mut(field) {
+                            match field.data_type {
+                                DataType::Boolean => {
+                                    push_type!(field_data, data, bool, BooleanType);
+                                }
+                                DataType::Int8 => {
+                                    push_type!(field_data, data, i8, Int8Type);
+                                }
+                                DataType::Int16 => {
+                                    push_type!(field_data, data, i16, Int16Type);
+                                }
+                                DataType::Int32 => {
+                                    push_type!(field_data, data, i32, Int32Type);
+                                }
+                                DataType::Int64 => {
+                                    push_type!(field_data, data, i64, Int64Type);
+                                }
+                                DataType::UInt8 => {
+                                    push_type!(field_data, data, u8, UInt8Type);
+                                }
+                                DataType::UInt16 => {
+                                    push_type!(field_data, data, u16, UInt16Type);
+                                }
+                                DataType::UInt32 => {
+                                    push_type!(field_data, data, u32, UInt32Type);
+                                }
+                                DataType::UInt64 => {
+                                    push_type!(field_data, data, u64, UInt64Type);
+                                }
+                                DataType::Float32 => {
+                                    push_type!(field_data, data, f32, Float32Type);
+                                }
+                                DataType::Float64 => {
+                                    push_type!(field_data, data, f64, Float64Type);
+                                }
+                                DataType::Utf8Str => {
+                                    push_type!(field_data, data, String, Utf8StrType);
+                                }
 
-                        _ => (),
+                                _ => (),
+                            }
+                        }
                     }
                 }
             }
         }
 
-        self.data = self
-            .schema
-            .columns()
-            .iter()
-            .cloned()
-            .zip(field_data.into_iter())
-            .collect();
-
         Ok(())
     }
 
-    pub fn load_data(&mut self, data: Vec<Box<dyn FieldData>>) -> PolicyCarryingResult<()> {
+    pub fn load_data(&mut self, data: Vec<FieldDataRef>) -> PolicyCarryingResult<()> {
         if self.loaded() {
             return Err(PolicyCarryingError::DataAlreadyLoaded);
         }
@@ -269,11 +324,15 @@ where
 
         Ok(())
     }
+
+    /// Joins two policy-carrying data together.
+    pub fn join(self, other: Self, join_type: JoinType) -> PolicyCarryingResult<Self> {
+        todo!()
+    }
 }
 
 #[cfg(test)]
 mod test {
-    use policy_core::policy::TopPolicy;
 
     use crate::schema::SchemaBuilder;
 
@@ -287,13 +346,13 @@ mod test {
         let schema = SchemaBuilder::new()
             .add_field_raw("column_1", DataType::Int64, false)
             .add_field_raw("column_2", DataType::Float64, false)
-            .finish(Box::new(TopPolicy {}));
+            .finish_with_top();
 
         let mut pcd = PolicyCarryingData::<Foo>::new(schema, "foo".into());
         let res = pcd.load_csv("../test_data/simple_csv.csv");
 
         assert!(res.is_ok());
 
-        println!("{:#?}", pcd.data);
+        println!("{:?}", pcd);
     }
 }
