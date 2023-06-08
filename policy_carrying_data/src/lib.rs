@@ -39,7 +39,7 @@ use std::{
     sync::Arc,
 };
 
-use api::{JoinType, PolicyCompliantApiSet};
+use api::JoinType;
 use csv::Reader;
 use field::{new_empty, FieldDataRef, FieldRef};
 use policy_core::{
@@ -96,26 +96,19 @@ macro_rules! push_type {
 ///     /* implementation */
 /// }
 /// ```
-pub struct PolicyCarryingData<T>
-where
-    T: PolicyCompliantApiSet,
-{
+pub struct PolicyCarryingData {
     /// The schema of the data.
     schema: SchemaRef,
     /// The name of the data.
     name: String,
-    /// The data api set.
-    api_set: Option<T>,
+
     /// The concrete data.
     data: HashMap<FieldRef, FieldDataRef>,
     /// Look up map for locating the columns by their names.
     lookup: HashMap<String, FieldRef>,
 }
 
-impl<T> Debug for PolicyCarryingData<T>
-where
-    T: PolicyCompliantApiSet,
-{
+impl Debug for PolicyCarryingData {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let data_len = self
             .data
@@ -141,10 +134,7 @@ where
     }
 }
 
-impl<T> PolicyCarryingData<T>
-where
-    T: PolicyCompliantApiSet,
-{
+impl PolicyCarryingData {
     pub fn new(schema: SchemaRef, name: String) -> Self {
         let data = schema
             .columns()
@@ -166,7 +156,6 @@ where
         Self {
             schema,
             name,
-            api_set: None,
             data,
             lookup,
         }
@@ -184,21 +173,34 @@ where
     }
 
     #[inline]
-    pub fn num_api_supported(&self) -> usize {
-        match self.api_set {
-            Some(ref api) => api.len(),
-            None => 0,
-        }
-    }
-
-    #[inline]
     pub fn loaded(&self) -> bool {
         !self.data.is_empty()
     }
 
-    #[inline]
-    pub fn set_api(&mut self, api: T) {
-        self.api_set.replace(api);
+    /// Performs the projection on a given array of column names.
+    ///
+    /// This operation is lazy (using [`std::sync::Arc`]), meaning that no copy would be performed.
+    /// TODO: Add policy checker.
+    pub fn col(&self, names: &[&str]) -> Self {
+        let data = self
+            .data
+            .iter()
+            .filter(|&(field, _)| names.contains(&field.name.as_str()))
+            .map(|(field, field_data)| (field.clone(), field_data.clone()))
+            .collect();
+        let lookup = self
+            .lookup
+            .iter()
+            .filter(|&(name, _)| names.contains(&name.as_str()))
+            .map(|(field, field_data)| (field.clone(), field_data.clone()))
+            .collect();
+
+        Self {
+            data,
+            lookup,
+            name: self.name.clone(),
+            schema: self.schema.clone(),
+        }
     }
 
     /// Loads the CSV file into the pcd.
@@ -337,10 +339,6 @@ mod test {
     use crate::schema::SchemaBuilder;
 
     use super::*;
-
-    struct Foo {}
-    impl PolicyCompliantApiSet for Foo {}
-
     #[test]
     fn test_load_csv() {
         let schema = SchemaBuilder::new()
@@ -348,7 +346,7 @@ mod test {
             .add_field_raw("column_2", DataType::Float64, false)
             .finish_with_top();
 
-        let mut pcd = PolicyCarryingData::<Foo>::new(schema, "foo".into());
+        let mut pcd = PolicyCarryingData::new(schema, "foo".into());
         let res = pcd.load_csv("../test_data/simple_csv.csv");
 
         assert!(res.is_ok());
