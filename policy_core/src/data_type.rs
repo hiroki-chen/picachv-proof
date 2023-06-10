@@ -86,6 +86,14 @@ pub trait PrimitiveDataType: Debug + ToString + 'static {
     fn eq_impl(&self, other: &dyn PrimitiveDataType) -> bool;
 
     fn ord_impl(&self, other: &dyn PrimitiveDataType) -> Option<Ordering>;
+
+    fn clone_box(&self) -> Box<dyn PrimitiveDataType>;
+}
+
+impl Clone for Box<dyn PrimitiveDataType> {
+    fn clone(&self) -> Self {
+        self.clone_box()
+    }
 }
 
 impl PartialEq for dyn PrimitiveDataType {
@@ -133,6 +141,10 @@ macro_rules! declare_type {
                     Some(value) => self.0.partial_cmp(&value.0),
                     None => None,
                 }
+            }
+
+            fn clone_box(&self) -> Box<dyn PrimitiveDataType> {
+                Box::new(self.clone())
             }
         }
 

@@ -66,3 +66,9 @@ Case Study: Biobank search
 * Different sources of policies: Should be able to perform computations on policies.
 
 The scheme to search relative genome: (compressed) longest substring genome, longest >= threshold.
+
+# What form does the policy take?
+
+Although we cannot determine the concrete appearance of the policy now, we may figure out what *properties* it should have. We list them below.
+
+* Should allow lazy evaluation, which means the policy is *not* evaluated until data is *used*, where by 'use' we mean that the sensitive operations like sum, max, etc. are performed on these columns.

@@ -3,6 +3,7 @@ use std::fmt::{Debug, Display, Formatter};
 pub type PolicyCarryingResult<T> = std::result::Result<T, PolicyCarryingError>;
 
 /// Enums for the errors that would occur in the implementation of policy carrying data.
+#[derive(Clone)]
 pub enum PolicyCarryingError {
     /// Data already loaded.
     DataAlreadyLoaded,

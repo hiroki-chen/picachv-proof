@@ -1,14 +1,23 @@
-use std::{collections::HashMap, fmt::Debug, ops::Add};
+use std::{fmt::Debug, ops::Add, sync::Arc};
 
 use policy_core::{
     data_type::PrimitiveDataType,
     error::{PolicyCarryingError, PolicyCarryingResult},
 };
-use predicates::Predicate;
 
-use crate::field::{FieldData, FieldDataArray, FieldRef};
+use crate::field::FieldDataArray;
 
-// Some common APIs.
+pub type ApiRef = Arc<dyn PolicyCompliantApiSet>;
+
+// Some common APIs that can be used implement the `PolicyCompliantApiSet`'s trait methods.
+
+/// An identity function transformation.
+pub fn pcd_identity<T>(input: FieldDataArray<T>) -> PolicyCarryingResult<FieldDataArray<T>>
+where
+    T: PrimitiveDataType + Debug + Send + Sync + Clone + 'static,
+{
+    Ok(input)
+}
 
 /// Returns the maximum value of the array. Deal with f64?
 pub fn pcd_max<T>(input: &FieldDataArray<T>) -> PolicyCarryingResult<T>
@@ -63,12 +72,12 @@ pub enum JoinType {
     Right,
 }
 
-/// Stores the conditional statements for each field, if any.
-///
-/// The value type is a little bit complex, but this seems to be a nice workaround since
-/// we would like to evaluate conditianal expressions on trait object, and thankfully,
-/// the trait bound for [`predicates::Predicate`] is ?[`Sized`].
-pub type FilterCondition = HashMap<FieldRef, Box<dyn Predicate<dyn PrimitiveDataType>>>;
+/// The 'real' implementation of all the allowed APIs for a policy-carrying data. By default,
+/// all the operations called directly on a [`crate::PolicyCarryingData`] will invoke the
+/// method implemented by this trait.
+pub trait PolicyCompliantApiSet {
+    // SOME APIs.
+}
 
 #[cfg(test)]
 mod test {
