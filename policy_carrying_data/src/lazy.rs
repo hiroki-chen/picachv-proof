@@ -5,10 +5,10 @@ use std::fmt::{Debug, Formatter};
 use policy_core::error::PolicyCarryingResult;
 
 use crate::{
-    api::{ApiRef, PolicyCompliantApiSet},
-    plan::{expr::Expression, LogicalPlan, OptFlag, PlanBuilder},
+    api::ApiRef,
+    plan::{expr::Expr, LogicalPlan, OptFlag, PlanBuilder},
     schema::SchemaRef,
-    PolicyCarryingData,
+    DataFrame,
 };
 
 pub trait IntoLazy {
@@ -18,8 +18,9 @@ pub trait IntoLazy {
 
 #[derive(Clone)]
 #[must_use]
-// TODO： How do propagate api_set into each [`LogicalPlan`]?
+// TODO： How do (or do we need to) propagate api_set into each [`LogicalPlan`]?
 pub struct LazyFrame {
+    /// In case we need this.
     #[allow(unused)]
     api_set: ApiRef,
     /// The logical plan.
@@ -47,7 +48,7 @@ impl LazyFrame {
 
     /// Performs the *projection* although this API name is `select`, possibly performing some
     /// transformations on the columns it selects.
-    pub fn select<T: AsRef<[Expression]>>(self, expressions: T) -> Self {
+    pub fn select<T: AsRef<[Expr]>>(self, expressions: T) -> Self {
         let plan = PlanBuilder::from(self.plan)
             // Select is, in fact, a projection.
             .projection(expressions.as_ref().to_vec())
@@ -61,7 +62,7 @@ impl LazyFrame {
     }
 
     /// Performs a filtering operation.
-    pub fn filter(self, expression: Expression) -> Self {
+    pub fn filter(self, expression: Expr) -> Self {
         let plan = PlanBuilder::from(self.plan).filter(expression).finish();
 
         Self {
@@ -72,7 +73,7 @@ impl LazyFrame {
     }
 
     /// Performs the aggregation.
-    pub fn agg<T: AsRef<[Expression]>>(self, expressions: T) -> Self {
+    pub fn agg<T: AsRef<[Expr]>>(self, expressions: T) -> Self {
         todo!()
     }
 
@@ -84,7 +85,8 @@ impl LazyFrame {
     /// 1. Prepare the execution by optimizing, checking the query plan [`LogicalPlan`].
     /// 2. Prepare the physical query plan and gets the data.
     /// 3. Return the data which may be sanitized.
-    pub fn execute<T: PolicyCompliantApiSet>(self) -> PolicyCarryingResult<PolicyCarryingData<T>> {
+    pub fn execute(self) -> PolicyCarryingResult<DataFrame> {
+        // Generate a phyiscal plan.
         todo!()
     }
 }

@@ -5,14 +5,14 @@ use policy_core::data_type::PrimitiveDataType;
 /// The aggregation type.
 #[derive(Clone, Debug)]
 pub enum Aggregation {
-    Min(Box<Expression>),
-    Max(Box<Expression>),
-    Sum(Box<Expression>),
-    Mean(Box<Expression>),
+    Min(Box<Expr>),
+    Max(Box<Expr>),
+    Sum(Box<Expr>),
+    Mean(Box<Expr>),
 }
 
 impl Aggregation {
-    pub fn as_expr(&self) -> &Expression {
+    pub fn as_expr(&self) -> &Expr {
         match self {
             Self::Min(min) => min,
             Self::Max(max) => max,
@@ -22,10 +22,12 @@ impl Aggregation {
     }
 }
 
+/// A physical expression trait.
+pub trait PhysicalExpr: Send + Sync {}
+
 /// An expression type.
-/// TODO: Prettier.
 #[derive(Clone)]
-pub enum Expression {
+pub enum Expr {
     /// Aggregation.
     Agg(Aggregation),
     /// Select a vector of column names.
@@ -33,22 +35,22 @@ pub enum Expression {
     /// "*".
     Wildcard,
     /// Exclude some columns.
-    Exclude(Box<Expression>, Vec<String>),
+    Exclude(Box<Expr>, Vec<String>),
     /// Filter.
     Filter {
-        data: Box<Expression>,
-        filter: Box<Expression>,
+        data: Box<Expr>,
+        filter: Box<Expr>,
     },
     /// Binary operations
     BinaryOp {
-        left: Box<Expression>,
+        left: Box<Expr>,
         op: BinaryOp,
-        right: Box<Expression>,
+        right: Box<Expr>,
     },
     Literal(Box<dyn PrimitiveDataType>),
 }
 
-impl Debug for Expression {
+impl Debug for Expr {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Agg(agg) => write!(f, "{agg:?}"),
@@ -62,7 +64,7 @@ impl Debug for Expression {
     }
 }
 
-impl Display for Expression {
+impl Display for Expr {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{self:?}")
     }
@@ -102,11 +104,11 @@ impl Display for BinaryOp {
 }
 
 pub struct ExprIterator<'a> {
-    stack: Vec<&'a Expression>,
+    stack: Vec<&'a Expr>,
 }
 
 impl<'a> Iterator for ExprIterator<'a> {
-    type Item = &'a Expression;
+    type Item = &'a Expr;
 
     /// Visit the expression tree.
     fn next(&mut self) -> Option<Self::Item> {
@@ -115,19 +117,19 @@ impl<'a> Iterator for ExprIterator<'a> {
         match current_expr {
             Some(current_expr) => {
                 match current_expr {
-                    Expression::Wildcard | Expression::Column(_) | Expression::Literal(_) => None,
-                    Expression::Agg(agg) => Some(agg.as_expr()),
-                    Expression::BinaryOp { left, right, .. } => {
+                    Expr::Wildcard | Expr::Column(_) | Expr::Literal(_) => None,
+                    Expr::Agg(agg) => Some(agg.as_expr()),
+                    Expr::BinaryOp { left, right, .. } => {
                         // Push left and right but return the current one.
                         self.stack.push(right);
                         self.stack.push(left);
                         Some(current_expr)
                     }
-                    Expression::Exclude(expr, _) => {
+                    Expr::Exclude(expr, _) => {
                         self.stack.push(expr);
                         Some(current_expr)
                     }
-                    Expression::Filter { data, filter } => {
+                    Expr::Filter { data, filter } => {
                         self.stack.push(filter);
                         self.stack.push(data);
                         Some(current_expr)
@@ -139,8 +141,8 @@ impl<'a> Iterator for ExprIterator<'a> {
     }
 }
 
-impl<'a> IntoIterator for &'a Expression {
-    type Item = &'a Expression;
+impl<'a> IntoIterator for &'a Expr {
+    type Item = &'a Expr;
     type IntoIter = ExprIterator<'a>;
 
     fn into_iter(self) -> Self::IntoIter {
@@ -150,7 +152,7 @@ impl<'a> IntoIterator for &'a Expression {
     }
 }
 
-impl Expression {
+impl Expr {
     pub fn exclude(self, columns: Vec<String>) -> Self {
         Self::Exclude(Box::new(self), columns)
     }
@@ -163,10 +165,26 @@ impl Expression {
         }
     }
 
+    pub fn le<T: PrimitiveDataType>(self, num: T) -> Self {
+        Self::BinaryOp {
+            left: Box::new(self),
+            op: BinaryOp::Le,
+            right: Box::new(Self::Literal(Box::new(num))),
+        }
+    }
+
     pub fn gt<T: PrimitiveDataType>(self, num: T) -> Self {
         Self::BinaryOp {
             left: Box::new(self),
             op: BinaryOp::Gt,
+            right: Box::new(Self::Literal(Box::new(num))),
+        }
+    }
+
+    pub fn ge<T: PrimitiveDataType>(self, num: T) -> Self {
+        Self::BinaryOp {
+            left: Box::new(self),
+            op: BinaryOp::Ge,
             right: Box::new(Self::Literal(Box::new(num))),
         }
     }
@@ -211,8 +229,8 @@ macro_rules! cols {
 
         $(
             match $col {
-                "*" => vec.push($crate::plan::expr::Expression::Wildcard),
-                _ => vec.push($crate::plan::expr::Expression::Column(String::from($col))),
+                "*" => vec.push($crate::plan::expr::Expr::Wildcard),
+                _ => vec.push($crate::plan::expr::Expr::Column(String::from($col))),
             }
         )*
 
@@ -224,8 +242,8 @@ macro_rules! cols {
 macro_rules! col {
     ($col:tt) => {
         match $col {
-            "*" => $crate::plan::expr::Expression::Wildcard,
-            _ => $crate::plan::expr::Expression::Column(String::from($col)),
+            "*" => $crate::plan::expr::Expr::Wildcard,
+            _ => $crate::plan::expr::Expr::Column(String::from($col)),
         }
     };
 }

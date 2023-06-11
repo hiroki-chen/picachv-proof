@@ -7,7 +7,7 @@ use policy_core::{
 
 use crate::field::FieldDataArray;
 
-pub type ApiRef = Arc<dyn PolicyCompliantApiSet>;
+pub type ApiRef = Arc<dyn PolicyCarryingData>;
 
 // Some common APIs that can be used implement the `PolicyCompliantApiSet`'s trait methods.
 
@@ -73,10 +73,13 @@ pub enum JoinType {
 }
 
 /// The 'real' implementation of all the allowed APIs for a policy-carrying data. By default,
-/// all the operations called directly on a [`crate::PolicyCarryingData`] will invoke the
-/// method implemented by this trait.
-pub trait PolicyCompliantApiSet {
-    // SOME APIs.
+/// all the operations called directly on a [`PolicyCarryingData`] will invoke the methods
+/// implemented by this trait.
+/// 
+/// Note that [`PolicyCarryingData`] shoud be both [`Send`] and [`Sync`] because we want to
+/// execute the data analysis operations lazily; thus it requires synchronization and sharing.
+pub trait PolicyCarryingData: Send + Sync {
+    // SOME APIs that are invoked by the executors at the physical query level.
 }
 
 #[cfg(test)]

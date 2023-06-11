@@ -9,10 +9,11 @@ use std::{
 /// Other data analytic systems or engines may support more complex and nested data types like lists, dicts, or even
 /// structs that may contain [`DataType`]s, but we do not seek to support such complex types because we only focus on
 /// primitive types (note that [`String`] or [`std::str`] are also primitive types in data analytics).
-#[derive(Clone, Copy, Debug, Hash, PartialOrd, PartialEq, Eq, Ord)]
+#[derive(Clone, Copy, Debug, Hash, PartialOrd, PartialEq, Eq, Ord, Default)]
 #[repr(i64)]
 pub enum DataType {
     /// Denotes data types that contain null or empty data.
+    #[default]
     Null,
     /// True or false.
     Boolean,

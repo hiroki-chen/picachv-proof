@@ -84,7 +84,7 @@ impl SchemaBuilder {
 
 /// The metadata for the schema.
 /// TODO: Include something important components that can be added to this struct.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct SchemaMetadata {}
 
 /// This struct represents a schema of the input data which, in most cases, is in a table form.
@@ -97,6 +97,16 @@ pub struct Schema {
     metadata: SchemaMetadata,
     /// The policy of the schema.
     policy: Box<dyn Policy>,
+}
+
+impl Default for Schema {
+    fn default() -> Self {
+        Self {
+            policy: Box::new(TopPolicy {}),
+            metadata: Default::default(),
+            fields: Vec::new(),
+        }
+    }
 }
 
 impl PartialEq for Schema {

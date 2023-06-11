@@ -8,7 +8,7 @@ use policy_core::{
 
 use crate::schema::SchemaRef;
 
-use self::expr::Expression;
+use self::expr::Expr;
 
 pub mod expr;
 
@@ -55,7 +55,7 @@ pub enum LogicalPlan {
     /// Select with *filter conditions* that work on a [`LogicalPlan`].
     Select {
         data: Box<LogicalPlan>,
-        predicate: Expression,
+        predicate: Expr,
         policy: Option<Box<dyn Policy>>,
     },
 
@@ -63,7 +63,7 @@ pub enum LogicalPlan {
     Projection {
         data: Box<LogicalPlan>,
         /// Column 'names' as we may apply some transformation on columns.
-        expression: Vec<Expression>,
+        expression: Vec<Expr>,
         schema: SchemaRef,
         policy: Option<Box<dyn Policy>>,
     },
@@ -73,8 +73,8 @@ pub enum LogicalPlan {
         data: Box<LogicalPlan>,
         schema: SchemaRef,
         /// Group by `keys`.
-        keys: Arc<Vec<Expression>>,
-        aggs: Vec<Expression>,
+        keys: Arc<Vec<Expr>>,
+        aggs: Vec<Expr>,
         policy: Option<Box<dyn Policy>>,
     },
 
@@ -83,8 +83,8 @@ pub enum LogicalPlan {
         input_left: Box<LogicalPlan>,
         input_right: Box<LogicalPlan>,
         schema: SchemaRef,
-        left_on: Vec<Expression>,
-        right_on: Vec<Expression>,
+        left_on: Vec<Expr>,
+        right_on: Vec<Expr>,
         options: (),
     },
 
@@ -140,7 +140,7 @@ impl PlanBuilder {
     }
 
     /// Performs projection.
-    pub fn projection(self, expressions: Vec<Expression>) -> Self {
+    pub fn projection(self, expressions: Vec<Expr>) -> Self {
         let schema = delayed_err!(self.plan.schema(), self.plan);
         let expr = delayed_err!(
             rewrite_projection(
@@ -156,11 +156,11 @@ impl PlanBuilder {
     }
 
     /// Performs filtering.
-    pub fn filter(self, expression: Expression) -> Self {
+    pub fn filter(self, expression: Expr) -> Self {
         // Check if the expression that should be normalized.
         let predicate = if expression
             .into_iter()
-            .any(|e| matches!(*e, Expression::Wildcard))
+            .any(|e| matches!(*e, Expr::Wildcard))
         {
             todo!()
         } else {
@@ -177,13 +177,17 @@ impl PlanBuilder {
     }
 }
 
-/// Deals with the projection.
+/// Deals with the projection which may take the following forms:
+/// 
+/// * '*', exclude [column_1, ...];
+/// * column_1, column_2, ...;
+/// * column_1 * 2 (transformation: fn(FieldData) -> FieldData.
 pub(crate) fn rewrite_projection(
-    expressions: Vec<Expression>,
+    expressions: Vec<Expr>,
     schema: SchemaRef,
-    keys: &[Expression],
+    keys: &[Expr],
     policy: Option<&dyn Policy>, // FIXME: immutable borrow? mutable borrow? trace?
-) -> PolicyCarryingResult<Vec<Expression>> {
+) -> PolicyCarryingResult<Vec<Expr>> {
     // We remove the wildcard projection "*" with the current schema because this selects 'all'.
     let expressions = expand_wildcard(expressions, schema.clone());
 
@@ -191,28 +195,28 @@ pub(crate) fn rewrite_projection(
     Ok(expressions)
 }
 
-pub(crate) fn expand_wildcard(expressions: Vec<Expression>, schema: SchemaRef) -> Vec<Expression> {
+pub(crate) fn expand_wildcard(expressions: Vec<Expr>, schema: SchemaRef) -> Vec<Expr> {
     // Has wildcard.
     if expressions
         .iter()
-        .find(|e| matches!(e, Expression::Wildcard))
+        .find(|e| matches!(e, Expr::Wildcard))
         .is_some()
     {
         // Do expansion. We assume that there is no other columns.
         return schema
             .columns()
             .into_iter()
-            .map(|c| Expression::Column(c.name.clone()))
+            .map(|c| Expr::Column(c.name.clone()))
             .collect();
     }
 
     // If not, check if there is an "exclude".
-    if let Some(Expression::Exclude(inner, names)) = expressions
+    if let Some(Expr::Exclude(inner, names)) = expressions
         .iter()
-        .find(|e| matches!(e, Expression::Exclude(_, _)))
+        .find(|e| matches!(e, Expr::Exclude(_, _)))
     {
         // If the inner expression is not wildcard, we abandon this expression.
-        if matches!(**inner, Expression::Wildcard) {
+        if matches!(**inner, Expr::Wildcard) {
             return schema
                 .columns()
                 .into_iter()
@@ -220,7 +224,7 @@ pub(crate) fn expand_wildcard(expressions: Vec<Expression>, schema: SchemaRef) -
                     if names.contains(&e.name) {
                         None
                     } else {
-                        Some(Expression::Column(e.name.clone()))
+                        Some(Expr::Column(e.name.clone()))
                     }
                 })
                 .collect();
@@ -228,4 +232,12 @@ pub(crate) fn expand_wildcard(expressions: Vec<Expression>, schema: SchemaRef) -
     }
 
     expressions
+}
+
+/// This function converts the logical plan [`LogicalPlan`] into a physical plan and also
+/// applies some optimizations thereon for best performance. Meanwhile, this function will
+/// analyze if the query plan would have any change that it will break the given privacy
+/// policy or apply some necessary privacy schemes on the data (hints the executor).
+pub(crate) fn make_physical_plan(lp: LogicalPlan) {
+
 }

@@ -4,7 +4,7 @@ use std::{
     sync::Arc,
 };
 
-use api::{JoinType, PolicyCompliantApiSet};
+use api::{JoinType};
 use csv::Reader;
 use field::{new_empty, FieldDataRef, FieldRef};
 use lazy::{IntoLazy, LazyFrame};
@@ -20,6 +20,7 @@ use schema::SchemaRef;
 use crate::row::RowReader;
 
 pub mod api;
+pub mod executor;
 pub mod field;
 pub mod lazy;
 pub mod plan;
@@ -52,43 +53,55 @@ macro_rules! push_type {
 ///     age: u8,
 /// }
 /// ```
-/// which will be then converted to `PolicyCarryingData` with API struct that implements the trait
+/// which will be then converted to an API set that implements the trait
 ///
 ///```
-/// impl PolicyCompliantApiSet for PolicyCarryingData {
+/// pub struct Access(DataFrame);
+/// 
+/// impl PolicyCarryingData for DiagnosisDataAccess {
 ///     /* implementation */
 /// }
 /// ```
 /// where policy-compliant APIs can be executed while those not allowed will `panic` at runtime.
+/// Note that there is no way to directly access the data because it is a private field, and the
+/// function tha tries to use the confidential data for data analysis must forbid `unsafe` code
+/// by the annotation `#![forbid(unsafe_code)]`.
 ///
 /// # Lazy Evaluation
 ///
-/// By default, the [`PolicyCarryingData`] is lazy, which means that all the policy checking and
-/// query execution will only be performed after the data should be collected. This is similar to
-/// polars' `LazyFrame` implementation.
-pub struct PolicyCarryingData<T>
-where
-    T: PolicyCompliantApiSet,
-{
+/// By default, the [`DataFrame`] is lazy, which means that all the potential optimizations and
+/// query execution will be  performed upon the data being collected. This is similar to polars'
+/// `LazyFrame` implementation.
+#[derive(Default)]
+pub struct DataFrame {
     /// The schema of the data.
     schema: SchemaRef,
     /// The name of the data.
     name: String,
-    /// The api set.
-    api_set: Option<Arc<T>>,
     /// The concrete data.
     data: HashMap<FieldRef, FieldDataRef>,
     /// Look up map for locating the columns by their names.
     lookup: HashMap<String, FieldRef>,
 }
 
-impl<T: PolicyCompliantApiSet> IntoLazy for PolicyCarryingData<T> {
+impl Clone for DataFrame {
+    fn clone(&self) -> Self {
+        Self {
+            schema: self.schema.clone(),
+            name: self.name.clone(),
+            data: self.data.clone(),
+            lookup: self.lookup.clone(),
+        }
+    }
+}
+
+impl IntoLazy for DataFrame {
     fn make_lazy(self) -> LazyFrame {
         todo!()
     }
 }
 
-impl<T: PolicyCompliantApiSet> Debug for PolicyCarryingData<T> {
+impl Debug for DataFrame {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let data_len = self
             .data
@@ -114,7 +127,7 @@ impl<T: PolicyCompliantApiSet> Debug for PolicyCarryingData<T> {
     }
 }
 
-impl<T: PolicyCompliantApiSet> PolicyCarryingData<T> {
+impl DataFrame {
     pub fn new(schema: SchemaRef, name: String) -> Self {
         let data = schema
             .columns()
@@ -136,7 +149,7 @@ impl<T: PolicyCompliantApiSet> PolicyCarryingData<T> {
         Self {
             schema,
             name,
-            api_set: None,
+
             data,
             lookup,
         }
@@ -151,13 +164,6 @@ impl<T: PolicyCompliantApiSet> PolicyCarryingData<T> {
     #[inline]
     pub fn columns(&self) -> Vec<FieldRef> {
         self.schema.columns()
-    }
-
-    #[inline]
-    pub fn set_api(&mut self, api_set: T) {
-        if self.api_set.is_none() {
-            self.api_set = Some(Arc::new(api_set));
-        }
     }
 
     #[inline]
@@ -295,17 +301,14 @@ impl<T: PolicyCompliantApiSet> PolicyCarryingData<T> {
     }
 }
 
+unsafe impl Send for DataFrame {}
+
 #[cfg(test)]
 mod test {
 
     use crate::schema::SchemaBuilder;
 
     use super::*;
-
-    #[derive(Clone)]
-    struct Foo;
-
-    impl PolicyCompliantApiSet for Foo {}
 
     #[test]
     fn test_load_csv() {
@@ -314,7 +317,7 @@ mod test {
             .add_field_raw("column_2", DataType::Float64, false)
             .finish_with_top();
 
-        let mut pcd = PolicyCarryingData::<Foo>::new(schema, "foo".into());
+        let mut pcd = DataFrame::new(schema, "foo".into());
         let res = pcd.load_csv("../test_data/simple_csv.csv");
 
         assert!(res.is_ok());

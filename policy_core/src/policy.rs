@@ -85,7 +85,7 @@ impl ApiAggregateType {
 ///
 /// Moreover, policies must be comparable so as to allow for meaningful computations on policies. These may
 /// include something like join, merge, exclude, etc.
-pub trait Policy: Debug + Send + Sync + 'static {
+pub trait Policy: Debug + Send + Sync  + 'static {
     /// Clone as a box for trait object in case we need something like `Box<dyn T>`.
     fn clone_box(&self) -> Box<dyn Policy>;
     /// A helper function used to cast between traits.

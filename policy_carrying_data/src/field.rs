@@ -50,12 +50,12 @@ macro_rules! index_primitive {
     };
 }
 
-#[derive(Clone, Debug, Hash)]
+#[derive(Clone, Debug, Hash, Default)]
 pub struct FieldMetadata {}
 
 /// Represents a column/attribute in the data table which may carry some specific policies. This struct is an element in
 /// the schema's ([`crate::schema::Schema`]) vector of fields.
-#[derive(Clone, Debug, Hash)]
+#[derive(Clone, Debug, Hash, Default)]
 pub struct Field {
     /// The name of the field
     pub name: String,
