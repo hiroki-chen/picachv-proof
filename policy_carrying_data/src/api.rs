@@ -5,7 +5,10 @@ use policy_core::{
     error::{PolicyCarryingError, PolicyCarryingResult},
 };
 
-use crate::field::FieldDataArray;
+use crate::{
+    field::{FieldDataArray, FieldDataRef},
+    DataFrame,
+};
 
 pub type ApiRef = Arc<dyn PolicyCarryingData>;
 
@@ -75,11 +78,25 @@ pub enum JoinType {
 /// The 'real' implementation of all the allowed APIs for a policy-carrying data. By default,
 /// all the operations called directly on a [`PolicyCarryingData`] will invoke the methods
 /// implemented by this trait.
-/// 
+///
 /// Note that [`PolicyCarryingData`] shoud be both [`Send`] and [`Sync`] because we want to
 /// execute the data analysis operations lazily; thus it requires synchronization and sharing.
 pub trait PolicyCarryingData: Send + Sync {
     // SOME APIs that are invoked by the executors at the physical query level.
+
+    /// Selects (in fact projects) given columns.
+    fn select(&self, columns: &[String]) -> PolicyCarryingResult<DataFrame> {
+        Err(PolicyCarryingError::OperationNotAllowed(format!(
+            "this operation cannot be done: SELECT {columns:?}"
+        )))
+    }
+
+    /// Selects as vector.
+    fn select_vec(&self, columns: &[String]) -> PolicyCarryingResult<Vec<FieldDataRef>> {
+        Err(PolicyCarryingError::OperationNotAllowed(format!(
+            "this operation cannot be done: SELECT {columns:?}"
+        )))
+    }
 }
 
 #[cfg(test)]

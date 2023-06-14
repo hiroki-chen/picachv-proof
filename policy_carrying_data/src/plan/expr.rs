@@ -1,6 +1,6 @@
 use std::fmt::{Debug, Display, Formatter};
 
-use policy_core::data_type::PrimitiveDataType;
+use policy_core::{data_type::PrimitiveDataType, error::PolicyCarryingResult};
 
 /// The aggregation type.
 #[derive(Clone, Debug)]
@@ -32,6 +32,8 @@ pub enum Expr {
     Agg(Aggregation),
     /// Select a vector of column names.
     Column(String),
+    /// Making alias.
+    Alias(String),
     /// "*".
     Wildcard,
     /// Exclude some columns.
@@ -56,6 +58,7 @@ impl Debug for Expr {
             Self::Agg(agg) => write!(f, "{agg:?}"),
             Self::Column(column) => write!(f, "{column}"),
             Self::Wildcard => write!(f, "*"),
+            Self::Alias(name) => write!(f, "ALIAS {name}"),
             Self::Exclude(expr, columns) => write!(f, "{expr:?} EXCEPT {columns:?}"),
             Self::Filter { data, filter } => write!(f, "{data:?} WHERE {filter:?}"),
             Self::BinaryOp { left, op, right } => write!(f, "({left:?} {op:?} {right:?})"),
@@ -117,7 +120,7 @@ impl<'a> Iterator for ExprIterator<'a> {
         match current_expr {
             Some(current_expr) => {
                 match current_expr {
-                    Expr::Wildcard | Expr::Column(_) | Expr::Literal(_) => None,
+                    Expr::Wildcard | Expr::Column(_) | Expr::Literal(_) | Expr::Alias(_) => None,
                     Expr::Agg(agg) => Some(agg.as_expr()),
                     Expr::BinaryOp { left, right, .. } => {
                         // Push left and right but return the current one.
@@ -153,6 +156,51 @@ impl<'a> IntoIterator for &'a Expr {
 }
 
 impl Expr {
+    /// Applies a function `f` on the expressiom; ignore error.
+    pub fn apply<F>(&mut self, mut f: F)
+    where
+        F: FnMut(&mut Self) -> bool,
+    {
+        let _ = self.try_apply(|expr| Ok(f(expr)));
+    }
+
+    /// Tries to pply a function `f` on the expression.
+    pub fn try_apply<F>(&mut self, mut f: F) -> PolicyCarryingResult<()>
+    where
+        F: FnMut(&mut Self) -> PolicyCarryingResult<bool>,
+    {
+        let mut stack = Vec::with_capacity(8);
+        stack.push(self);
+
+        while let Some(node) = stack.pop() {
+            if !f(node)? {
+                break;
+            }
+
+            match node {
+                Expr::Wildcard
+                | Expr::Column(_)
+                | Expr::Literal(_)
+                | Expr::Agg(_)
+                | Expr::Alias(_) => (),
+                Expr::BinaryOp { left, right, .. } => {
+                    // Push left and right but return the current one.
+                    stack.push(right);
+                    stack.push(left);
+                }
+                Expr::Exclude(expr, _) => {
+                    stack.push(expr);
+                }
+                Expr::Filter { data, filter } => {
+                    stack.push(filter);
+                    stack.push(data);
+                }
+            }
+        }
+
+        Ok(())
+    }
+
     pub fn exclude(self, columns: Vec<String>) -> Self {
         Self::Exclude(Box::new(self), columns)
     }

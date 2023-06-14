@@ -23,6 +23,8 @@ pub enum PolicyCarryingError {
     PrivacyError(String),
     /// Filesystem error.
     FsError(String),
+    /// Operation not allowed: policy forbids this.
+    OperationNotAllowed(String),
     /// Unknown error.
     Unknown,
 }
@@ -40,6 +42,7 @@ impl Debug for PolicyCarryingError {
             Self::OutOfBound(info) => write!(f, "Index out of bound: {}", info),
             Self::OperationNotSupported => write!(f, "Operation not supported"),
             Self::FsError(info) => write!(f, "IO error: {}", info),
+            Self::OperationNotAllowed(info) => write!(f, "Operation not allowed: {}", info),
             Self::PrivacyError(info) => {
                 write!(f, "Privacy scheme encountered a fatal error: {}", info)
             }
