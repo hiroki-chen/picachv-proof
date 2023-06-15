@@ -64,40 +64,40 @@ pub Keyword: String = {
     <row: Row> => row,
 }
 
-pub Scheme: policy_core::policy::PrivacyScheme = {
+pub Scheme: crate::policy::PrivacyScheme = {
     <dp: DifferentialPrivacy> "(" <num: Float>  ")"=>
-        policy_core::policy::PrivacyScheme::DifferentialPrivacy((num, 0.0)),
+        crate::policy::PrivacyScheme::DifferentialPrivacy((num, 0.0)),
     <dp: DifferentialPrivacy> "(" <epsilon: Float> "," <delta: Float>  ")" =>
-        policy_core::policy::PrivacyScheme::DifferentialPrivacy((epsilon, delta)),
-    <tclose: TCloseness> "(" <t: Float> ")" => policy_core::policy::PrivacyScheme::TCloseness(t),
-    <l_div: LDiversity> "(" <l: Float> ")" => policy_core::policy::PrivacyScheme::LDiversity(l),
-    <k_anon: KAnon> "(" <k: Float> ")" => policy_core::policy::PrivacyScheme::KAnonymity(k),
+        crate::policy::PrivacyScheme::DifferentialPrivacy((epsilon, delta)),
+    <tclose: TCloseness> "(" <t: Float> ")" => crate::policy::PrivacyScheme::TCloseness(t),
+    <l_div: LDiversity> "(" <l: Float> ")" => crate::policy::PrivacyScheme::LDiversity(l),
+    <k_anon: KAnon> "(" <k: Float> ")" => crate::policy::PrivacyScheme::KAnonymity(k),
     "(" <scheme: Scheme> ")" => scheme,
 }
 
-pub DataType: policy_core::data_type::DataType = {
-    r"i8" => policy_core::data_type::DataType::Int8,
-    r"i16" => policy_core::data_type::DataType::Int16,
-    r"i32" => policy_core::data_type::DataType::Int32,
-    r"i64" => policy_core::data_type::DataType::Int64,
-    r"u8" => policy_core::data_type::DataType::UInt8,
-    r"u16" => policy_core::data_type::DataType::UInt16,
-    r"u32" => policy_core::data_type::DataType::UInt32,
-    r"u64" => policy_core::data_type::DataType::UInt64,
-    r"f32" => policy_core::data_type::DataType::Float32,
-    r"f64" => policy_core::data_type::DataType::Float64,
-    r"(bool)|(boolean)" => policy_core::data_type::DataType::Boolean,
-    r"(str)|([sS]tring)" => policy_core::data_type::DataType::Utf8Str,
+pub DataType: crate::data_type::DataType = {
+    r"i8" => crate::data_type::DataType::Int8,
+    r"i16" => crate::data_type::DataType::Int16,
+    r"i32" => crate::data_type::DataType::Int32,
+    r"i64" => crate::data_type::DataType::Int64,
+    r"u8" => crate::data_type::DataType::UInt8,
+    r"u16" => crate::data_type::DataType::UInt16,
+    r"u32" => crate::data_type::DataType::UInt32,
+    r"u64" => crate::data_type::DataType::UInt64,
+    r"f32" => crate::data_type::DataType::Float32,
+    r"f64" => crate::data_type::DataType::Float64,
+    r"(bool)|(boolean)" => crate::data_type::DataType::Boolean,
+    r"(str)|([sS]tring)" => crate::data_type::DataType::Utf8Str,
 }
 
 /// The attribute list: Attribute(id_1: type_1, id_2: type_2, ...)
-pub AttributeList: Vec<(String, policy_core::data_type::DataType)> = {
+pub AttributeList: Vec<(String, crate::data_type::DataType)> = {
     <attribute: Attribute> "(" <list: Comma<AttributeDeclaration>> ")" => list,
     "(" <list: AttributeList> ")" => list,
 }
 
 /// The attribute.
-pub AttributeDeclaration: (String, policy_core::data_type::DataType) = {
+pub AttributeDeclaration: (String, crate::data_type::DataType) = {
     <id: Identifier> ":" <ty: DataType> => (id.to_string(), ty),
     "(" <attribute: AttributeDeclaration> ")" => attribute,
 }
