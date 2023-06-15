@@ -4,9 +4,9 @@ use std::{
     sync::Arc,
 };
 
-use api::{JoinType};
+use api::JoinType;
 use csv::Reader;
-use field::{new_empty, FieldDataRef, FieldRef};
+use field::{new_empty, FieldDataArray, FieldDataRef, FieldRef};
 use lazy::{IntoLazy, LazyFrame};
 use policy_core::{
     data_type::{
@@ -15,7 +15,7 @@ use policy_core::{
     },
     error::{PolicyCarryingError, PolicyCarryingResult},
 };
-use schema::SchemaRef;
+use schema::{Schema, SchemaRef};
 
 use crate::row::RowReader;
 
@@ -57,7 +57,7 @@ macro_rules! push_type {
 ///
 ///```
 /// pub struct Access(DataFrame);
-/// 
+///
 /// impl PolicyCarryingData for DiagnosisDataAccess {
 ///     /* implementation */
 /// }
@@ -137,7 +137,7 @@ impl DataFrame {
                 schema
                     .columns()
                     .iter()
-                    .map(|f| Arc::from(new_empty(f.data_type))),
+                    .map(|f| Arc::from(new_empty(f.clone()))),
             )
             .collect();
         let lookup = schema
@@ -258,6 +258,18 @@ impl DataFrame {
         Ok(())
     }
 
+    pub(crate) fn new_with_cols(data: HashMap<FieldRef, FieldDataRef>) -> Self {
+        Self {
+            schema: Arc::new(Schema::default()),
+            name: "".into(),
+            lookup: data
+                .iter()
+                .map(|(k, _)| (k.name.clone(), k.clone()))
+                .collect(),
+            data,
+        }
+    }
+
     pub fn load_data(&mut self, data: Vec<FieldDataRef>) -> PolicyCarryingResult<()> {
         if self.loaded() {
             return Err(PolicyCarryingError::DataAlreadyLoaded);
@@ -299,6 +311,23 @@ impl DataFrame {
     pub fn join(self, other: Self, join_type: JoinType) -> PolicyCarryingResult<Self> {
         todo!()
     }
+
+    /// Applies a boolean filter array on this dataframe and returns a new one.
+    pub(crate) fn filter(
+        &self,
+        boolean: &FieldDataArray<BooleanType>,
+    ) -> PolicyCarryingResult<Self> {
+        let data = self
+            .data
+            .iter()
+            .map(|(k, v)| match v.filter(boolean) {
+                Ok(d) => Ok((k.clone(), d)),
+                Err(e) => Err(e),
+            })
+            .collect::<PolicyCarryingResult<_>>()?;
+
+        Ok(Self::new_with_cols(data))
+    }
 }
 
 unsafe impl Send for DataFrame {}
@@ -306,7 +335,7 @@ unsafe impl Send for DataFrame {}
 #[cfg(test)]
 mod test {
 
-    use crate::schema::SchemaBuilder;
+    use crate::{field::BooleanFieldData, schema::SchemaBuilder};
 
     use super::*;
 
@@ -317,11 +346,15 @@ mod test {
             .add_field_raw("column_2", DataType::Float64, false)
             .finish_with_top();
 
-        let mut pcd = DataFrame::new(schema, "foo".into());
+        let mut pcd = DataFrame::new(schema.clone(), "foo".into());
         let res = pcd.load_csv("../test_data/simple_csv.csv");
 
         assert!(res.is_ok());
 
-        println!("{:?}", pcd);
+        let mask = BooleanFieldData::from(vec![true, false, true, true, false, false]);
+        let pcd = pcd.filter(&mask);
+
+        assert!(pcd.is_ok());
+        println!("{pcd:?}");
     }
 }

@@ -4,10 +4,14 @@ use std::{
     fmt::{Debug, Formatter},
 };
 
+use crate::data_type::DataType;
+
 pub type DpParam = (f64, f64);
 pub type TParam = f64;
 pub type LParam = f64;
 pub type KParam = f64;
+
+pub type Schema = Vec<(String, DataType)>;
 
 /// Denotes the level of the policy that enables direct partial ordering on it.
 #[derive(Clone, Debug)]
@@ -32,42 +36,6 @@ pub enum PrivacyScheme {
     KAnonymity(KParam),
 }
 
-/// Denotes the API type that an untrusted, may be policy breaching, and 3rd-party function source code
-/// wants to use. We only support a set of common APIs.
-pub enum ApiType {
-    /// Performs the aggregation operation.
-    Aggregate(ApiAggregateType),
-}
-
-/// Aggeration operations. E.g., `max`, `min`, `avg`, etc.
-pub enum ApiAggregateType {
-    /// Calculates the total sum of a set of values.
-    Sum,
-    /// Returns the unique records.
-    Distinct,
-    /// Determines the number of items in a set.
-    Count,
-    /// Computes the arithmetic mean of a set of values.
-    Average,
-    /// Finds the smallest value in a set.
-    Minimum,
-    /// Finds the largest value in a set.
-    Maximum,
-    /// Determines the middle value in a set when it is arranged in ascending or descending order.
-    Median,
-    /// Identifies the most frequently occurring value(s) in a set.
-    Mode,
-    /// Measures the dispersion or variability of a set of values around the mean.
-    Variance,
-}
-
-impl ApiAggregateType {
-    /// Returns true if this operation has bounded sensitivity.
-    pub fn bounded(&self) -> bool {
-        matches!(self, Self::Distinct | Self::Count)
-    }
-}
-
 /// The trait that represents a basic policy. For any data, in order to be policy-carrying, this trait
 /// must be correctly implemented. Extenstion to the policy is encouraged.
 ///
@@ -85,7 +53,7 @@ impl ApiAggregateType {
 ///
 /// Moreover, policies must be comparable so as to allow for meaningful computations on policies. These may
 /// include something like join, merge, exclude, etc.
-pub trait Policy: Debug + Send + Sync  + 'static {
+pub trait Policy: Debug + Send + Sync + 'static {
     /// Clone as a box for trait object in case we need something like `Box<dyn T>`.
     fn clone_box(&self) -> Box<dyn Policy>;
     /// A helper function used to cast between traits.

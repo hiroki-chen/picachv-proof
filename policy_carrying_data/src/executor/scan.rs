@@ -2,9 +2,9 @@ use std::sync::Arc;
 
 use policy_core::error::PolicyCarryingResult;
 
-use crate::{api::PolicyCarryingData, plan::expr::PhysicalExpr, DataFrame};
+use crate::{api::PolicyCarryingData, plan::physical_expr::PhysicalExpr, DataFrame};
 
-use super::PhysicalExecutor;
+use super::{ExecutionState, PhysicalExecutor};
 
 /// Producer of an in memory [`DataFrame`]. This should be the deepmost executor that cannot be dependent on any
 /// other executors because the data must eventually come from data frame.
@@ -16,7 +16,7 @@ pub struct DataFrameExec {
 }
 
 impl PhysicalExecutor for DataFrameExec {
-    fn execute(&mut self) -> PolicyCarryingResult<DataFrame> {
+    fn execute(&mut self, state: &mut ExecutionState) -> PolicyCarryingResult<DataFrame> {
         todo!()
     }
 }

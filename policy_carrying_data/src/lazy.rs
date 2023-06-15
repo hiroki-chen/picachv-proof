@@ -2,11 +2,11 @@
 
 use std::fmt::{Debug, Formatter};
 
-use policy_core::error::PolicyCarryingResult;
+use policy_core::{error::PolicyCarryingResult, expr::Expr};
 
 use crate::{
     api::ApiRef,
-    plan::{expr::Expr, LogicalPlan, OptFlag, PlanBuilder},
+    plan::{LogicalPlan, OptFlag, PlanBuilder},
     schema::SchemaRef,
     DataFrame,
 };
@@ -85,7 +85,7 @@ impl LazyFrame {
     /// 1. Prepare the execution by optimizing, checking the query plan [`LogicalPlan`].
     /// 2. Prepare the physical query plan and gets the data.
     /// 3. Return the data which may be sanitized.
-    pub fn execute(self) -> PolicyCarryingResult<DataFrame> {
+    pub fn collect(self) -> PolicyCarryingResult<DataFrame> {
         // Generate a phyiscal plan.
         todo!()
     }

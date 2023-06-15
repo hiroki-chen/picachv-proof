@@ -89,6 +89,9 @@ pub trait FieldData: Debug + Send + Sync {
     fn is_empty(&self) -> bool {
         self.len() == 0
     }
+
+    /// Filters by boolean mask. This operation clones data.
+    fn filter(&self, boolean: &BooleanFieldData) -> PolicyCarryingResult<Arc<dyn FieldData>>;
 }
 
 impl dyn FieldData + '_ {
@@ -115,6 +118,14 @@ impl dyn FieldData + '_ {
         T: PrimitiveDataType + Debug + Send + Sync + Clone + 'static,
     {
         self.as_mut_ref().downcast_mut::<FieldDataArray<T>>()
+    }
+
+    pub fn as_boolean(&self) -> PolicyCarryingResult<&FieldDataArray<BooleanType>> {
+        self.try_cast::<BooleanType>()
+            .ok_or(PolicyCarryingError::TypeMismatch(format!(
+                "type is {}, got boolean",
+                self.data_type(),
+            )))
     }
 
     /// This is a helper function that allows us to index the [`FieldData`] by a series of
@@ -171,6 +182,9 @@ pub struct FieldDataArray<T>
 where
     T: PrimitiveDataType + Debug + Send + Sync + Clone + 'static,
 {
+    /// The field reference that allows for identification of the field this array belongs to.
+    field: Option<FieldRef>,
+    /// Inner storage.
     inner: Vec<T>,
     /// Since [`FieldData`] is a trait that involves `&dyn FieldData` in its method, we cannot
     /// store `data_type` as its associated constant because this is object-unsafe.
@@ -331,6 +345,32 @@ where
             self.inner == arr.inner
         }
     }
+
+    fn filter(&self, boolean: &BooleanFieldData) -> PolicyCarryingResult<Arc<dyn FieldData>> {
+        // Check if length matches.
+        if boolean.len() != self.len() {
+            return Err(PolicyCarryingError::ImpossibleOperation(format!(
+                "length mismatch, expected {}, got {}",
+                boolean.len(),
+                self.len()
+            )));
+        }
+
+        let inner = self
+            .inner
+            .iter()
+            .enumerate()
+            .filter(|(idx, _)| boolean.inner[*idx].0)
+            .map(|(_, v)| v)
+            .cloned()
+            .collect();
+
+        Ok(Arc::new(FieldDataArray::new(
+            self.field.clone(),
+            inner,
+            self.data_type,
+        )))
+    }
 }
 
 impl<T> PartialEq for FieldDataArray<T>
@@ -382,15 +422,27 @@ where
     T: PrimitiveDataType + Debug + Send + Sync + Clone,
 {
     #[inline]
-    pub fn new(inner: Vec<T>, data_type: DataType) -> Self {
-        Self { inner, data_type }
+    pub fn new(field: Option<FieldRef>, inner: Vec<T>, data_type: DataType) -> Self {
+        Self {
+            field,
+            inner,
+            data_type,
+        }
     }
 
     #[inline]
-    pub fn new_empty(data_type: DataType) -> Self {
+    pub fn new_empty(field: FieldRef) -> Self {
         Self {
+            data_type: field.data_type,
+            field: Some(field),
             inner: Vec::new(),
-            data_type,
+        }
+    }
+
+    #[inline]
+    pub fn set_field(&mut self, field: FieldRef) {
+        if self.field.is_none() {
+            self.field.replace(field);
         }
     }
 
@@ -405,7 +457,11 @@ where
         if range.start >= self.inner.len() || range.end - range.start > self.inner.len() {
             None
         } else {
-            Some(Self::new(self.inner[range].to_vec(), self.data_type))
+            Some(Self::new(
+                self.field.clone(),
+                self.inner[range].to_vec(),
+                self.data_type,
+            ))
         }
     }
 
@@ -450,6 +506,7 @@ macro_rules! define_from_arr {
         impl From<Vec<$primitive>> for $name {
             fn from(other: Vec<$primitive>) -> Self {
                 Self {
+                    field: None,
                     inner: other.into_iter().map(|t| $ty::new(t)).collect(),
                     data_type: $data_type,
                 }
@@ -459,6 +516,7 @@ macro_rules! define_from_arr {
         impl From<&[$primitive]> for $name {
             fn from(other: &[$primitive]) -> Self {
                 Self {
+                    field: None,
                     inner: other.into_iter().map(|t| $ty::new(t.clone())).collect(),
                     data_type: $data_type,
                 }
@@ -468,20 +526,20 @@ macro_rules! define_from_arr {
 }
 
 /// Creates an empty [`FieldData`] and returns a trait object.
-pub fn new_empty(ty: DataType) -> Box<dyn FieldData> {
-    match ty {
-        DataType::Boolean => Box::new(BooleanFieldData::new_empty(ty)),
-        DataType::Int8 => Box::new(Int8FieldData::new_empty(ty)),
-        DataType::Int16 => Box::new(Int16FieldData::new_empty(ty)),
-        DataType::Int32 => Box::new(Int32FieldData::new_empty(ty)),
-        DataType::Int64 => Box::new(Int64FieldData::new_empty(ty)),
-        DataType::UInt8 => Box::new(UInt8FieldData::new_empty(ty)),
-        DataType::UInt16 => Box::new(UInt16FieldData::new_empty(ty)),
-        DataType::UInt32 => Box::new(UInt32FieldData::new_empty(ty)),
-        DataType::UInt64 => Box::new(UInt64FieldData::new_empty(ty)),
-        DataType::Float32 => Box::new(Float32FieldData::new_empty(ty)),
-        DataType::Float64 => Box::new(Float64FieldData::new_empty(ty)),
-        DataType::Utf8Str => Box::new(StrFieldData::new_empty(ty)),
+pub fn new_empty(field: FieldRef) -> Box<dyn FieldData> {
+    match field.data_type {
+        DataType::Boolean => Box::new(BooleanFieldData::new_empty(field)),
+        DataType::Int8 => Box::new(Int8FieldData::new_empty(field)),
+        DataType::Int16 => Box::new(Int16FieldData::new_empty(field)),
+        DataType::Int32 => Box::new(Int32FieldData::new_empty(field)),
+        DataType::Int64 => Box::new(Int64FieldData::new_empty(field)),
+        DataType::UInt8 => Box::new(UInt8FieldData::new_empty(field)),
+        DataType::UInt16 => Box::new(UInt16FieldData::new_empty(field)),
+        DataType::UInt32 => Box::new(UInt32FieldData::new_empty(field)),
+        DataType::UInt64 => Box::new(UInt64FieldData::new_empty(field)),
+        DataType::Float32 => Box::new(Float32FieldData::new_empty(field)),
+        DataType::Float64 => Box::new(Float64FieldData::new_empty(field)),
+        DataType::Utf8Str => Box::new(StrFieldData::new_empty(field)),
 
         _ => {
             panic!()

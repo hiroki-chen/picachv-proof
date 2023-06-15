@@ -3,14 +3,13 @@ use std::sync::Arc;
 use bitflags::bitflags;
 use policy_core::{
     error::{PolicyCarryingError, PolicyCarryingResult},
+    expr::Expr,
     policy::Policy,
 };
 
 use crate::schema::SchemaRef;
 
-use self::expr::Expr;
-
-pub mod expr;
+pub mod physical_expr;
 
 bitflags! {
     #[derive(Copy, Clone, Debug)]

@@ -164,17 +164,4 @@ impl Schema {
     pub fn columns(&self) -> Vec<FieldRef> {
         self.fields.iter().cloned().collect()
     }
-
-    /// Creates a vector of trait object that represents the [`FieldData`] type.
-    pub fn get_empty_vec(&self) -> Vec<Box<dyn FieldData>> {
-        let mut ans = Vec::new();
-        for column in self.fields.iter() {
-            let ty = column.data_type;
-            let arr = new_empty(ty);
-
-            ans.push(arr);
-        }
-
-        ans
-    }
 }

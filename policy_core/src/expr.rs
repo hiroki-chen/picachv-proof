@@ -1,6 +1,6 @@
-use std::fmt::{Debug, Display, Formatter};
+use std::{fmt::{Debug, Display, Formatter}, any::Any};
 
-use policy_core::{data_type::PrimitiveDataType, error::PolicyCarryingResult};
+use crate::{data_type::PrimitiveDataType, error::PolicyCarryingResult};
 
 /// The aggregation type.
 #[derive(Clone, Debug)]
@@ -22,8 +22,6 @@ impl Aggregation {
     }
 }
 
-/// A physical expression trait.
-pub trait PhysicalExpr: Send + Sync {}
 
 /// An expression type.
 #[derive(Clone)]
@@ -290,17 +288,15 @@ macro_rules! cols {
 macro_rules! col {
     ($col:tt) => {
         match $col {
-            "*" => $crate::plan::expr::Expr::Wildcard,
-            _ => $crate::plan::expr::Expr::Column(String::from($col)),
+            "*" => $crate::expr::Expr::Wildcard,
+            _ => $crate::expr::Expr::Column(String::from($col)),
         }
     };
 }
 
 #[cfg(test)]
 mod test {
-    use policy_core::data_type::Int8Type;
-
-    use super::*;
+    use crate::data_type::Int8Type;
 
     #[test]
     fn test_visit() {

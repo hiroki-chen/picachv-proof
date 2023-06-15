@@ -79,7 +79,7 @@ impl DataType {
 
 /// This trait is a workaround for getting the concrete type of a primitive type that we store
 /// as a trait object `dyn PritimiveDataType`.
-pub trait PrimitiveDataType: Debug + ToString + 'static {
+pub trait PrimitiveDataType: Debug + Sync + Send + ToString + 'static {
     fn data_type(&self) -> DataType;
 
     fn as_any_ref(&self) -> &dyn Any;

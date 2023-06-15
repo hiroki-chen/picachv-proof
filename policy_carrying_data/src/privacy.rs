@@ -8,7 +8,8 @@ use opendp::traits::samplers::SampleDiscreteLaplaceZ2k;
 use policy_core::{
     data_type::PrimitiveDataType,
     error::{PolicyCarryingError, PolicyCarryingResult},
-    policy::{ApiType, DpParam},
+    expr::Aggregation,
+    policy::DpParam,
 };
 
 use crate::{api::pcd_sum, field::FieldDataArray};
@@ -186,7 +187,7 @@ impl DpManager {
     /// ```
     pub fn make_dp_compliant_scalar<F, T>(
         &mut self,
-        api_type: ApiType,
+        api_type: Aggregation,
         q: F,
         dp_param: DpParam,
     ) -> PolicyCarryingResult<F>
