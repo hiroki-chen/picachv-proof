@@ -19,6 +19,4 @@ fn main() {
     let schema = SchemaBuilder::new()
         .add_field_raw("age", DataType::UInt8, false)
         .finish_with_top();
-
-    let pcd = DataFrame::new(schema, "foo".into());
 }

@@ -6,7 +6,7 @@ use policy_core::{
     policy::{Policy, TopPolicy},
 };
 
-use crate::field::{new_empty, Field, FieldData, FieldMetadata, FieldRef};
+use crate::field::{new_empty, Field, FieldData, FieldDataRef, FieldMetadata, FieldRef};
 
 pub type SchemaRef = Arc<Schema>;
 
@@ -163,5 +163,14 @@ impl Schema {
     #[inline]
     pub fn columns(&self) -> Vec<FieldRef> {
         self.fields.iter().cloned().collect()
+    }
+
+    #[inline]
+    /// Gets empty data columns.
+    pub fn empty_field_data(&self) -> Vec<Box<dyn FieldData>> {
+        self.fields
+            .iter()
+            .map(|column| new_empty(column.clone()))
+            .collect()
     }
 }

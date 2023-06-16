@@ -1,4 +1,7 @@
-use std::{fmt::{Debug, Display, Formatter}, any::Any};
+use std::{
+    any::Any,
+    fmt::{Debug, Display, Formatter},
+};
 
 use crate::{data_type::PrimitiveDataType, error::PolicyCarryingResult};
 
@@ -21,7 +24,6 @@ impl Aggregation {
         }
     }
 }
-
 
 /// An expression type.
 #[derive(Clone)]

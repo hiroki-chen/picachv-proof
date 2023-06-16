@@ -90,6 +90,21 @@ pub trait FieldData: Debug + Send + Sync {
         self.len() == 0
     }
 
+    /// Creates a new field data array with a given index.
+    fn new_from_index(&self, idx: usize, len: usize) -> FieldDataRef;
+
+    /// Slices the field data array.
+    fn slice(&self, range: Range<usize>) -> FieldDataRef;
+
+    /// Gets the field.
+    fn field(&self) -> FieldRef;
+
+    /// Gets the name.
+    fn name(&self) -> &str;
+
+    /// Rename it.
+    fn rename(&mut self, name: &str) -> PolicyCarryingResult<()>;
+
     /// Filters by boolean mask. This operation clones data.
     fn filter(&self, boolean: &BooleanFieldData) -> PolicyCarryingResult<Arc<dyn FieldData>>;
 }
@@ -182,8 +197,8 @@ pub struct FieldDataArray<T>
 where
     T: PrimitiveDataType + Debug + Send + Sync + Clone + 'static,
 {
-    /// The field reference that allows for identification of the field this array belongs to.
-    field: Option<FieldRef>,
+    /// The field  that allows for identification of the field this array belongs to.
+    field: FieldRef,
     /// Inner storage.
     inner: Vec<T>,
     /// Since [`FieldData`] is a trait that involves `&dyn FieldData` in its method, we cannot
@@ -333,6 +348,42 @@ where
         self.data_type
     }
 
+    fn name(&self) -> &str {
+        &self.field.name
+    }
+
+    fn new_from_index(&self, idx: usize, len: usize) -> FieldDataRef {
+        Arc::new(Self {
+            field: self.field.clone(),
+            inner: vec![self.inner[idx].clone(); len],
+            data_type: self.data_type,
+        })
+    }
+
+    fn slice(&self, range: Range<usize>) -> FieldDataRef {
+        Arc::new(Self {
+            field: self.field.clone(),
+            inner: self.inner[range].to_vec(),
+            data_type: self.data_type,
+        })
+    }
+
+    fn rename(&mut self, name: &str) -> PolicyCarryingResult<()> {
+        match Arc::get_mut(&mut self.field) {
+            Some(field) => {
+                field.name = name.into();
+                Ok(())
+            }
+            None => Err(PolicyCarryingError::ImpossibleOperation(
+                "reference count > 1".into(),
+            )),
+        }
+    }
+
+    fn field(&self) -> FieldRef {
+        self.field.clone()
+    }
+
     fn eq_impl(&self, other: &dyn FieldData) -> bool {
         if self.data_type != other.data_type() {
             false
@@ -422,7 +473,7 @@ where
     T: PrimitiveDataType + Debug + Send + Sync + Clone,
 {
     #[inline]
-    pub fn new(field: Option<FieldRef>, inner: Vec<T>, data_type: DataType) -> Self {
+    pub fn new(field: FieldRef, inner: Vec<T>, data_type: DataType) -> Self {
         Self {
             field,
             inner,
@@ -434,15 +485,8 @@ where
     pub fn new_empty(field: FieldRef) -> Self {
         Self {
             data_type: field.data_type,
-            field: Some(field),
+            field,
             inner: Vec::new(),
-        }
-    }
-
-    #[inline]
-    pub fn set_field(&mut self, field: FieldRef) {
-        if self.field.is_none() {
-            self.field.replace(field);
         }
     }
 
@@ -498,6 +542,12 @@ impl Field {
             metadata,
         }
     }
+
+    /// Checks if the field has no name.
+    #[inline]
+    pub fn is_anonymous(&self) -> bool {
+        self.name.is_empty()
+    }
 }
 
 #[macro_export]
@@ -505,8 +555,11 @@ macro_rules! define_from_arr {
     ($name:ident, $ty:ident, $primitive:tt, $data_type: expr) => {
         impl From<Vec<$primitive>> for $name {
             fn from(other: Vec<$primitive>) -> Self {
+                let mut field = Field::default();
+                field.data_type = $data_type;
+
                 Self {
-                    field: None,
+                    field: FieldRef::new(field),
                     inner: other.into_iter().map(|t| $ty::new(t)).collect(),
                     data_type: $data_type,
                 }
@@ -515,8 +568,11 @@ macro_rules! define_from_arr {
 
         impl From<&[$primitive]> for $name {
             fn from(other: &[$primitive]) -> Self {
+                let mut field = Field::default();
+                field.data_type = $data_type;
+
                 Self {
-                    field: None,
+                    field: FieldRef::new(field),
                     inner: other.into_iter().map(|t| $ty::new(t.clone())).collect(),
                     data_type: $data_type,
                 }

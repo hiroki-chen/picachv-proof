@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{ops::Deref, sync::Arc};
 
 use bitflags::bitflags;
 use policy_core::{
@@ -7,9 +7,14 @@ use policy_core::{
     policy::Policy,
 };
 
-use crate::schema::SchemaRef;
+use crate::{
+    executor::{ExecutionState, PhysicalExecutor},
+    schema::SchemaRef,
+};
 
 pub mod physical_expr;
+
+pub type PhysicalPlan = (ExecutionState, Box<dyn PhysicalExecutor>);
 
 bitflags! {
     #[derive(Copy, Clone, Debug)]
@@ -157,7 +162,10 @@ impl PlanBuilder {
     /// Performs filtering.
     pub fn filter(self, expression: Expr) -> Self {
         // Check if the expression that should be normalized.
-        let predicate = if expression.into_iter().any(|e| matches!(*e, Expr::Wildcard)) {
+        let predicate = if expression
+            .into_iter()
+            .any(|e| matches!(e.deref(), Expr::Wildcard))
+        {
             todo!()
         } else {
             expression
@@ -223,8 +231,10 @@ pub(crate) fn rewrite_projection(
     Ok(result)
 }
 
-/// This function converts the logical plan [`LogicalPlan`] into a physical plan and also
+/// This function converts the logical plan [`LogicalPlan`] into a [`PhysicalPlan`] and also
 /// applies some optimizations thereon for best performance. Meanwhile, this function will
 /// analyze if the query plan would have any change that it will break the given privacy
 /// policy or apply some necessary privacy schemes on the data (hints the executor).
-pub(crate) fn make_physical_plan(lp: LogicalPlan) {}
+pub(crate) fn make_physical_plan(lp: LogicalPlan) -> PolicyCarryingResult<PhysicalPlan> {
+    todo!()
+}

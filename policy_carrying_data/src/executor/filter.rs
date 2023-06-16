@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use policy_core::error::PolicyCarryingResult;
 
-use crate::{plan::physical_expr::PhysicalExpr, DataFrame};
+use crate::{plan::physical_expr::PhysicalExpr, trace, DataFrame};
 
 use super::{ExecutionState, PhysicalExecutor};
 
@@ -12,7 +12,9 @@ pub struct FilterExec {
 }
 
 impl PhysicalExecutor for FilterExec {
-    fn execute(&mut self, state: &mut ExecutionState) -> PolicyCarryingResult<DataFrame> {
+    fn execute(&mut self, state: &ExecutionState) -> PolicyCarryingResult<DataFrame> {
+        trace!(state, "FilterExec");
+
         let df = self.input.execute(state)?;
         let filtered = self.predicate.evaluate(&df, state)?;
         let boolean_array = filtered.as_boolean()?;

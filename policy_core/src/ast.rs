@@ -3,7 +3,7 @@
 //! The structs defined in this module can be exported to `lalrpop`.
 
 use crate::{
-    expr::{Aggregation, Expr, BinaryOp},
+    expr::{Aggregation, BinaryOp, Expr},
     policy::Schema,
 };
 

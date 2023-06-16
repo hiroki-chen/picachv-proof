@@ -6,7 +6,8 @@ use policy_core::{error::PolicyCarryingResult, expr::Expr};
 
 use crate::{
     api::ApiRef,
-    plan::{LogicalPlan, OptFlag, PlanBuilder},
+    executor::execution_epilogue,
+    plan::{make_physical_plan, LogicalPlan, OptFlag, PlanBuilder},
     schema::SchemaRef,
     DataFrame,
 };
@@ -85,8 +86,12 @@ impl LazyFrame {
     /// 1. Prepare the execution by optimizing, checking the query plan [`LogicalPlan`].
     /// 2. Prepare the physical query plan and gets the data.
     /// 3. Return the data which may be sanitized.
+    #[must_use = "unused dafaframe must be used"]
     pub fn collect(self) -> PolicyCarryingResult<DataFrame> {
         // Generate a phyiscal plan.
-        todo!()
+        let (state, mut executor) = make_physical_plan(self.plan)?;
+        let df = executor.execute(&state)?;
+
+        execution_epilogue(df, &state)
     }
 }

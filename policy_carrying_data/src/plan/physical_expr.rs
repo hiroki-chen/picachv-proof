@@ -15,7 +15,7 @@ pub trait PhysicalExpr: Send + Sync + Debug {
     fn evaluate(
         &self,
         df: &DataFrame,
-        _state: &mut ExecutionState,
+        _state: &ExecutionState,
     ) -> PolicyCarryingResult<FieldDataRef>;
 
     /// Returns the children of this node, if any.
