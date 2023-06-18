@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use policy_carrying_data::{api::PolicyCarryingData, schema::SchemaBuilder, DataFrame};
+use policy_carrying_data::{api::PolicyApiSet, schema::SchemaBuilder, DataFrame};
 use policy_core::{data_type::DataType, error::PolicyCarryingResult, policy::Policy};
 
 #[derive(Clone)]
@@ -9,7 +9,7 @@ struct Foo {
     dataframe: Arc<DataFrame>,
 }
 
-impl PolicyCarryingData for Foo {
+impl PolicyApiSet for Foo {
     fn select(&self, columns: &[String]) -> PolicyCarryingResult<DataFrame> {
         todo!();
     }

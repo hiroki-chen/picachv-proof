@@ -92,11 +92,11 @@ pub struct SchemaMetadata {}
 #[derive(Clone, Debug)]
 pub struct Schema {
     /// The fields of the table.
-    fields: Vec<FieldRef>,
+    pub(crate) fields: Vec<FieldRef>,
     /// The matadata of the schema.
-    metadata: SchemaMetadata,
+    pub(crate) metadata: SchemaMetadata,
     /// The policy of the schema.
-    policy: Box<dyn Policy>,
+    pub(crate) policy: Box<dyn Policy>,
 }
 
 impl Default for Schema {

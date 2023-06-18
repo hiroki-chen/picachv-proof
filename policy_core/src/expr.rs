@@ -1,9 +1,16 @@
-use std::{
-    any::Any,
-    fmt::{Debug, Display, Formatter},
-};
+use std::fmt::{Debug, Display, Formatter};
 
 use crate::{data_type::PrimitiveDataType, error::PolicyCarryingResult};
+
+/// Represents the index of the element it points to in the arena.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct Node(pub usize);
+
+impl Default for Node {
+    fn default() -> Self {
+        Node(usize::MAX)
+    }
+}
 
 /// The aggregation type.
 #[derive(Clone, Debug)]
@@ -12,6 +19,14 @@ pub enum Aggregation {
     Max(Box<Expr>),
     Sum(Box<Expr>),
     Mean(Box<Expr>),
+}
+
+#[derive(Clone, Debug)]
+pub enum AAggExpr {
+    Min { input: Node, propagate_nans: bool },
+    Max { input: Node, propagate_nans: bool },
+    Sum(Node),
+    Mean(Node),
 }
 
 impl Aggregation {
@@ -33,14 +48,17 @@ pub enum Expr {
     /// Select a vector of column names.
     Column(String),
     /// Making alias.
-    Alias(String),
+    Alias {
+        expr: Box<Expr>,
+        name: String,
+    },
     /// "*".
     Wildcard,
     /// Exclude some columns.
     Exclude(Box<Expr>, Vec<String>),
     /// Filter.
     Filter {
-        data: Box<Expr>,
+        input: Box<Expr>,
         filter: Box<Expr>,
     },
     /// Binary operations
@@ -52,15 +70,38 @@ pub enum Expr {
     Literal(Box<dyn PrimitiveDataType>),
 }
 
+/// AExpr is an arena-ed version of [`Expr`].
+#[derive(Clone, Debug, Default)]
+pub enum AExpr {
+    Alias(Node, String),
+    Column(String),
+    Literal(Box<dyn PrimitiveDataType>),
+    BinaryOp {
+        left: Node,
+        op: BinaryOp,
+        right: Node,
+    },
+    Filter {
+        input: Node,
+        by: Node,
+    },
+    Agg(AAggExpr),
+    #[default]
+    Wildcard,
+}
+
 impl Debug for Expr {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Agg(agg) => write!(f, "{agg:?}"),
             Self::Column(column) => write!(f, "{column}"),
             Self::Wildcard => write!(f, "*"),
-            Self::Alias(name) => write!(f, "ALIAS {name}"),
+            Self::Alias { expr, name } => write!(f, "ALIAS {expr:?} -> {name}"),
             Self::Exclude(expr, columns) => write!(f, "{expr:?} EXCEPT {columns:?}"),
-            Self::Filter { data, filter } => write!(f, "{data:?} WHERE {filter:?}"),
+            Self::Filter {
+                input: data,
+                filter,
+            } => write!(f, "{data:?} WHERE {filter:?}"),
             Self::BinaryOp { left, op, right } => write!(f, "({left:?} {op:?} {right:?})"),
             Self::Literal(val) => write!(f, "{val:?}"),
         }
@@ -73,7 +114,7 @@ impl Display for Expr {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum BinaryOp {
     Lt,
     Gt,
@@ -83,6 +124,10 @@ pub enum BinaryOp {
     Or,
     Eq,
     Ne,
+    Add,
+    Sub,
+    Mul,
+    Div,
 }
 
 impl Debug for BinaryOp {
@@ -96,6 +141,10 @@ impl Debug for BinaryOp {
             Self::Or => write!(f, "||"),
             Self::Eq => write!(f, "=="),
             Self::Ne => write!(f, "<>"),
+            Self::Add => write!(f, "+"),
+            Self::Sub => write!(f, "-"),
+            Self::Mul => write!(f, "*"),
+            Self::Div => write!(f, "/"),
         }
     }
 }
@@ -120,7 +169,9 @@ impl<'a> Iterator for ExprIterator<'a> {
         match current_expr {
             Some(current_expr) => {
                 match current_expr {
-                    Expr::Wildcard | Expr::Column(_) | Expr::Literal(_) | Expr::Alias(_) => None,
+                    Expr::Wildcard | Expr::Column(_) | Expr::Literal(_) | Expr::Alias { .. } => {
+                        None
+                    }
                     Expr::Agg(agg) => Some(agg.as_expr()),
                     Expr::BinaryOp { left, right, .. } => {
                         // Push left and right but return the current one.
@@ -132,7 +183,10 @@ impl<'a> Iterator for ExprIterator<'a> {
                         self.stack.push(expr);
                         Some(current_expr)
                     }
-                    Expr::Filter { data, filter } => {
+                    Expr::Filter {
+                        input: data,
+                        filter,
+                    } => {
                         self.stack.push(filter);
                         self.stack.push(data);
                         Some(current_expr)
@@ -182,7 +236,7 @@ impl Expr {
                 | Expr::Column(_)
                 | Expr::Literal(_)
                 | Expr::Agg(_)
-                | Expr::Alias(_) => (),
+                | Expr::Alias { .. } => (),
                 Expr::BinaryOp { left, right, .. } => {
                     // Push left and right but return the current one.
                     stack.push(right);
@@ -191,7 +245,10 @@ impl Expr {
                 Expr::Exclude(expr, _) => {
                     stack.push(expr);
                 }
-                Expr::Filter { data, filter } => {
+                Expr::Filter {
+                    input: data,
+                    filter,
+                } => {
                     stack.push(filter);
                     stack.push(data);
                 }
@@ -277,8 +334,8 @@ macro_rules! cols {
 
         $(
             match $col {
-                "*" => vec.push($crate::plan::expr::Expr::Wildcard),
-                _ => vec.push($crate::plan::expr::Expr::Column(String::from($col))),
+                "*" => vec.push($crate::expr::Expr::Wildcard),
+                _ => vec.push($crate::expr::Expr::Column(String::from($col))),
             }
         )*
 
@@ -294,6 +351,12 @@ macro_rules! col {
             _ => $crate::expr::Expr::Column(String::from($col)),
         }
     };
+}
+
+impl AExpr {
+    pub(crate) fn is_leaf(&self) -> bool {
+        matches!(self, AExpr::Column(_) | AExpr::Literal(_))
+    }
 }
 
 #[cfg(test)]

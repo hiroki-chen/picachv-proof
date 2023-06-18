@@ -107,6 +107,9 @@ pub trait FieldData: Debug + Send + Sync {
 
     /// Filters by boolean mask. This operation clones data.
     fn filter(&self, boolean: &BooleanFieldData) -> PolicyCarryingResult<Arc<dyn FieldData>>;
+
+    /// Clones itself and wraps itself into an [`std::sync::Arc`].
+    fn clone_arc(&self) -> FieldDataRef;
 }
 
 impl dyn FieldData + '_ {
@@ -198,12 +201,12 @@ where
     T: PrimitiveDataType + Debug + Send + Sync + Clone + 'static,
 {
     /// The field  that allows for identification of the field this array belongs to.
-    field: FieldRef,
+    pub(crate) field: FieldRef,
     /// Inner storage.
-    inner: Vec<T>,
+    pub(crate) inner: Vec<T>,
     /// Since [`FieldData`] is a trait that involves `&dyn FieldData` in its method, we cannot
     /// store `data_type` as its associated constant because this is object-unsafe.
-    data_type: DataType,
+    pub(crate) data_type: DataType,
 }
 
 impl<T> Index<usize> for FieldDataArray<T>
@@ -422,6 +425,10 @@ where
             self.data_type,
         )))
     }
+
+    fn clone_arc(&self) -> FieldDataRef {
+        Arc::new(self.clone())
+    }
 }
 
 impl<T> PartialEq for FieldDataArray<T>
@@ -509,6 +516,19 @@ where
         }
     }
 
+    pub fn new_with_duplicate(item: T, num: usize, name: String, data_type: DataType) -> Self {
+        Self {
+            field: Arc::new(Field {
+                name,
+                data_type,
+                nullable: false,
+                metadata: FieldMetadata {},
+            }),
+            inner: vec![item.clone(); num],
+            data_type,
+        }
+    }
+
     /// Returns an iterator on borrowed array.
     pub fn iter(&self) -> FieldDataArrayIteratorBorrow<T, Self> {
         let end = self.inner.len();
@@ -540,6 +560,14 @@ impl Field {
             data_type,
             nullable,
             metadata,
+        }
+    }
+
+    pub fn new_literal(data_type: DataType) -> Self {
+        Self {
+            name: "Literal".into(),
+            data_type,
+            ..Default::default()
         }
     }
 

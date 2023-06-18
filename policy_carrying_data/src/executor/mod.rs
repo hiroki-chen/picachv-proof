@@ -1,3 +1,5 @@
+// TODO: Integrate api set to the executor layer.
+
 use std::{
     cell::OnceCell,
     collections::{HashMap, HashSet, VecDeque},
@@ -5,13 +7,31 @@ use std::{
 };
 
 use bitflags::bitflags;
-use policy_core::error::{PolicyCarryingError, PolicyCarryingResult};
+use policy_core::{
+    error::{PolicyCarryingError, PolicyCarryingResult},
+    expr::AExpr,
+};
 
-use crate::{field::FieldDataRef, plan::physical_expr::PhysicalExpr, schema::SchemaRef, DataFrame};
+use crate::{
+    api::{ApiSetSink, PolicyApiSet},
+    field::FieldDataRef,
+    plan::{physical_expr::PhysicalExpr, ALogicalPlan},
+    schema::SchemaRef,
+    DataFrame,
+};
 
+use self::arena::Arena;
+
+pub mod arena;
 pub mod filter;
 pub mod projection;
 pub mod scan;
+
+pub type ExprArena = Arena<AExpr>;
+pub type LogicalPlanArena = Arena<ALogicalPlan>;
+
+pub(crate) const EXPR_ARENA_SIZE: usize = 0x100;
+pub(crate) const LP_ARENA_SIZE: usize = 0x80;
 
 #[macro_export]
 macro_rules! trace {
@@ -33,6 +53,7 @@ bitflags! {
     #[derive(Default)]
     pub struct ExecutionFlag: u8 {
         const TRACE = 1 << 0;
+        const HAS_WINDOW = 1 << 1;
     }
 }
 
@@ -56,7 +77,8 @@ impl Default for Box<dyn PhysicalExecutor> {
     }
 }
 
-/// State/ cache that is maintained during the Execution of the physical plan, possibly some policies.
+/// State/ cache that is maintained during the Execution of the physical plan. This struct
+/// is also responsible for the management of the policy-related data structure (albeit WIP).
 #[derive(Clone)]
 pub struct ExecutionState {
     /// The cache of the current schema.
@@ -67,6 +89,20 @@ pub struct ExecutionState {
     pub(crate) expr_cache: Arc<Mutex<HashMap<usize, Arc<OnceCell<FieldDataRef>>>>>,
     /// The log trace.
     pub(crate) log: Arc<RwLock<VecDeque<String>>>,
+    /// The api set layer for managing the policy compliance.
+    pub(crate) policy_layer: Arc<dyn PolicyApiSet>,
+}
+
+impl Default for ExecutionState {
+    fn default() -> Self {
+        Self {
+            schema_cache: Arc::new(RwLock::new(None)),
+            execution_flag: Arc::new(RwLock::new(ExecutionFlag::default())),
+            expr_cache: Arc::new(Mutex::new(HashMap::new())),
+            log: Arc::new(RwLock::new(VecDeque::new())),
+            policy_layer: Arc::new(ApiSetSink {}),
+        }
+    }
 }
 
 impl ExecutionState {
@@ -75,6 +111,14 @@ impl ExecutionState {
             Ok(mut lock) => lock.clear(),
             Err(_) => std::hint::spin_loop(),
         }
+    }
+
+    // TODO: Who / where should we pass `api_set` into this ExecutionState?
+    pub fn with_api_set(api_set: Arc<dyn PolicyApiSet>) -> Self {
+        let mut state = Self::default();
+        state.policy_layer = api_set;
+
+        state
     }
 }
 
@@ -95,12 +139,13 @@ pub(crate) fn evaluate_physical_expr_vec(
         .collect::<PolicyCarryingResult<Vec<_>>>()?;
     state.clear_expr();
 
-    expand_projection_literal(selected_columns, df.columns.is_empty())
+    expand_projection_literal(state, selected_columns, df.columns.is_empty())
 }
 
 /// Sometimes the projected columns do not represent anything and are just a bunch of literals.
 /// We need to expand literals to fill the shape of the dataframe.
 pub(crate) fn expand_projection_literal(
+    state: &ExecutionState,
     mut selected_columns: Vec<FieldDataRef>,
     empty: bool,
 ) -> PolicyCarryingResult<DataFrame> {
@@ -165,5 +210,5 @@ pub(crate) fn execution_epilogue(
     mut df: DataFrame,
     state: &ExecutionState,
 ) -> PolicyCarryingResult<DataFrame> {
-    todo!()
+    Ok(df)
 }

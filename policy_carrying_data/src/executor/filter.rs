@@ -6,7 +6,7 @@ use crate::{plan::physical_expr::PhysicalExpr, trace, DataFrame};
 
 use super::{ExecutionState, PhysicalExecutor};
 
-pub struct FilterExec {
+pub(crate) struct FilterExec {
     pub(crate) predicate: Arc<dyn PhysicalExpr>,
     pub(crate) input: Box<dyn PhysicalExecutor>,
 }

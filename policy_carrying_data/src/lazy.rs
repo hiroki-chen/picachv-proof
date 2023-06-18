@@ -1,11 +1,11 @@
 //! The lazy data frame module.
 
-use std::fmt::{Debug, Formatter};
+use std::{fmt::{Debug, Formatter}, sync::Arc};
 
 use policy_core::{error::PolicyCarryingResult, expr::Expr};
 
 use crate::{
-    api::ApiRef,
+    api::{ApiRef, PolicyApiSet},
     executor::execution_epilogue,
     plan::{make_physical_plan, LogicalPlan, OptFlag, PlanBuilder},
     schema::SchemaRef,
@@ -14,20 +14,19 @@ use crate::{
 
 pub trait IntoLazy {
     /// Converts a dafaframe into a lazy frame.
-    fn make_lazy(self) -> LazyFrame;
+    fn make_lazy(self, api_set: Arc<dyn PolicyApiSet>) -> LazyFrame;
 }
 
 #[derive(Clone)]
 #[must_use]
-// TODO： How do (or do we need to) propagate api_set into each [`LogicalPlan`]?
+// TODO： How do (or do we need to) propagate api_set into each [`LogicalPlan`]? Who will propagate or set this field?
 pub struct LazyFrame {
     /// In case we need this.
-    #[allow(unused)]
-    api_set: ApiRef,
+    pub(crate) api_set: ApiRef,
     /// The logical plan.
-    plan: LogicalPlan,
+    pub(crate) plan: LogicalPlan,
     /// The optimization flag.
-    opt_flag: OptFlag,
+    pub(crate) opt_flag: OptFlag,
 }
 
 impl Debug for LazyFrame {
@@ -83,13 +82,14 @@ impl LazyFrame {
     ///
     /// The execution works as follows.
     ///
-    /// 1. Prepare the execution by optimizing, checking the query plan [`LogicalPlan`].
+    /// 1. Prepare the execution by optimizing and checking the query plan [`LogicalPlan`].
     /// 2. Prepare the physical query plan and gets the data.
     /// 3. Return the data which may be sanitized.
     #[must_use = "unused dafaframe must be used"]
     pub fn collect(self) -> PolicyCarryingResult<DataFrame> {
         // Generate a phyiscal plan.
-        let (state, mut executor) = make_physical_plan(self.plan)?;
+        let (state, mut executor) =
+            make_physical_plan(self.plan, self.opt_flag, self.api_set.clone())?;
         let df = executor.execute(&state)?;
 
         execution_epilogue(df, &state)

@@ -91,6 +91,17 @@ pub trait PrimitiveDataType: Debug + Sync + Send + ToString + 'static {
     fn clone_box(&self) -> Box<dyn PrimitiveDataType>;
 }
 
+impl dyn PrimitiveDataType {
+    /// Cast to `T`.
+    #[inline]
+    pub fn try_cast<T>(&self) -> Option<T>
+    where
+        T: Clone + 'static,
+    {
+        self.as_any_ref().downcast_ref::<T>().cloned()
+    }
+}
+
 impl Clone for Box<dyn PrimitiveDataType> {
     fn clone(&self) -> Self {
         self.clone_box()
@@ -199,6 +210,22 @@ macro_rules! declare_numeric_type {
             }
         }
 
+        impl std::ops::Mul<$name> for $name {
+            type Output = $name;
+
+            fn mul(self, other: Self) -> Self {
+                Self::new(self.0.mul(&other.0))
+            }
+        }
+
+        impl std::ops::Div<$name> for $name {
+            type Output = $name;
+
+            fn div(self, other: Self) -> Self {
+                Self::new(self.0.div(&other.0))
+            }
+        }
+
         impl std::ops::Add<f64> for $name {
             type Output = f64;
 
@@ -212,14 +239,6 @@ macro_rules! declare_numeric_type {
 
             fn add(self, other: usize) -> usize {
                 self.0 as usize + other
-            }
-        }
-
-        impl std::ops::Div<$name> for $name {
-            type Output = f64;
-
-            fn div(self, other: Self) -> f64 {
-                (self.0 as f64).div(&(other.0 as f64))
             }
         }
     };

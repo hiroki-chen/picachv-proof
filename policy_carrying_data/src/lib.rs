@@ -3,20 +3,23 @@ use std::{
     sync::Arc,
 };
 
-use api::JoinType;
+use api::{JoinType, PolicyApiSet};
 use csv::Reader;
 use field::{FieldDataArray, FieldDataRef};
 use lazy::{IntoLazy, LazyFrame};
+use plan::{OptFlag, PlanBuilder};
 use policy_core::{
     data_type::{
         BooleanType, DataType, Float32Type, Float64Type, Int16Type, Int32Type, Int64Type, Int8Type,
         UInt16Type, UInt32Type, UInt64Type, UInt8Type, Utf8StrType,
     },
     error::{PolicyCarryingError, PolicyCarryingResult},
+    policy::TopPolicy,
 };
-use schema::SchemaRef;
+use schema::{Schema, SchemaMetadata, SchemaRef};
 
 pub mod api;
+pub mod arithmetic;
 pub mod executor;
 pub mod field;
 pub mod lazy;
@@ -36,6 +39,26 @@ macro_rules! push_type {
                 .map_err(|e| PolicyCarryingError::TypeMismatch(e.to_string()))?,
         ))
     };
+}
+
+/// A user defiend function that can applied on a dataframe.
+pub trait UserDefinedFunction: Send + Sync {
+    fn call(&self, df: DataFrame) -> PolicyCarryingResult<DataFrame>;
+}
+
+impl Debug for dyn UserDefinedFunction {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "UDF")
+    }
+}
+
+impl<F> UserDefinedFunction for F
+where
+    F: Fn(DataFrame) -> PolicyCarryingResult<DataFrame> + Send + Sync,
+{
+    fn call(&self, df: DataFrame) -> PolicyCarryingResult<DataFrame> {
+        self(df)
+    }
 }
 
 /// The concrete struct that represents the policy-carrying data. This struct is used when we want to generate policy
@@ -76,8 +99,16 @@ pub struct DataFrame {
 }
 
 impl IntoLazy for DataFrame {
-    fn make_lazy(self) -> LazyFrame {
-        todo!()
+    fn make_lazy(self, api_set: Arc<dyn PolicyApiSet>) -> LazyFrame {
+        LazyFrame {
+            #[cfg(test)]
+            api_set: Arc::new(crate::api::ApiSetSink {}),
+
+            #[cfg(not(test))]
+            api_set,
+            plan: PlanBuilder::from(self).finish(),
+            opt_flag: OptFlag::all(),
+        }
     }
 }
 
@@ -221,6 +252,14 @@ impl DataFrame {
         Self { columns }
     }
 
+    pub fn schema(&self) -> SchemaRef {
+        Arc::new(Schema {
+            fields: self.columns.iter().map(|c| c.field()).collect(),
+            metadata: SchemaMetadata {},
+            policy: Box::new(TopPolicy {}),
+        })
+    }
+
     /// Joins two policy-carrying data together.
     #[must_use]
     pub(crate) fn join(self, other: Self, join_type: JoinType) -> PolicyCarryingResult<Self> {
@@ -264,6 +303,17 @@ impl DataFrame {
 
         Ok(Self::new_with_cols(data))
     }
+
+    /// Finds a column name in the schema of this dataframe.
+    pub(crate) fn find_column(&self, name: &str) -> PolicyCarryingResult<FieldDataRef> {
+        self.columns
+            .iter()
+            .find(|col| col.name() == name)
+            .map(|col| col.clone())
+            .ok_or(PolicyCarryingError::SchemaMismatch(
+                "column not found!".into(),
+            ))
+    }
 }
 
 unsafe impl Send for DataFrame {}
@@ -271,7 +321,9 @@ unsafe impl Send for DataFrame {}
 #[cfg(test)]
 mod test {
 
-    use crate::{field::BooleanFieldData, schema::SchemaBuilder};
+    use policy_core::cols;
+
+    use crate::{schema::SchemaBuilder, api::ApiSetSink};
 
     use super::*;
 
@@ -285,12 +337,12 @@ mod test {
         let pcd = DataFrame::load_csv("../test_data/simple_csv.csv", schema.clone());
 
         assert!(pcd.is_ok());
-        let pcd = pcd.unwrap();
+        let pcd = pcd
+            .unwrap()
+            .make_lazy(Arc::new(ApiSetSink {}))
+            .select(cols!("column_1"))
+            .collect();
 
-        let mask = BooleanFieldData::from(vec![true, false, true, true, false, false]);
-        let pcd = pcd.filter(&mask);
-
-        assert!(pcd.is_ok());
         println!("{pcd:?}");
     }
 }

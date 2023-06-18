@@ -8,7 +8,7 @@ use super::{ExecutionState, PhysicalExecutor};
 
 /// Producer of an in memory [`DataFrame`]. This should be the deepmost executor that cannot be dependent on any
 /// other executors because the data must eventually come from data frame.
-pub struct DataFrameExec {
+pub(crate) struct DataFrameExec {
     pub(crate) df: Arc<DataFrame>,
     /// This is the predicate.
     pub(crate) selection: Option<Arc<dyn PhysicalExpr>>,
@@ -26,10 +26,7 @@ impl PhysicalExecutor for DataFrameExec {
         // If there is no other pointers, we can modify the dataframe in-place. Otherwise, we need
         // to make a clone.
         let df = std::mem::take(&mut self.df);
-        let mut df = match Arc::try_unwrap(df) {
-            Ok(df) => df,
-            Err(_) => self.df.deref().clone(),
-        };
+        let mut df = Arc::try_unwrap(df).unwrap_or_else(|df| df.deref().clone());
 
         // Apply projection and selection at first to reduce the amount of data that should be returned.
         if let Some(projection) = self.projection.as_ref() {
@@ -48,5 +45,21 @@ impl PhysicalExecutor for DataFrameExec {
         }
 
         Ok(df)
+    }
+}
+
+impl DataFrameExec {
+    pub fn new(
+        df: Arc<DataFrame>,
+        selection: Option<Arc<dyn PhysicalExpr>>,
+        projection: Option<Arc<Vec<String>>>,
+        predicate_has_windows: bool,
+    ) -> Self {
+        Self {
+            df,
+            selection,
+            projection,
+            predicate_has_windows,
+        }
     }
 }

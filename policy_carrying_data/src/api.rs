@@ -10,7 +10,7 @@ use crate::{
     DataFrame,
 };
 
-pub type ApiRef = Arc<dyn PolicyCarryingData>;
+pub type ApiRef = Arc<dyn PolicyApiSet>;
 
 // Some common APIs that can be used implement the `PolicyCompliantApiSet`'s trait methods.
 
@@ -70,18 +70,19 @@ where
     }
 }
 
+#[derive(Clone, Debug)]
 pub enum JoinType {
     Left,
     Right,
 }
 
 /// The 'real' implementation of all the allowed APIs for a policy-carrying data. By default,
-/// all the operations called directly on a [`PolicyCarryingData`] will invoke the methods
+/// all the operations called directly on a [`PolicyApiSet`] will invoke the provided methods
 /// implemented by this trait.
 ///
-/// Note that [`PolicyCarryingData`] shoud be both [`Send`] and [`Sync`] because we want to
-/// execute the data analysis operations lazily; thus it requires synchronization and sharing.
-pub trait PolicyCarryingData: Send + Sync {
+/// Note that [`PolicyApiSet`] shoud be both [`Send`] and [`Sync`] because we want to ensure
+/// executing the data analysis operations lazily; thus it requires synchronization and sharing.
+pub trait PolicyApiSet: Send + Sync {
     // SOME APIs that are invoked by the executors at the physical query level.
 
     /// Selects (in fact projects) given columns.
@@ -98,6 +99,11 @@ pub trait PolicyCarryingData: Send + Sync {
         )))
     }
 }
+
+/// An ApiSet that simply forbids everything and should not used.
+pub struct ApiSetSink;
+
+impl PolicyApiSet for ApiSetSink {}
 
 #[cfg(test)]
 mod test {

@@ -3,13 +3,19 @@ use std::{ops::Deref, sync::Arc};
 use bitflags::bitflags;
 use policy_core::{
     error::{PolicyCarryingError, PolicyCarryingResult},
-    expr::Expr,
+    expr::{AAggExpr, AExpr, Aggregation, Expr, Node},
     policy::Policy,
 };
 
 use crate::{
-    executor::{ExecutionState, PhysicalExecutor},
+    api::{JoinType, PolicyApiSet},
+    executor::{
+        filter::FilterExec, projection::ProjectionExec, scan::DataFrameExec, ExecutionState,
+        ExprArena, LogicalPlanArena, PhysicalExecutor, EXPR_ARENA_SIZE, LP_ARENA_SIZE,
+    },
+    plan::physical_expr::make_physical_expr,
     schema::SchemaRef,
+    DataFrame, UserDefinedFunction,
 };
 
 pub mod physical_expr;
@@ -37,7 +43,7 @@ macro_rules! delayed_err {
             Err(err) => {
                 return PlanBuilder {
                     plan: LogicalPlan::StagedError {
-                        data: Box::new($inner),
+                        input: Box::new($inner),
                         err,
                     },
                 }
@@ -58,14 +64,14 @@ macro_rules! delayed_err {
 pub enum LogicalPlan {
     /// Select with *filter conditions* that work on a [`LogicalPlan`].
     Select {
-        data: Box<LogicalPlan>,
+        input: Box<LogicalPlan>,
         predicate: Expr,
         policy: Option<Box<dyn Policy>>,
     },
 
     /// Projection
     Projection {
-        data: Box<LogicalPlan>,
+        input: Box<LogicalPlan>,
         /// Column 'names' as we may apply some transformation on columns.
         expression: Vec<Expr>,
         schema: SchemaRef,
@@ -74,11 +80,13 @@ pub enum LogicalPlan {
 
     /// Aggregate and group by
     Aggregation {
-        data: Box<LogicalPlan>,
+        input: Box<LogicalPlan>,
         schema: SchemaRef,
         /// Group by `keys`.
         keys: Arc<Vec<Expr>>,
         aggs: Vec<Expr>,
+        apply: Option<Arc<dyn UserDefinedFunction>>,
+        maintain_order: bool,
         policy: Option<Box<dyn Policy>>,
     },
 
@@ -89,26 +97,84 @@ pub enum LogicalPlan {
         schema: SchemaRef,
         left_on: Vec<Expr>,
         right_on: Vec<Expr>,
-        options: (),
+        options: JoinType,
     },
 
     /// Error that should be emitted later.
     StagedError {
-        data: Box<LogicalPlan>,
+        input: Box<LogicalPlan>,
         err: PolicyCarryingError,
         // Should we add a span?
     },
+
+    DataFrameScan {
+        df: Arc<DataFrame>,
+        schema: SchemaRef,
+        // schema of the projected file
+        output_schema: Option<SchemaRef>,
+        projection: Option<Arc<Vec<String>>>,
+        selection: Option<Expr>,
+    },
+}
+
+/// ALogicalPlan is a representation of LogicalPlan with Nodes which are allocated in an Arena
+#[derive(Clone, Debug)]
+pub enum ALogicalPlan {
+    Selection {
+        input: Node,
+        predicate: Node,
+    },
+    DataFrameScan {
+        df: Arc<DataFrame>,
+        schema: SchemaRef,
+        // schema of the projected file
+        output_schema: Option<SchemaRef>,
+        projection: Option<Arc<Vec<String>>>,
+        selection: Option<Node>,
+    },
+    Projection {
+        input: Node,
+        expr: Vec<Node>,
+        schema: SchemaRef,
+    },
+    Aggregate {
+        input: Node,
+        keys: Vec<Node>,
+        aggs: Vec<Node>,
+        schema: SchemaRef,
+        apply: Option<Arc<dyn UserDefinedFunction>>,
+        maintain_order: bool,
+        // options: GroupbyOptions,
+    },
+    Join {
+        input_left: Node,
+        input_right: Node,
+        schema: SchemaRef,
+        left_on: Vec<Node>,
+        right_on: Vec<Node>,
+        options: JoinType,
+    },
+
+    /// A sink that indicates some internal logic error but not captured correctly.
+    Nonsense(Node),
+}
+
+impl Default for ALogicalPlan {
+    fn default() -> Self {
+        Self::Nonsense(Node::default())
+    }
 }
 
 impl LogicalPlan {
     /// Returns the schema of the current logical plan.
     pub fn schema(&self) -> PolicyCarryingResult<SchemaRef> {
         match self {
-            Self::Select { data, .. } => data.schema(),
+            Self::Select { input: data, .. } => data.schema(),
             Self::Projection { schema, .. } => Ok(schema.clone()),
             Self::Aggregation { schema, .. } => Ok(schema.clone()),
             Self::Join { schema, .. } => Ok(schema.clone()),
             Self::StagedError { err, .. } => Err(err.clone()),
+            Self::DataFrameScan { schema, .. } => Ok(schema.clone()),
         }
     }
 
@@ -121,7 +187,37 @@ impl LogicalPlan {
     pub(crate) fn peek_policy(&self) -> Option<&Box<dyn Policy>> {
         match self {
             Self::Projection { policy, .. } => policy.as_ref(),
-            _ => unimplemented!(),
+            _ => None,
+        }
+    }
+}
+
+impl ALogicalPlan {
+    /// Returns the schema of the current arena-ed logical plan.
+    pub fn schema(&self, lp_arena: &LogicalPlanArena) -> SchemaRef {
+        match self {
+            ALogicalPlan::DataFrameScan {
+                schema,
+                output_schema,
+                ..
+            } => output_schema.clone().unwrap_or(schema.clone()),
+            ALogicalPlan::Aggregate { schema, .. } => schema.clone(),
+            ALogicalPlan::Join { schema, .. } => schema.clone(),
+            ALogicalPlan::Selection { input, .. } => lp_arena.get(*input).schema(lp_arena).clone(),
+            ALogicalPlan::Projection { schema, .. } => schema.clone(),
+            ALogicalPlan::Nonsense(_) => panic!("trying to access an invalid ALogicalPlan"),
+        }
+    }
+
+    /// Gets the name.
+    pub fn name(&self) -> &str {
+        match self {
+            ALogicalPlan::Aggregate { .. } => "Aggregate",
+            ALogicalPlan::DataFrameScan { .. } => "Dataframe Scan",
+            ALogicalPlan::Join { .. } => "Join",
+            ALogicalPlan::Selection { .. } => "Selection",
+            ALogicalPlan::Projection { .. } => "Projection",
+            ALogicalPlan::Nonsense(_) => "Invalid!",
         }
     }
 }
@@ -137,6 +233,21 @@ impl From<LogicalPlan> for PlanBuilder {
     }
 }
 
+impl From<DataFrame> for PlanBuilder {
+    fn from(df: DataFrame) -> Self {
+        let schema = df.schema();
+
+        LogicalPlan::DataFrameScan {
+            df: Arc::new(df),
+            schema,
+            output_schema: None,
+            projection: None,
+            selection: None,
+        }
+        .into()
+    }
+}
+
 impl PlanBuilder {
     /// Finishes the build and returns the inner struct.
     pub fn finish(self) -> LogicalPlan {
@@ -149,14 +260,20 @@ impl PlanBuilder {
         let expr = delayed_err!(
             rewrite_projection(
                 expressions,
-                schema,
+                schema.clone(),
                 &[],
                 self.plan.peek_policy().map(|p| p.as_ref())
             ),
             self.plan
         );
 
-        todo!()
+        LogicalPlan::Projection {
+            input: Box::new(self.plan),
+            expression: expr,
+            schema,
+            policy: None,
+        }
+        .into()
     }
 
     /// Performs filtering.
@@ -173,7 +290,7 @@ impl PlanBuilder {
 
         Self {
             plan: LogicalPlan::Select {
-                data: Box::new(self.plan),
+                input: Box::new(self.plan),
                 predicate,
                 policy: None, // FIXME.
             },
@@ -226,15 +343,320 @@ pub(crate) fn rewrite_projection(
     }
 
     // Check if all the column names are unique.
-    // TODO: Add qualifier for ambiguous column names.
+    // TODO: Add qualifier for ambiguous column names. E.g., A.c, B.c => full quantifier!
 
     Ok(result)
+}
+
+/// Performs the optimization on the [`LogicalPlan`], if needed.
+#[cfg_attr(not(feature = "optimize"), allow(unused_variables))]
+pub(crate) fn optimize(
+    logical_plan: LogicalPlan,
+    opt_flag: OptFlag,
+    lp_arena: &mut LogicalPlanArena,
+    expr_arena: &mut ExprArena,
+    nodes: &mut Vec<Node>,
+) -> PolicyCarryingResult<Node> {
+    #[cfg(feature = "optimize")]
+    {
+        // If there is nothing that we perform optimization on, we directly returns the node identifier.
+        if opt_flag.contains(OptFlag::NONE) {
+            lp_to_alp(logical_plan, expr_arena, lp_arena)
+        } else {
+            todo!()
+        }
+    }
+
+    #[cfg(not(feature = "optimize"))]
+    {
+        // Since we do no implement optimization at this timepoint, we just call `lp_to_alp`.
+        lp_to_alp(logical_plan, expr_arena, lp_arena)
+    }
+}
+
+/// Converts the aggregation expression into its arena-ed version [`AAggExpr`].
+pub(crate) fn agg_to_aagg(
+    aggregation: Aggregation,
+    expr_arena: &mut ExprArena,
+) -> PolicyCarryingResult<AAggExpr> {
+    let expr = match aggregation {
+        Aggregation::Min(expr) => AAggExpr::Min {
+            input: expr_to_aexpr(*expr, expr_arena)?,
+            // FIXME: Propagate?
+            propagate_nans: true,
+        },
+        Aggregation::Max(expr) => AAggExpr::Max {
+            input: expr_to_aexpr(*expr, expr_arena)?,
+            // FIXME: Propagate?
+            propagate_nans: true,
+        },
+        Aggregation::Sum(expr) => AAggExpr::Sum(expr_to_aexpr(*expr, expr_arena)?),
+        Aggregation::Mean(expr) => AAggExpr::Mean(expr_to_aexpr(*expr, expr_arena)?),
+    };
+
+    Ok(expr)
+}
+
+/// Taking as input the [`Expr`] and two arenas for storing the intermediate results, this function
+/// converts the [`AExpr`] to its corresponding [`Node`] in the arena for physical plan generation.
+pub(crate) fn expr_to_aexpr(expr: Expr, expr_arena: &mut ExprArena) -> PolicyCarryingResult<Node> {
+    let aexpr = match expr {
+        Expr::Agg(aggregation) => AExpr::Agg(agg_to_aagg(aggregation, expr_arena)?),
+        Expr::Column(name) => AExpr::Column(name),
+        Expr::Alias { expr, name } => {
+            let expr = expr_to_aexpr(*expr, expr_arena)?;
+            AExpr::Alias(expr, name)
+        }
+        Expr::Wildcard => AExpr::Wildcard,
+        Expr::Exclude(_, _) => panic!("exclude should be expanded at the higher level."),
+        Expr::Filter { input, filter } => {
+            let input = expr_to_aexpr(*input, expr_arena)?;
+            let predicate = expr_to_aexpr(*filter, expr_arena)?;
+            AExpr::Filter {
+                input,
+                by: predicate,
+            }
+        }
+        Expr::BinaryOp { left, op, right } => {
+            let left: Node = expr_to_aexpr(*left, expr_arena)?;
+            let right = expr_to_aexpr(*right, expr_arena)?;
+            AExpr::BinaryOp { left, op, right }
+        }
+        Expr::Literal(val) => AExpr::Literal(val),
+    };
+
+    Ok(expr_arena.add(aexpr))
+}
+
+/// Taking as input the [`LogicalPlan`] and two arenas for storing the intermediate results, this function
+/// converts the [`LogicalPlan`] to its corresponding [`Node`] in the arena for physical plan generation.
+/// Note that the input logical plan may be optimized to get a better performance.
+pub(crate) fn lp_to_alp(
+    logical_plan: LogicalPlan,
+    expr_arena: &mut ExprArena,
+    lp_arena: &mut LogicalPlanArena,
+) -> PolicyCarryingResult<Node> {
+    let alp = match logical_plan {
+        LogicalPlan::Select {
+            input, predicate, ..
+        } => {
+            let input = lp_to_alp(*input, expr_arena, lp_arena)?;
+            let predicate = expr_to_aexpr(predicate, expr_arena)?;
+            ALogicalPlan::Selection { input, predicate }
+        }
+        LogicalPlan::Projection {
+            input,
+            expression,
+            schema,
+            ..
+        } => {
+            let input = lp_to_alp(*input, expr_arena, lp_arena)?;
+            let expression = expression
+                .into_iter()
+                .map(|expr| expr_to_aexpr(expr, expr_arena))
+                .collect::<PolicyCarryingResult<Vec<_>>>()?;
+            ALogicalPlan::Projection {
+                input,
+                expr: expression,
+                schema,
+            }
+        }
+
+        LogicalPlan::DataFrameScan {
+            df,
+            projection,
+            selection,
+            schema,
+            output_schema,
+        } => ALogicalPlan::DataFrameScan {
+            df,
+            schema,
+            output_schema,
+            projection,
+            selection: selection
+                .map(|expr| expr_to_aexpr(expr, expr_arena))
+                .transpose()?,
+        },
+        LogicalPlan::Aggregation {
+            input,
+            schema,
+            keys,
+            aggs,
+            apply,
+            maintain_order,
+            ..
+        } => {
+            let input = lp_to_alp(*input, expr_arena, lp_arena)?;
+
+            // Try unwrap the reference counter and clone it if necessary.
+            let keys = Arc::try_unwrap(keys)
+                .unwrap_or_else(|keys| keys.deref().clone())
+                .into_iter()
+                .map(|expr| expr_to_aexpr(expr, expr_arena))
+                .collect::<PolicyCarryingResult<Vec<_>>>()?;
+            let aggs = aggs
+                .into_iter()
+                .map(|expr| expr_to_aexpr(expr, expr_arena))
+                .collect::<PolicyCarryingResult<Vec<_>>>()?;
+
+            ALogicalPlan::Aggregate {
+                input,
+                keys,
+                aggs,
+                schema,
+                apply,
+                maintain_order,
+            }
+        }
+        LogicalPlan::Join {
+            input_left,
+            input_right,
+            schema,
+            left_on,
+            right_on,
+            options,
+        } => {
+            let input_left = lp_to_alp(*input_left, expr_arena, lp_arena)?;
+            let input_right = lp_to_alp(*input_right, expr_arena, lp_arena)?;
+            let left_on = left_on
+                .into_iter()
+                .map(|expr| expr_to_aexpr(expr, expr_arena))
+                .collect::<PolicyCarryingResult<Vec<_>>>()?;
+            let right_on = right_on
+                .into_iter()
+                .map(|expr| expr_to_aexpr(expr, expr_arena))
+                .collect::<PolicyCarryingResult<Vec<_>>>()?;
+
+            ALogicalPlan::Join {
+                input_left,
+                input_right,
+                schema,
+                left_on,
+                right_on,
+                options,
+            }
+        }
+        LogicalPlan::StagedError { err, .. } => return Err(err),
+    };
+
+    Ok(lp_arena.add(alp))
 }
 
 /// This function converts the logical plan [`LogicalPlan`] into a [`PhysicalPlan`] and also
 /// applies some optimizations thereon for best performance. Meanwhile, this function will
 /// analyze if the query plan would have any change that it will break the given privacy
 /// policy or apply some necessary privacy schemes on the data (hints the executor).
-pub(crate) fn make_physical_plan(lp: LogicalPlan) -> PolicyCarryingResult<PhysicalPlan> {
-    todo!()
+pub(crate) fn make_physical_plan(
+    lp: LogicalPlan,
+    opt_flag: OptFlag,
+    api_set: Arc<dyn PolicyApiSet>,
+) -> PolicyCarryingResult<PhysicalPlan> {
+    // Create two arenas for expressions and logical plans (for their optimizations).
+    let mut expr_arena = ExprArena::with_capacity(EXPR_ARENA_SIZE);
+    let mut lp_arena = LogicalPlanArena::with_capacity(LP_ARENA_SIZE);
+    // Store nodes.
+    let mut nodes = Vec::new();
+
+    let root = optimize(lp, opt_flag, &mut lp_arena, &mut expr_arena, &mut nodes)?;
+    let executor = do_make_physical_plan(root, &mut lp_arena, &mut expr_arena)?;
+
+    Ok((ExecutionState::with_api_set(api_set), executor))
+}
+
+/// A recursive function that handles the conversion from [`ALogicalPlan`] to the [`PhysicalExecutor`] AST.
+fn do_make_physical_plan(
+    root: Node,
+    lp_arena: &mut LogicalPlanArena,
+    expr_arena: &mut ExprArena,
+) -> PolicyCarryingResult<Box<dyn PhysicalExecutor>> {
+    match lp_arena.take(root) {
+        ALogicalPlan::Selection { input, predicate } => {
+            let input = do_make_physical_plan(input, lp_arena, expr_arena)?;
+            let state = ExecutionState::default();
+            let predicate = make_physical_expr(predicate, expr_arena, None, &state, false)?;
+
+            Ok(Box::new(FilterExec::new(predicate, input)))
+        }
+        ALogicalPlan::DataFrameScan {
+            df,
+            schema,
+            projection,
+            selection,
+            ..
+        } => {
+            let state = ExecutionState::default();
+            let selection = match selection {
+                Some(node) => {
+                    match make_physical_expr(node, expr_arena, Some(schema.clone()), &state, false)
+                    {
+                        Ok(selection) => Some(selection),
+                        Err(_) => None,
+                    }
+                }
+                None => None,
+            };
+
+            // here!
+            Ok(Box::new(DataFrameExec::new(
+                df, selection, projection, false,
+            )))
+        }
+        ALogicalPlan::Projection { input, expr, .. } => {
+            let schema = lp_arena.get(input).schema(lp_arena);
+            let input = do_make_physical_plan(input, lp_arena, expr_arena)?;
+            let state = ExecutionState::default();
+            let expr = expr
+                .into_iter()
+                .map(|expr| {
+                    make_physical_expr(expr, expr_arena, Some(schema.clone()), &state, false)
+                })
+                .collect::<PolicyCarryingResult<Vec<_>>>()?;
+
+            Ok(Box::new(ProjectionExec::new(input, expr, schema)))
+        }
+        ALogicalPlan::Aggregate {
+            input,
+            keys,
+            aggs,
+            schema,
+            apply,
+            maintain_order,
+        } => todo!(),
+
+        ALogicalPlan::Join {
+            input_left,
+            input_right,
+            schema,
+            left_on,
+            right_on,
+            options,
+        } => todo!(),
+
+        ALogicalPlan::Nonsense(_) => Err(PolicyCarryingError::OperationNotSupported),
+    }
+}
+
+/// Converts the arena-ed expression into its concrete type from the [`ExprArena`].
+pub(crate) fn aexpr_to_expr(aexpr: Node, expr_arena: &ExprArena) -> Expr {
+    let aexpr = expr_arena.get(aexpr).clone();
+
+    match aexpr {
+        AExpr::Alias(input, name) => Expr::Alias {
+            expr: Box::new(aexpr_to_expr(input, expr_arena)),
+            name,
+        },
+        AExpr::Column(name) => Expr::Column(name),
+        AExpr::Literal(val) => Expr::Literal(val),
+        AExpr::BinaryOp { left, op, right } => Expr::BinaryOp {
+            left: Box::new(aexpr_to_expr(left, expr_arena)),
+            op,
+            right: Box::new(aexpr_to_expr(right, expr_arena)),
+        },
+        AExpr::Filter { input, by } => Expr::Filter {
+            input: Box::new(aexpr_to_expr(input, expr_arena)),
+            filter: Box::new(aexpr_to_expr(by, expr_arena)),
+        },
+        AExpr::Agg(aggregation) => todo!(),
+        AExpr::Wildcard => Expr::Wildcard,
+    }
 }
