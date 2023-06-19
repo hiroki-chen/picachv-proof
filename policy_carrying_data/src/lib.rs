@@ -1,5 +1,7 @@
+#![cfg_attr(not(test), deny(unused_must_use))]
+
 use std::{
-    fmt::{Debug, Formatter},
+    fmt::{Debug, Display, Formatter},
     sync::Arc,
 };
 
@@ -19,27 +21,22 @@ use policy_core::{
 use schema::{Schema, SchemaMetadata, SchemaRef};
 
 pub mod api;
-pub mod arithmetic;
-pub mod executor;
 pub mod field;
 pub mod lazy;
-pub mod plan;
 pub mod privacy;
 pub mod row;
 pub mod schema;
 
+mod arithmetic;
+mod comparator;
+mod executor;
+mod macros;
+mod plan;
+
+pub use macros::*;
+
 #[cfg(feature = "prettyprint")]
 pub mod pretty;
-
-macro_rules! push_type {
-    ($vec:expr, $data:ident, $ty:tt, $data_type:ident) => {
-        $vec.push($data_type::new(
-            $data
-                .parse::<$ty>()
-                .map_err(|e| PolicyCarryingError::TypeMismatch(e.to_string()))?,
-        ))
-    };
-}
 
 /// A user defiend function that can applied on a dataframe.
 pub trait UserDefinedFunction: Send + Sync {
@@ -112,6 +109,12 @@ impl IntoLazy for DataFrame {
     }
 }
 
+impl Display for DataFrame {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        Debug::fmt(&self, f)
+    }
+}
+
 impl Debug for DataFrame {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "shape: {:?}", self.shape())?;
@@ -157,13 +160,13 @@ impl DataFrame {
     }
 
     /// Loads the CSV file into the pcd.
-    pub fn load_csv(path: &str, schema: SchemaRef) -> PolicyCarryingResult<Self> {
+    pub fn load_csv(path: &str, schema: Option<SchemaRef>) -> PolicyCarryingResult<Self> {
         let mut reader =
             Reader::from_path(path).map_err(|e| PolicyCarryingError::FsError(e.to_string()))?;
 
         // If this CSV file has header, we check if this matches the schema.
-        match reader.headers().cloned() {
-            Ok(headers) => {
+        let schema = match (reader.headers().cloned(), schema) {
+            (Ok(headers), Some(schema)) => {
                 let columns = schema.columns();
 
                 if headers.len() != columns.len() {
@@ -182,10 +185,12 @@ impl DataFrame {
                     }
                 }
 
-                headers
+                schema
             }
 
-            Err(_) => return Err(PolicyCarryingError::OperationNotSupported),
+            // We cannot produce any schema from it!
+            (Err(_), None) => return Err(PolicyCarryingError::OperationNotSupported),
+            _ => panic!(),
         };
 
         let mut columns = schema.empty_field_data();
@@ -321,9 +326,9 @@ unsafe impl Send for DataFrame {}
 #[cfg(test)]
 mod test {
 
-    use policy_core::cols;
+    use policy_core::{col, cols};
 
-    use crate::{schema::SchemaBuilder, api::ApiSetSink};
+    use crate::{api::ApiSetSink, schema::SchemaBuilder};
 
     use super::*;
 
@@ -334,13 +339,29 @@ mod test {
             .add_field_raw("column_2", DataType::Float64, false)
             .finish_with_top();
 
-        let pcd = DataFrame::load_csv("../test_data/simple_csv.csv", schema.clone());
+        let pcd = DataFrame::load_csv("../test_data/simple_csv.csv", Some(schema.clone()));
 
         assert!(pcd.is_ok());
+    }
+
+    #[test]
+    fn test_simple_query() {
+        let pcd = pcd! {
+            "column_1" => DataType::Int8: [1, 2, 3, 4, 5, 6, 7, 8],
+            "column_2" => DataType::Float64: [1.0, 2.0, 3.0, 4.0, 22.3, 22.3, 22.3, 22.3],
+        };
+
+        println!("{pcd}");
+
         let pcd = pcd
-            .unwrap()
             .make_lazy(Arc::new(ApiSetSink {}))
-            .select(cols!("column_1"))
+            .select(cols!("column_2"))
+            .filter(
+                col!("column_2")
+                    .lt(Float64Type::new(200.0))
+                    .and(col!("column_2").eq(Float64Type::new(22.3))),
+            )
+            // .sum()
             .collect();
 
         println!("{pcd:?}");

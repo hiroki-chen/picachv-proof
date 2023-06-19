@@ -6,7 +6,7 @@ use policy_core::{
     policy::{Policy, TopPolicy},
 };
 
-use crate::field::{new_empty, Field, FieldData, FieldDataRef, FieldMetadata, FieldRef};
+use crate::field::{new_empty, Field, FieldData, FieldMetadata, FieldRef};
 
 pub type SchemaRef = Arc<Schema>;
 

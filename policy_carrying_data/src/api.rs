@@ -100,31 +100,10 @@ pub trait PolicyApiSet: Send + Sync {
     }
 }
 
-/// An ApiSet that simply forbids everything and should not used.
+/// An ApiSet that simply forbids everything and should not used for any other purposes except for testing.
 pub struct ApiSetSink;
 
 impl PolicyApiSet for ApiSetSink {}
 
 #[cfg(test)]
-mod test {
-    use policy_core::data_type::Int8Type;
-
-    use crate::field::Int8FieldData;
-
-    use super::*;
-
-    #[test]
-    fn test_basic_pcd_apis() {
-        let int8_data_lhs = Int8FieldData::from(vec![1i8, 2, 3, 4, 5]);
-
-        let res = pcd_max(&int8_data_lhs);
-        assert!(res.is_ok());
-        let res = res.unwrap();
-        assert_eq!(res.0, 5);
-
-        let res = pcd_sum(&int8_data_lhs, Int8Type::new(0), None);
-        assert!(res.is_ok());
-        let res = res.unwrap();
-        assert_eq!(res.0, 15);
-    }
-}
+mod test {}

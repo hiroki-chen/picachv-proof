@@ -1,22 +1,28 @@
-use std::{any::Any, fmt::Debug, sync::Arc};
+use std::{
+    any::Any,
+    fmt::Debug,
+    ops::{BitAnd, BitOr, BitXor, Deref},
+    sync::Arc,
+};
 
 use policy_core::{
     data_type::{
-        DataType, Float32Type, Float64Type, Int32Type, Int64Type, Int8Type, PrimitiveDataType,
-        UInt16Type, UInt32Type, UInt64Type, UInt8Type,
+        BooleanType, DataType, Float32Type, Float64Type, Int32Type, Int64Type, Int8Type,
+        PrimitiveDataType, UInt16Type, UInt32Type, UInt64Type, UInt8Type,
     },
     error::{PolicyCarryingError, PolicyCarryingResult},
-    expr::{AExpr, BinaryOp, Expr, Node},
+    expr::{AAggExpr, AExpr, BinaryOp, Expr, GroupByMethod, Node},
 };
 
 use crate::{
+    comparator::Comparator,
     executor::{ExecutionState, ExprArena},
-    field::{FieldDataArray, FieldDataRef},
+    field::{Field, FieldDataArray, FieldDataRef},
     schema::SchemaRef,
-    DataFrame,
+    DataFrame, UserDefinedFunction,
 };
 
-use super::aexpr_to_expr;
+use super::{aexpr_to_expr, ApplyOption};
 
 pub(crate) type PhysicalExprRef = Arc<dyn PhysicalExpr>;
 
@@ -31,9 +37,20 @@ pub(crate) trait PhysicalExpr: Send + Sync + Debug {
     /// Evaluates this physical expression on a dataframe.
     fn evaluate(
         &self,
-        df: &DataFrame,
-        state: &ExecutionState,
-    ) -> PolicyCarryingResult<FieldDataRef>;
+        _df: &DataFrame,
+        _state: &ExecutionState,
+    ) -> PolicyCarryingResult<FieldDataRef> {
+        Err(PolicyCarryingError::OperationNotSupported)
+    }
+
+    /// Evaluate on groups due to `group_by()`.
+    fn evalute_group(
+        &self,
+        _df: &DataFrame,
+        _state: &ExecutionState,
+    ) -> PolicyCarryingResult<FieldDataRef> {
+        Err(PolicyCarryingError::OperationNotSupported)
+    }
 
     /// Returns the children of this node, if any.
     fn children(&self) -> Vec<PhysicalExprRef>;
@@ -62,9 +79,27 @@ pub struct FilterExpr {
 
 #[derive(Debug)]
 pub struct ColumnExpr {
-    name: String,
+    pub(crate) name: String,
     expr: Expr,
     schema: Option<SchemaRef>,
+}
+
+#[derive(Debug)]
+pub struct AggregateExpr {
+    pub(crate) input: PhysicalExprRef,
+    pub(crate) agg_type: GroupByMethod,
+    field: Option<Field>,
+}
+
+#[derive(Debug)]
+pub struct ApplyExpr {
+    pub(crate) inputs: Vec<PhysicalExprRef>,
+    pub(crate) function: Arc<dyn UserDefinedFunction>,
+    pub(crate) expr: Expr,
+    pub(crate) collect_groups: ApplyOption,
+    pub(crate) allow_rename: bool,
+    pub(crate) pass_name_to_apply: bool,
+    pub(crate) input_schema: Option<SchemaRef>,
 }
 
 impl PhysicalExpr for FilterExpr {
@@ -266,6 +301,58 @@ impl PhysicalExpr for ColumnExpr {
     }
 }
 
+impl PhysicalExpr for AggregateExpr {
+    fn as_any_ref(&self) -> &dyn Any {
+        self
+    }
+
+    fn children(&self) -> Vec<PhysicalExprRef> {
+        vec![self.input.clone()]
+    }
+
+    fn evalute_group(
+        &self,
+        df: &DataFrame,
+        state: &ExecutionState,
+    ) -> PolicyCarryingResult<FieldDataRef> {
+        todo!()
+    }
+
+    fn expr(&self) -> Option<&Expr> {
+        None
+    }
+}
+
+impl PhysicalExpr for ApplyExpr {
+    fn as_any_ref(&self) -> &dyn Any {
+        self
+    }
+
+    fn children(&self) -> Vec<PhysicalExprRef> {
+        self.inputs.clone()
+    }
+
+    fn evaluate(
+        &self,
+        _df: &DataFrame,
+        _state: &ExecutionState,
+    ) -> PolicyCarryingResult<FieldDataRef> {
+        todo!()
+    }
+
+    fn evalute_group(
+        &self,
+        _df: &DataFrame,
+        _state: &ExecutionState,
+    ) -> PolicyCarryingResult<FieldDataRef> {
+        todo!()
+    }
+
+    fn expr(&self) -> Option<&Expr> {
+        Some(&self.expr)
+    }
+}
+
 /// Applies the binary operator on the two [`FieldDataRef`] and returns the result.
 pub(crate) fn apply_binary_operator(
     lhs: FieldDataRef,
@@ -278,7 +365,135 @@ pub(crate) fn apply_binary_operator(
         BinaryOp::Sub => Ok(lhs.as_ref() - rhs.as_ref()),
         BinaryOp::Mul => Ok(lhs.as_ref() * rhs.as_ref()),
         BinaryOp::Div => Ok(lhs.as_ref() / rhs.as_ref()),
-        _ => unimplemented!(),
+        BinaryOp::Gt => Ok(Arc::new(lhs.as_ref().gt_bool(&rhs.as_ref())?)),
+        BinaryOp::Ge => Ok(Arc::new(lhs.as_ref().ge_bool(&rhs.as_ref())?)),
+        BinaryOp::Lt => Ok(Arc::new(lhs.as_ref().lt_bool(&rhs.as_ref())?)),
+        BinaryOp::Le => Ok(Arc::new(lhs.as_ref().le_bool(&rhs.as_ref())?)),
+        BinaryOp::Eq => Ok(Arc::new(lhs.as_ref().eq_bool(&rhs.as_ref())?)),
+        BinaryOp::Ne => Ok(Arc::new(lhs.as_ref().ne_bool(&rhs.as_ref())?)),
+
+        // Logical connectors: evaluate lhs and rhs and do logical evaluation on the both sides (should be applied
+        // directly on boolean data field).
+        BinaryOp::And => match (lhs.try_cast::<BooleanType>(), rhs.try_cast::<BooleanType>()) {
+            (Some(lhs), Some(rhs)) => Ok(Arc::new(lhs.bitand(rhs)?)),
+            (_, _) => Err(PolicyCarryingError::ImpossibleOperation(
+                "cannot evaluate `&` on non-boolean arrays.".into(),
+            )),
+        },
+        BinaryOp::Or => match (lhs.try_cast::<BooleanType>(), rhs.try_cast::<BooleanType>()) {
+            (Some(lhs), Some(rhs)) => Ok(Arc::new(lhs.bitor(rhs)?)),
+            (_, _) => Err(PolicyCarryingError::ImpossibleOperation(
+                "cannot evaluate `|` on non-boolean arrays.".into(),
+            )),
+        },
+        BinaryOp::Xor => match (lhs.try_cast::<BooleanType>(), rhs.try_cast::<BooleanType>()) {
+            (Some(lhs), Some(rhs)) => Ok(Arc::new(lhs.bitxor(rhs)?)),
+            (_, _) => Err(PolicyCarryingError::ImpossibleOperation(
+                "cannot evaluate `^` on non-boolean arrays.".into(),
+            )),
+        },
+    }
+}
+
+/// Extracts the [`Field`] information from the arena-ed expression which may be evaluated on a given column.
+/// TODO: Implement this.
+pub(crate) fn get_field_from_aexpr(
+    aexpr: &AExpr,
+    expr_arena: &ExprArena,
+    schema: SchemaRef,
+) -> PolicyCarryingResult<Field> {
+    match aexpr {
+        AExpr::Agg(aggregation) => match aggregation {
+            AAggExpr::Max { input, .. }
+            | AAggExpr::Min { input, .. }
+            | AAggExpr::Sum(input)
+            | AAggExpr::Mean(input) => {
+                get_field_from_aexpr(expr_arena.get(*input), expr_arena, schema)
+            }
+        },
+        AExpr::Column(name) => schema
+            .fields
+            .iter()
+            .find(|column| &column.name == name)
+            .map(|inner| inner.deref().clone())
+            .ok_or(PolicyCarryingError::SchemaMismatch(format!(
+                "the column `{name}` was not found"
+            ))),
+        // Alias: take the type of the expression input and propagate it to the output field.
+        AExpr::Alias(input, name) => {
+            let original =
+                get_field_from_aexpr(expr_arena.get(*input), expr_arena, schema.clone())?;
+
+            Ok(Field::new(
+                name.clone(),
+                original.data_type,
+                false,
+                Default::default(),
+            ))
+        }
+        AExpr::Filter { input, .. } => {
+            get_field_from_aexpr(expr_arena.get(*input), expr_arena, schema.clone())
+        }
+        AExpr::Literal(literal) => Ok(Field::new_literal(literal.data_type())),
+        AExpr::BinaryOp { left, op, .. } => match op {
+            BinaryOp::Eq
+            | BinaryOp::Ge
+            | BinaryOp::Gt
+            | BinaryOp::Le
+            | BinaryOp::Lt
+            | BinaryOp::Ne
+            | BinaryOp::Or => Ok(Field::new(
+                get_field_from_aexpr(expr_arena.get(*left), expr_arena, schema)?.name,
+                DataType::Boolean,
+                false,
+                Default::default(),
+            )),
+
+            // For arithmetic binary expression it is a little bit complex because there are different types.
+            _ => unimplemented!(),
+        },
+        _ => panic!("should not go here"),
+    }
+}
+
+/// Converts this arena-ed aggregation expression into a physical expression [`PhysicalExpr`].
+pub(crate) fn make_physical_expr_aaggexpr(
+    parent: Node,
+    aexpr: AAggExpr,
+    expr_arena: &mut ExprArena,
+    schema: Option<SchemaRef>,
+    state: &ExecutionState,
+    // Discern `in_aggregation`.
+    in_aggregation: bool,
+) -> PolicyCarryingResult<PhysicalExprRef> {
+    match in_aggregation {
+        // We are not in an aggregation context, so we need to manually create the function that applies to the final result.
+        false => {
+            // WIP: Apply also the API SET's provided method here?
+            match aexpr {
+                AAggExpr::Max { propagate_nans, .. } => todo!(),
+                _ => unimplemented!(),
+            }
+        }
+
+        // We are already in an aggregation context.
+        true => {
+            let input = make_physical_expr(
+                aexpr.get_input().clone(),
+                expr_arena,
+                schema.clone(),
+                state,
+                in_aggregation,
+            )?;
+
+            Ok(Arc::new(AggregateExpr {
+                input,
+                agg_type: aexpr.into(),
+                field: schema
+                    .map(|schema| get_field_from_aexpr(expr_arena.get(parent), expr_arena, schema))
+                    .transpose()?,
+            }))
+        }
     }
 }
 
@@ -324,7 +539,14 @@ pub(crate) fn make_physical_expr(
                 expr: aexpr_to_expr(aexpr, expr_arena),
             }))
         }
-        AExpr::Agg(_) => todo!(),
-        AExpr::Wildcard => todo!(),
+        AExpr::Agg(aggregation) => make_physical_expr_aaggexpr(
+            aexpr,
+            aggregation,
+            expr_arena,
+            schema,
+            state,
+            in_aggregation,
+        ),
+        AExpr::Wildcard => panic!("wildcard should be handled at hight level"),
     }
 }

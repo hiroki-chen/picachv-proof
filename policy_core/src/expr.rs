@@ -21,6 +21,18 @@ pub enum Aggregation {
     Mean(Box<Expr>),
 }
 
+#[derive(Copy, Clone, Debug)]
+pub enum GroupByMethod {
+    Min,
+    Max,
+    Median,
+    Mean,
+    First,
+    Last,
+    Sum,
+    Count,
+}
+
 #[derive(Clone, Debug)]
 pub enum AAggExpr {
     Min { input: Node, propagate_nans: bool },
@@ -29,13 +41,32 @@ pub enum AAggExpr {
     Mean(Node),
 }
 
+impl From<AAggExpr> for GroupByMethod {
+    fn from(value: AAggExpr) -> Self {
+        match value {
+            AAggExpr::Max { .. } => Self::Max,
+            AAggExpr::Min { .. } => Self::Min,
+            AAggExpr::Sum { .. } => Self::Sum,
+            AAggExpr::Mean { .. } => Self::Mean,
+        }
+    }
+}
+
+impl AAggExpr {
+    pub fn get_input(&self) -> &Node {
+        match self {
+            Self::Min { input, .. }
+            | Self::Max { input, .. }
+            | Self::Sum(input)
+            | Self::Mean(input) => input,
+        }
+    }
+}
+
 impl Aggregation {
     pub fn as_expr(&self) -> &Expr {
         match self {
-            Self::Min(min) => min,
-            Self::Max(max) => max,
-            Self::Sum(sum) => sum,
-            Self::Mean(mean) => mean,
+            Self::Min(expr) | Self::Max(expr) | Self::Sum(expr) | Self::Mean(expr) => expr,
         }
     }
 }
@@ -122,6 +153,7 @@ pub enum BinaryOp {
     Ge,
     And,
     Or,
+    Xor,
     Eq,
     Ne,
     Add,
@@ -139,6 +171,7 @@ impl Debug for BinaryOp {
             Self::Ge => write!(f, ">="),
             Self::And => write!(f, "&&"),
             Self::Or => write!(f, "||"),
+            Self::Xor => write!(f, "^"),
             Self::Eq => write!(f, "=="),
             Self::Ne => write!(f, "<>"),
             Self::Add => write!(f, "+"),
@@ -294,6 +327,22 @@ impl Expr {
         }
     }
 
+    pub fn eq<T: PrimitiveDataType>(self, num: T) -> Self {
+        Self::BinaryOp {
+            left: Box::new(self),
+            op: BinaryOp::Eq,
+            right: Box::new(Self::Literal(Box::new(num))),
+        }
+    }
+
+    pub fn ne<T: PrimitiveDataType>(self, num: T) -> Self {
+        Self::BinaryOp {
+            left: Box::new(self),
+            op: BinaryOp::Ne,
+            right: Box::new(Self::Literal(Box::new(num))),
+        }
+    }
+
     pub fn and(self, other: Self) -> Self {
         Self::BinaryOp {
             left: Box::new(self),
@@ -301,10 +350,19 @@ impl Expr {
             right: Box::new(other),
         }
     }
+
     pub fn or(self, other: Self) -> Self {
         Self::BinaryOp {
             left: Box::new(self),
             op: BinaryOp::Or,
+            right: Box::new(other),
+        }
+    }
+
+    pub fn xor(self, other: Self) -> Self {
+        Self::BinaryOp {
+            left: Box::new(self),
+            op: BinaryOp::Xor,
             right: Box::new(other),
         }
     }

@@ -72,3 +72,10 @@ The scheme to search relative genome: (compressed) longest substring genome, lon
 Although we cannot determine the concrete appearance of the policy now, we may figure out what *properties* it should have. We list them below.
 
 * Should allow lazy evaluation, which means the policy is *not* evaluated until data is *used*, where by 'use' we mean that the sensitive operations like sum, max, etc. are performed on these columns.
+
+# TODOs
+
+* Implement the type coercion for any two comparable data field arrays.
+* Implement aggregation and DP on it.
+* Implement policy API layer and integrate to `ExecutionState` (perhaps).
+* Implement an parser that automatically generates the API layer.

@@ -209,6 +209,24 @@ where
     pub(crate) data_type: DataType,
 }
 
+impl<T> PartialOrd for FieldDataArray<T>
+where
+    T: PrimitiveDataType + Debug + Send + Sync + Clone + PartialOrd + 'static,
+{
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        self.inner.partial_cmp(&other.inner)
+    }
+}
+
+impl<T> PartialEq for FieldDataArray<T>
+where
+    T: PrimitiveDataType + Debug + Send + Sync + Clone + PartialEq + 'static,
+{
+    fn eq(&self, other: &Self) -> bool {
+        self.inner == other.inner
+    }
+}
+
 impl<T> Index<usize> for FieldDataArray<T>
 where
     T: PrimitiveDataType + Debug + Send + Sync + Clone + 'static,
@@ -372,15 +390,14 @@ where
     }
 
     fn rename(&mut self, name: &str) -> PolicyCarryingResult<()> {
-        match Arc::get_mut(&mut self.field) {
-            Some(field) => {
-                field.name = name.into();
-                Ok(())
-            }
-            None => Err(PolicyCarryingError::ImpossibleOperation(
-                "reference count > 1".into(),
-            )),
-        }
+        self.field = Arc::new(Field {
+            name: name.into(),
+            data_type: self.field.data_type,
+            nullable: self.field.nullable,
+            metadata: FieldMetadata {},
+        });
+
+        Ok(())
     }
 
     fn field(&self) -> FieldRef {
@@ -428,16 +445,6 @@ where
 
     fn clone_arc(&self) -> FieldDataRef {
         Arc::new(self.clone())
-    }
-}
-
-impl<T> PartialEq for FieldDataArray<T>
-where
-    T: PrimitiveDataType + Debug + Send + Sync + Clone + PartialEq,
-{
-    #[inline]
-    fn eq(&self, other: &Self) -> bool {
-        self.inner == other.inner
     }
 }
 

@@ -1,8 +1,11 @@
 //! The lazy data frame module.
 
-use std::{fmt::{Debug, Formatter}, sync::Arc};
+use std::{
+    fmt::{Debug, Formatter},
+    sync::Arc,
+};
 
-use policy_core::{error::PolicyCarryingResult, expr::Expr};
+use policy_core::{col, error::PolicyCarryingResult, expr::Expr};
 
 use crate::{
     api::{ApiRef, PolicyApiSet},
@@ -72,9 +75,24 @@ impl LazyFrame {
         }
     }
 
-    /// Performs the aggregation.
-    pub fn agg<T: AsRef<[Expr]>>(self, expressions: T) -> Self {
-        todo!()
+    /// Sums up the lazy frame with a wildcard.
+    pub fn sum(self) -> Self {
+        self.select(vec![col!("*").sum()])
+    }
+
+    /// Gets the maximum value.
+    pub fn max(self) -> Self {
+        self.select(vec![col!("*").max()])
+    }
+
+    /// Gets the minimum value.
+    pub fn min(self) -> Self {
+        self.select(vec![col!("*").min()])
+    }
+
+    /// Gets the mean value.
+    pub fn mean(self) -> Self {
+        self.select(vec![col!("*").mean()])
     }
 
     /// Executes the query plan, checking the policy if the query can be executed or should be

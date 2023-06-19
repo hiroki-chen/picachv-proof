@@ -1,4 +1,4 @@
-use std::{ops::Deref, sync::Arc};
+use std::{collections::HashSet, ops::Deref, sync::Arc};
 
 use bitflags::bitflags;
 use policy_core::{
@@ -159,6 +159,20 @@ pub enum ALogicalPlan {
     Nonsense(Node),
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
+pub enum ApplyOption {
+    /// Collect groups to a list and apply the function over the groups.
+    /// This can be important in aggregation context.
+    // e.g. [g1, g1, g2] -> [[g1, g2], g2]
+    ApplyGroups,
+    // collect groups to a list and then apply
+    // e.g. [g1, g1, g2] -> list([g1, g1, g2])
+    ApplyList,
+    // do not collect before apply
+    // e.g. [g1, g1, g2] -> [g1, g1, g2]
+    ApplyFlat,
+}
+
 impl Default for ALogicalPlan {
     fn default() -> Self {
         Self::Nonsense(Node::default())
@@ -283,7 +297,35 @@ impl PlanBuilder {
             .into_iter()
             .any(|e| matches!(e.deref(), Expr::Wildcard))
         {
-            todo!()
+            // "*" => expand to "filter(col)".
+            let schema = delayed_err!(self.plan.schema(), self.plan);
+            let expanded_columns = rewrite_projection(
+                vec![expression],
+                schema,
+                &[],
+                self.plan.peek_policy().map(|policy| policy.as_ref()),
+            );
+
+            let mut expanded_columns = delayed_err!(expanded_columns, self.plan);
+            if expanded_columns.is_empty() {
+                return LogicalPlan::StagedError {
+                    input: Box::new(self.plan),
+                    err: PolicyCarryingError::ImpossibleOperation(
+                        "trying to project on empty schema".into(),
+                    ),
+                }
+                .into();
+            } else if expanded_columns.len() == 1 {
+                expanded_columns.pop().unwrap()
+            } else {
+                return LogicalPlan::StagedError {
+                    input: Box::new(self.plan),
+                    err: PolicyCarryingError::ImpossibleOperation(
+                        "the predicate passed to 'LazyFrame.filter' expanded to multiple expressions".into(),
+                    ),
+                }
+                .into();
+            }
         } else {
             expression
         };
@@ -307,7 +349,9 @@ pub(crate) fn rewrite_projection(
     expressions: Vec<Expr>,
     schema: SchemaRef,
     keys: &[Expr],
-    policy: Option<&dyn Policy>, // FIXME: immutable borrow? mutable borrow? trace?
+
+    // FIXME: immutable borrow? mutable borrow? trace? should we really need to attach it here?
+    policy: Option<&dyn Policy>,
 ) -> PolicyCarryingResult<Vec<Expr>> {
     let mut result = Vec::new();
 
@@ -343,7 +387,18 @@ pub(crate) fn rewrite_projection(
     }
 
     // Check if all the column names are unique.
-    // TODO: Add qualifier for ambiguous column names. E.g., A.c, B.c => full quantifier!
+    let mut set = HashSet::new();
+    for name in result.iter().filter_map(|expr| match expr {
+        Expr::Column(ref name) => Some(name),
+        _ => None,
+    }) {
+        if !set.insert(name) {
+            // TODO: Add qualifier for ambiguous column names. E.g., A.c, B.c => full quantifier!
+            return Err(PolicyCarryingError::ImpossibleOperation(format!(
+                "found duplicate column name {name}"
+            )));
+        }
+    }
 
     Ok(result)
 }
