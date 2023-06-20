@@ -1,22 +1,24 @@
-use std::sync::Arc;
-
-use policy_carrying_data::{api::PolicyApiSet, schema::SchemaBuilder, DataFrame};
-use policy_core::{data_type::DataType, error::PolicyCarryingResult, policy::Policy};
-
-#[derive(Clone)]
-struct Foo {
-    policy: Box<dyn Policy>,
-    dataframe: Arc<DataFrame>,
-}
-
-impl PolicyApiSet for Foo {
-    fn select(&self, columns: &[String]) -> PolicyCarryingResult<DataFrame> {
-        todo!();
-    }
-}
+use policy_carrying_data::{lazy::IntoLazy, pcd};
+use policy_core::{col, data_type::*};
 
 fn main() {
-    let schema = SchemaBuilder::new()
-        .add_field_raw("age", DataType::UInt8, false)
-        .finish_with_top();
+    let pcd = pcd! {
+        "column_1" => DataType::UInt8: [1,2,3,4,5],
+        "column_2" => DataType::Float64: [1,2,3,4,5],
+    };
+
+    println!("{pcd}");
+
+    let data = pcd
+        .make_lazy(Default::default())
+        .select([col!("*")])
+        .filter(
+            col!("column_2")
+                .ne(Float64Type::new(3.0))
+                .and(col!("column_1").gt(UInt8Type::new(2))),
+        )
+        .collect()
+        .unwrap();
+
+    println!("{data}");
 }

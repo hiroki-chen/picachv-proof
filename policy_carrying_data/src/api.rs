@@ -1,5 +1,14 @@
-use std::{fmt::Debug, ops::Add, sync::Arc};
+use std::{
+    collections::HashMap,
+    fmt::Debug,
+    ops::Add,
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc, RwLock,
+    },
+};
 
+use lazy_static::lazy_static;
 use policy_core::{
     data_type::PrimitiveDataType,
     error::{PolicyCarryingError, PolicyCarryingResult},
@@ -10,7 +19,58 @@ use crate::{
     DataFrame,
 };
 
+static API_COUNT: AtomicUsize = AtomicUsize::new(0);
+
+lazy_static! {
+    pub(crate) static ref API_MAP: Arc<RwLock<HashMap<ApiRefId, ApiRef>>> =
+        Arc::new(RwLock::new(HashMap::new()));
+}
+
 pub type ApiRef = Arc<dyn PolicyApiSet>;
+
+/// An id for bookkeeping the data access Api Set.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Default)]
+pub struct ApiRefId(pub usize);
+
+/// Gets the next available API id.
+pub fn next_api_id() -> usize {
+    API_COUNT.fetch_add(1, Ordering::Release)
+}
+
+/// Gets the current available API id.
+pub fn cur_api_id() -> usize {
+    API_COUNT.load(Ordering::Acquire)
+}
+
+/// Registers a new API set trait object to the global api map used to bookkeep the data access interfaces
+/// for different policy-carrying data.
+pub fn register_api(id: usize, api_set: ApiRef) -> PolicyCarryingResult<ApiRefId> {
+    let id = ApiRefId(id);
+
+    match API_MAP.write() {
+        Ok(mut lock) => match lock.contains_key(&id) {
+            true => Err(PolicyCarryingError::AlreadyLoaded),
+            false => lock
+                .insert(id, api_set)
+                .ok_or(PolicyCarryingError::Unknown)
+                .map(|_| id),
+        },
+        // Lock is poisoned.
+        Err(_) => Err(PolicyCarryingError::Unknown),
+    }
+}
+
+/// This is called at the executor level when we want to get the [`PolicyApiSet`] for data access.
+pub fn get_api(id: ApiRefId) -> PolicyCarryingResult<ApiRef> {
+    API_MAP
+        .read()
+        .map_err(|_| PolicyCarryingError::Unknown)?
+        .get(&id)
+        .cloned()
+        .ok_or(PolicyCarryingError::OperationNotAllowed(
+            "this api set is not registerd".into(),
+        ))
+}
 
 // Some common APIs that can be used implement the `PolicyCompliantApiSet`'s trait methods.
 
@@ -78,7 +138,8 @@ pub enum JoinType {
 
 /// The 'real' implementation of all the allowed APIs for a policy-carrying data. By default,
 /// all the operations called directly on a [`PolicyApiSet`] will invoke the provided methods
-/// implemented by this trait.
+/// implemented by this trait. It is also recommended that the concrete data is stored within
+/// the struct that implements this trait for optimal security.
 ///
 /// Note that [`PolicyApiSet`] shoud be both [`Send`] and [`Sync`] because we want to ensure
 /// executing the data analysis operations lazily; thus it requires synchronization and sharing.

@@ -5,7 +5,7 @@ use std::{
     sync::Arc,
 };
 
-use api::{JoinType, PolicyApiSet};
+use api::{ApiRefId, JoinType};
 use csv::Reader;
 use field::{FieldDataArray, FieldDataRef};
 use lazy::{IntoLazy, LazyFrame};
@@ -38,7 +38,7 @@ pub use macros::*;
 #[cfg(feature = "prettyprint")]
 pub mod pretty;
 
-/// A user defiend function that can applied on a dataframe.
+/// A user defiend function that can be applied on a dataframe.
 pub trait UserDefinedFunction: Send + Sync {
     fn call(&self, df: DataFrame) -> PolicyCarryingResult<DataFrame>;
 }
@@ -66,29 +66,47 @@ where
 /// #[policy_carrying(Allow)]
 /// pub struct DiagnosisData {
 ///     #[allows(read)]
-///     #[implemens(min, max)]
+///     #[implements(min, max)]
 ///     age: u8,
 /// }
 /// ```
-/// which will be then converted to an API set that implements the trait
+/// which will be then converted to:
+///
+/// 1. A policy struct:
 ///
 ///```
-/// pub struct Access(DataFrame);
+/// pub struct DiagnosisDataPolicy { /*...*/ }
+///```
 ///
-/// impl PolicyCarryingData for DiagnosisDataAccess {
-///     /* implementation */
+/// , and
+///
+/// 2. an API set layer that enforces the access to the data is policy-compliant:
+///
+/// ```
+/// pub struct DiagnosisDataApiLayer { /*...*/ }
+///
+/// impl PolicyCompliantApiSet for DiagnosisDataApiLayer {
+///     /* ... */
 /// }
 /// ```
-/// where policy-compliant APIs can be executed while those not allowed will `panic` at runtime.
-/// Note that there is no way to directly access the data because it is a private field, and the
-/// function tha tries to use the confidential data for data analysis must forbid `unsafe` code
-/// by the annotation `#![forbid(unsafe_code)]`.
+///
+/// where policy-compliant APIs can be executed while those not allowed will trigger an error at runtime.
+///
+/// Note that there is no way to directly access the data because no methods are implemented for the
+/// [`DataFrame`], and the function tha tries to use the confidential data for data analysis must forbid
+/// `unsafe` code by the annotation `#![forbid(unsafe_code)]`.
 ///
 /// # Lazy Evaluation
 ///
 /// By default, the [`DataFrame`] is lazy, which means that all the potential optimizations and
 /// query execution will be  performed upon the data being collected. This is similar to polars'
-/// `LazyFrame` implementation.
+/// `LazyFrame` implementation. The [`LazyFrame`] can be obtained by calling [`IntoLazy::make_lazy`]
+/// on the [`DataFrame`].
+///
+/// # Note
+///
+/// The policy-carrying data is still under very active development. Implementations, API definitions, and
+/// crate layout may be subject to change without any notification.
 #[derive(Clone, Default)]
 pub struct DataFrame {
     /// The concrete data.
@@ -96,12 +114,8 @@ pub struct DataFrame {
 }
 
 impl IntoLazy for DataFrame {
-    fn make_lazy(self, api_set: Arc<dyn PolicyApiSet>) -> LazyFrame {
+    fn make_lazy(self, api_set: ApiRefId) -> LazyFrame {
         LazyFrame {
-            #[cfg(test)]
-            api_set: Arc::new(crate::api::ApiSetSink {}),
-
-            #[cfg(not(test))]
             api_set,
             plan: PlanBuilder::from(self).finish(),
             opt_flag: OptFlag::all(),
@@ -354,7 +368,7 @@ mod test {
         println!("{pcd}");
 
         let pcd = pcd
-            .make_lazy(Arc::new(ApiSetSink {}))
+            .make_lazy(Default::default())
             .select(cols!("column_2"))
             .filter(
                 col!("column_2")

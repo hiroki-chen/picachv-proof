@@ -13,7 +13,7 @@ use policy_core::{
 };
 
 use crate::{
-    api::{ApiSetSink, PolicyApiSet},
+    api::ApiRefId,
     field::FieldDataRef,
     plan::{physical_expr::PhysicalExpr, ALogicalPlan},
     schema::SchemaRef,
@@ -60,7 +60,7 @@ bitflags! {
 /// The executor for the physical plan.
 pub trait PhysicalExecutor: Send {
     // WIP: What is returned?
-    fn execute(&mut self, _state: &ExecutionState) -> PolicyCarryingResult<DataFrame>;
+    fn execute(&mut self, state: &ExecutionState) -> PolicyCarryingResult<DataFrame>;
 }
 
 pub struct Sink;
@@ -90,7 +90,7 @@ pub struct ExecutionState {
     /// The log trace.
     pub(crate) log: Arc<RwLock<VecDeque<String>>>,
     /// The api set layer for managing the policy compliance.
-    pub(crate) policy_layer: Arc<dyn PolicyApiSet>,
+    pub(crate) policy_layer: Arc<RwLock<ApiRefId>>,
 }
 
 impl Default for ExecutionState {
@@ -100,7 +100,7 @@ impl Default for ExecutionState {
             execution_flag: Arc::new(RwLock::new(ExecutionFlag::default())),
             expr_cache: Arc::new(Mutex::new(HashMap::new())),
             log: Arc::new(RwLock::new(VecDeque::new())),
-            policy_layer: Arc::new(ApiSetSink {}),
+            policy_layer: Default::default(),
         }
     }
 }
@@ -114,9 +114,9 @@ impl ExecutionState {
     }
 
     // TODO: Who / where should we pass `api_set` into this ExecutionState?
-    pub fn with_api_set(api_set: Arc<dyn PolicyApiSet>) -> Self {
+    pub fn with_api_set(api_set: ApiRefId) -> Self {
         let mut state = Self::default();
-        state.policy_layer = api_set;
+        state.policy_layer = Arc::new(RwLock::new(api_set));
 
         state
     }

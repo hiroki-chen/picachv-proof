@@ -13,7 +13,7 @@ impl DataFrame {
     ///
     /// [`RowReader`] must be constructed by the policy-compliant API set to perform the necessary
     /// checks on the data the untrusted entities are trying to access.
-    pub fn convert_rows(&self) -> PolicyCarryingResult<RowSet> {
+    pub(crate) fn convert_rows(&self) -> PolicyCarryingResult<RowSet> {
         if self.columns.is_empty() {
             return Ok(RowSet::new(Vec::new()));
         }

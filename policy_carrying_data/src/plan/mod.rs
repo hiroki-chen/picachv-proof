@@ -8,7 +8,7 @@ use policy_core::{
 };
 
 use crate::{
-    api::{JoinType, PolicyApiSet},
+    api::{ApiRefId, JoinType},
     executor::{
         filter::FilterExec, projection::ProjectionExec, scan::DataFrameExec, ExecutionState,
         ExprArena, LogicalPlanArena, PhysicalExecutor, EXPR_ARENA_SIZE, LP_ARENA_SIZE,
@@ -604,7 +604,7 @@ pub(crate) fn lp_to_alp(
 pub(crate) fn make_physical_plan(
     lp: LogicalPlan,
     opt_flag: OptFlag,
-    api_set: Arc<dyn PolicyApiSet>,
+    api_set: ApiRefId,
 ) -> PolicyCarryingResult<PhysicalPlan> {
     // Create two arenas for expressions and logical plans (for their optimizations).
     let mut expr_arena = ExprArena::with_capacity(EXPR_ARENA_SIZE);

@@ -13,3 +13,6 @@ pub mod error;
 pub mod expr;
 pub mod ffi;
 pub mod policy;
+
+#[cfg(test)]
+mod test {}

@@ -8,7 +8,7 @@ use std::{
 use policy_core::{col, error::PolicyCarryingResult, expr::Expr};
 
 use crate::{
-    api::{ApiRef, PolicyApiSet},
+    api::{ApiRef, ApiRefId},
     executor::execution_epilogue,
     plan::{make_physical_plan, LogicalPlan, OptFlag, PlanBuilder},
     schema::SchemaRef,
@@ -17,7 +17,7 @@ use crate::{
 
 pub trait IntoLazy {
     /// Converts a dafaframe into a lazy frame.
-    fn make_lazy(self, api_set: Arc<dyn PolicyApiSet>) -> LazyFrame;
+    fn make_lazy(self, api_set: ApiRefId) -> LazyFrame;
 }
 
 #[derive(Clone)]
@@ -25,7 +25,7 @@ pub trait IntoLazy {
 // TODO： How do (or do we need to) propagate api_set into each [`LogicalPlan`]? Who will propagate or set this field?
 pub struct LazyFrame {
     /// In case we need this.
-    pub(crate) api_set: ApiRef,
+    pub(crate) api_set: ApiRefId,
     /// The logical plan.
     pub(crate) plan: LogicalPlan,
     /// The optimization flag.
@@ -40,11 +40,13 @@ impl Debug for LazyFrame {
 
 impl LazyFrame {
     /// Returns the schema of the current lazy frame.
+    #[inline]
     pub fn schema(&self) -> PolicyCarryingResult<SchemaRef> {
         self.plan.schema()
     }
 
     /// Returns the optimization flag.
+    #[inline]
     pub fn opt_flag(&self) -> OptFlag {
         self.opt_flag
     }
