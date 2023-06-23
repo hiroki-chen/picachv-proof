@@ -45,10 +45,6 @@ impl<T> Arena<T> {
         }
     }
 
-    pub fn get_node(&self, val: &T) -> Option<Node> {
-        index_of(&self.items, val).map(Node)
-    }
-
     pub fn swap(&mut self, idx_a: Node, idx_b: Node) {
         self.items.swap(idx_a.0, idx_b.0)
     }
@@ -94,21 +90,5 @@ impl<T: Default> Arena<T> {
         let val = self.take(idx);
         self.replace(idx, f(val)?);
         Ok(())
-    }
-}
-
-unsafe fn index_of_unchecked<T>(slice: &[T], item: &T) -> usize {
-    (item as *const _ as usize - slice.as_ptr() as usize) / std::mem::size_of::<T>()
-}
-
-fn index_of<T>(slice: &[T], item: &T) -> Option<usize> {
-    debug_assert!(std::mem::size_of::<T>() > 0);
-    let ptr = item as *const T;
-    unsafe {
-        if slice.as_ptr() < ptr && slice.as_ptr().add(slice.len()) > ptr {
-            Some(index_of_unchecked(slice, item))
-        } else {
-            None
-        }
     }
 }

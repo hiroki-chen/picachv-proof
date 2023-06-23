@@ -23,6 +23,8 @@ pub enum PolicyCarryingError {
     PrivacyError(String),
     /// Filesystem error.
     FsError(String),
+    /// Symbol not found.
+    SymbolNotFound(String),
     /// Operation not allowed: policy forbids this.
     OperationNotAllowed(String),
     /// Unknown error.
@@ -41,6 +43,7 @@ impl Debug for PolicyCarryingError {
             Self::OperationNotSupported => write!(f, "Operation not supported"),
             Self::FsError(info) => write!(f, "IO error: {}", info),
             Self::OperationNotAllowed(info) => write!(f, "Operation not allowed: {}", info),
+            Self::SymbolNotFound(info) => write!(f, "Symbol not found for {}", info),
             Self::PrivacyError(info) => {
                 write!(f, "Privacy scheme encountered a fatal error: {}", info)
             }

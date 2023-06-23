@@ -31,7 +31,6 @@ macro_rules! impl_operator {
                 Self::Output {
                     field: self.field.clone(),
                     inner: new_vec,
-                    data_type: self.data_type,
                 }
             }
         }

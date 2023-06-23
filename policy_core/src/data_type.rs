@@ -1,5 +1,5 @@
 use std::{
-    any::Any,
+    any::{Any, TypeId},
     cmp::Ordering,
     fmt::{Debug, Display, Formatter},
 };
@@ -74,6 +74,38 @@ impl DataType {
             self,
             Self::UInt8 | Self::UInt16 | Self::UInt32 | Self::UInt64
         )
+    }
+
+    /// Fast conversion from trait to concrete data type.
+    pub fn from_primitive_trait<T: PrimitiveDataType>() -> Self {
+        let ty = TypeId::of::<T>();
+        if ty == TypeId::of::<UInt8Type>() {
+            Self::UInt8
+        } else if ty == TypeId::of::<UInt16Type>() {
+            Self::UInt16
+        } else if ty == TypeId::of::<UInt32Type>() {
+            Self::UInt32
+        } else if ty == TypeId::of::<UInt64Type>() {
+            Self::UInt64
+        } else if ty == TypeId::of::<Int8Type>() {
+            Self::Int8
+        } else if ty == TypeId::of::<Int16Type>() {
+            Self::Int16
+        } else if ty == TypeId::of::<Int32Type>() {
+            Self::Int32
+        } else if ty == TypeId::of::<Int64Type>() {
+            Self::Int64
+        } else if ty == TypeId::of::<Float32Type>() {
+            Self::Float32
+        } else if ty == TypeId::of::<Float64Type>() {
+            Self::Float64
+        } else if ty == TypeId::of::<BooleanType>() {
+            Self::Boolean
+        } else if ty == TypeId::of::<Utf8StrType>() {
+            Self::Utf8Str
+        } else {
+            todo!()
+        }
     }
 }
 

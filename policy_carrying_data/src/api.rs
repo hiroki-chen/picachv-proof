@@ -9,20 +9,20 @@ use std::{
 };
 
 use lazy_static::lazy_static;
+use libloading::Library;
 use policy_core::{
     data_type::PrimitiveDataType,
     error::{PolicyCarryingError, PolicyCarryingResult},
 };
 
-use crate::{
-    field::{FieldDataArray, FieldDataRef},
-    DataFrame,
-};
+use crate::{field::FieldDataArray, DataFrame};
 
 static API_COUNT: AtomicUsize = AtomicUsize::new(0);
 
 lazy_static! {
-    pub(crate) static ref API_MAP: Arc<RwLock<HashMap<ApiRefId, ApiRef>>> =
+    pub(crate) static ref API_MANAGER: Arc<RwLock<ApiModuleManager>> =
+        Arc::new(RwLock::new(ApiModuleManager::new()));
+    pub(crate) static ref API_ID_MAP: Arc<RwLock<HashMap<ApiRefId, String>>> =
         Arc::new(RwLock::new(HashMap::new()));
 }
 
@@ -42,34 +42,30 @@ pub fn cur_api_id() -> usize {
     API_COUNT.load(Ordering::Acquire)
 }
 
-/// Registers a new API set trait object to the global api map used to bookkeep the data access interfaces
-/// for different policy-carrying data.
-pub fn register_api(id: usize, api_set: ApiRef) -> PolicyCarryingResult<ApiRefId> {
-    let id = ApiRefId(id);
-
-    match API_MAP.write() {
-        Ok(mut lock) => match lock.contains_key(&id) {
-            true => Err(PolicyCarryingError::AlreadyLoaded),
-            false => lock
-                .insert(id, api_set)
-                .ok_or(PolicyCarryingError::Unknown)
-                .map(|_| id),
-        },
-        // Lock is poisoned.
+/// This functions will register new API implementation from the plugin that can be loaded at runtime. Note
+/// however, that the API must be compiled separately with the same Rust toolchain to be ABI-safe.
+pub fn register_api(path: &str, name: &str) -> PolicyCarryingResult<ApiRefId> {
+    let id = next_api_id();
+    match API_MANAGER.write() {
+        Ok(mut lock) => {
+            lock.load(path, name)?;
+            Ok(ApiRefId(id))
+        }
         Err(_) => Err(PolicyCarryingError::Unknown),
     }
 }
 
 /// This is called at the executor level when we want to get the [`PolicyApiSet`] for data access.
 pub fn get_api(id: ApiRefId) -> PolicyCarryingResult<ApiRef> {
-    API_MAP
+    let name = API_ID_MAP
         .read()
         .map_err(|_| PolicyCarryingError::Unknown)?
         .get(&id)
-        .cloned()
         .ok_or(PolicyCarryingError::OperationNotAllowed(
             "this api set is not registerd".into(),
-        ))
+        ))?;
+
+    todo!()
 }
 
 // Some common APIs that can be used implement the `PolicyCompliantApiSet`'s trait methods.
@@ -136,6 +132,12 @@ pub enum JoinType {
     Right,
 }
 
+#[derive(Clone, Debug, Default)]
+pub enum ApiRequest {
+    #[default]
+    Invalid,
+}
+
 /// The 'real' implementation of all the allowed APIs for a policy-carrying data. By default,
 /// all the operations called directly on a [`PolicyApiSet`] will invoke the provided methods
 /// implemented by this trait. It is also recommended that the concrete data is stored within
@@ -144,19 +146,20 @@ pub enum JoinType {
 /// Note that [`PolicyApiSet`] shoud be both [`Send`] and [`Sync`] because we want to ensure
 /// executing the data analysis operations lazily; thus it requires synchronization and sharing.
 pub trait PolicyApiSet: Send + Sync {
-    // SOME APIs that are invoked by the executors at the physical query level.
+    fn name(&self) -> &'static str;
 
-    /// Selects (in fact projects) given columns.
-    fn select(&self, columns: &[String]) -> PolicyCarryingResult<DataFrame> {
-        Err(PolicyCarryingError::OperationNotAllowed(format!(
-            "this operation cannot be done: SELECT {columns:?}"
-        )))
+    fn load(&self) {
+        panic!("not implemented");
     }
 
-    /// Selects as vector.
-    fn select_vec(&self, columns: &[String]) -> PolicyCarryingResult<Vec<FieldDataRef>> {
+    fn unload(&self) {
+        panic!("not implemented");
+    }
+
+    /// The entry function of the api set.
+    fn entry(&self, req: ApiRequest) -> PolicyCarryingResult<DataFrame> {
         Err(PolicyCarryingError::OperationNotAllowed(format!(
-            "this operation cannot be done: SELECT {columns:?}"
+            "this operation cannot be done: {req:?}!"
         )))
     }
 }
@@ -164,7 +167,85 @@ pub trait PolicyApiSet: Send + Sync {
 /// An ApiSet that simply forbids everything and should not used for any other purposes except for testing.
 pub struct ApiSetSink;
 
-impl PolicyApiSet for ApiSetSink {}
+impl PolicyApiSet for ApiSetSink {
+    fn name(&self) -> &'static str {
+        "api_sink"
+    }
+}
+
+/// Returns a pointer to the trait object.
+type Loader = fn(name: *const u8, len: usize, ptr: *mut u64) -> i64;
+
+pub struct ApiModuleManager {
+    plugins: HashMap<String, Box<Arc<dyn PolicyApiSet>>>,
+    libs: HashMap<String, Library>,
+}
+
+impl Drop for ApiModuleManager {
+    fn drop(&mut self) {
+        if !self.plugins.is_empty() || !self.libs.is_empty() {
+            self.unload_all()
+        }
+    }
+}
+
+impl ApiModuleManager {
+    /// Constructs a new API module manager.
+    #[inline]
+    pub fn new() -> ApiModuleManager {
+        ApiModuleManager {
+            plugins: HashMap::new(),
+            libs: HashMap::new(),
+        }
+    }
+
+    /// Loads a plugin.
+    pub fn load(&mut self, path: &str, plugin_name: &str) -> PolicyCarryingResult<()> {
+        let lib =
+            unsafe { Library::new(path).map_err(|e| PolicyCarryingError::FsError(e.to_string())) }?;
+        let constructor = unsafe {
+            lib.get::<Loader>(b"load_module")
+                .map_err(|e| PolicyCarryingError::SymbolNotFound(e.to_string()))
+        }?;
+
+        let mut plugin_ptr = 0;
+        let plugin = match constructor(plugin_name.as_ptr(), plugin_name.len(), &mut plugin_ptr) {
+            0 => unsafe { Box::from_raw(plugin_ptr as *mut Arc<dyn PolicyApiSet>) },
+            _ => return Err(PolicyCarryingError::Unknown),
+        };
+
+        println!("{}", plugin.name());
+        self.libs.insert(plugin_name.into(), lib);
+        self.plugins.insert(plugin_name.into(), plugin);
+        Ok(())
+    }
+
+    pub fn unload(&mut self, plugin_name: &str) -> PolicyCarryingResult<()> {
+        self.plugins.retain(|plugin, _| plugin != plugin_name);
+
+        Ok(())
+    }
+
+    pub fn get(&self, name: &str) -> PolicyCarryingResult<Box<Arc<dyn PolicyApiSet>>> {
+        self.plugins
+            .get(name)
+            .cloned()
+            .ok_or(PolicyCarryingError::SymbolNotFound(name.into()))
+    }
+
+    fn unload_all(&mut self) {
+        for (name, plugin) in self.plugins.drain() {
+            println!("unloading the plugin {}", name);
+
+            // We do not own it!
+            plugin.unload();
+        }
+
+        for (_, lib) in self.libs.drain() {
+            drop(lib);
+        }
+    }
+}
 
 #[cfg(test)]
 mod test {}

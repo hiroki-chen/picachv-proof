@@ -335,14 +335,14 @@ impl DataFrame {
     }
 }
 
-unsafe impl Send for DataFrame {}
+// unsafe impl Send for DataFrame {}
 
 #[cfg(test)]
 mod test {
 
     use policy_core::{col, cols};
 
-    use crate::{api::ApiSetSink, schema::SchemaBuilder};
+    use crate::schema::SchemaBuilder;
 
     use super::*;
 

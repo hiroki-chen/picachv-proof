@@ -204,9 +204,6 @@ where
     pub(crate) field: FieldRef,
     /// Inner storage.
     pub(crate) inner: Vec<T>,
-    /// Since [`FieldData`] is a trait that involves `&dyn FieldData` in its method, we cannot
-    /// store `data_type` as its associated constant because this is object-unsafe.
-    pub(crate) data_type: DataType,
 }
 
 impl<T> PartialOrd for FieldDataArray<T>
@@ -366,7 +363,7 @@ where
     }
 
     fn data_type(&self) -> DataType {
-        self.data_type
+        DataType::from_primitive_trait::<T>()
     }
 
     fn name(&self) -> &str {
@@ -377,7 +374,6 @@ where
         Arc::new(Self {
             field: self.field.clone(),
             inner: vec![self.inner[idx].clone(); len],
-            data_type: self.data_type,
         })
     }
 
@@ -385,7 +381,6 @@ where
         Arc::new(Self {
             field: self.field.clone(),
             inner: self.inner[range].to_vec(),
-            data_type: self.data_type,
         })
     }
 
@@ -405,7 +400,7 @@ where
     }
 
     fn eq_impl(&self, other: &dyn FieldData) -> bool {
-        if self.data_type != other.data_type() {
+        if self.data_type() != other.data_type() {
             false
         } else {
             let arr = match other.as_any_ref().downcast_ref::<FieldDataArray<T>>() {
@@ -436,11 +431,7 @@ where
             .cloned()
             .collect();
 
-        Ok(Arc::new(FieldDataArray::new(
-            self.field.clone(),
-            inner,
-            self.data_type,
-        )))
+        Ok(Arc::new(FieldDataArray::new(self.field.clone(), inner)))
     }
 
     fn clone_arc(&self) -> FieldDataRef {
@@ -479,34 +470,25 @@ where
     }
 }
 
-unsafe impl<T> Send for FieldDataArray<T> where T: PrimitiveDataType + Debug + Send + Sync + Clone {}
-unsafe impl<T> Sync for FieldDataArray<T> where T: PrimitiveDataType + Debug + Send + Sync + Clone {}
-
 impl<T> FieldDataArray<T>
 where
     T: PrimitiveDataType + Debug + Send + Sync + Clone,
 {
     #[inline]
-    pub fn new(field: FieldRef, inner: Vec<T>, data_type: DataType) -> Self {
-        Self {
-            field,
-            inner,
-            data_type,
-        }
+    pub fn new(field: FieldRef, inner: Vec<T>) -> Self {
+        Self { field, inner }
     }
 
     #[inline]
     pub fn new_empty(field: FieldRef) -> Self {
         Self {
-            data_type: field.data_type,
             field,
             inner: Vec::new(),
         }
     }
 
-    #[inline]
     pub fn data_type(&self) -> DataType {
-        self.data_type
+        DataType::from_primitive_trait::<T>()
     }
 
     /// Performs slicing on a field data array and returns a cloned `Self`.
@@ -515,24 +497,19 @@ where
         if range.start >= self.inner.len() || range.end - range.start > self.inner.len() {
             None
         } else {
-            Some(Self::new(
-                self.field.clone(),
-                self.inner[range].to_vec(),
-                self.data_type,
-            ))
+            Some(Self::new(self.field.clone(), self.inner[range].to_vec()))
         }
     }
 
-    pub fn new_with_duplicate(item: T, num: usize, name: String, data_type: DataType) -> Self {
+    pub fn new_with_duplicate(item: T, num: usize, name: String) -> Self {
         Self {
             field: Arc::new(Field {
                 name,
-                data_type,
+                data_type: DataType::from_primitive_trait::<T>(),
                 nullable: false,
                 metadata: FieldMetadata {},
             }),
             inner: vec![item.clone(); num],
-            data_type,
         }
     }
 
@@ -587,7 +564,7 @@ impl Field {
 
 #[macro_export]
 macro_rules! define_from_arr {
-    ($name:ident, $ty:ident, $primitive:tt, $data_type: expr) => {
+    ($name:ident, $ty:ident, $primitive:tt, $data_type:path) => {
         impl From<Vec<$primitive>> for $name {
             fn from(other: Vec<$primitive>) -> Self {
                 let mut field = Field::default();
@@ -596,7 +573,6 @@ macro_rules! define_from_arr {
                 Self {
                     field: FieldRef::new(field),
                     inner: other.into_iter().map(|t| $ty::new(t)).collect(),
-                    data_type: $data_type,
                 }
             }
         }
@@ -604,12 +580,10 @@ macro_rules! define_from_arr {
         impl From<&[$primitive]> for $name {
             fn from(other: &[$primitive]) -> Self {
                 let mut field = Field::default();
-                field.data_type = $data_type;
 
                 Self {
                     field: FieldRef::new(field),
                     inner: other.into_iter().map(|t| $ty::new(t.clone())).collect(),
-                    data_type: $data_type,
                 }
             }
         }

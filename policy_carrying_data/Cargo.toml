@@ -9,6 +9,8 @@ edition = "2021"
 default = ["prettyprint", "use_csv"]
 use_csv = ["csv"]
 prettyprint = ["papergrid"]
+# Enable the generation of FFI-safe Rust-to-Rust trait objects.
+load_module = []
 
 [dependencies]
 opendp = { version = "0.7.0", features = ["untrusted"] }
@@ -17,6 +19,8 @@ papergrid = { version = "0.9.0", optional = true }
 csv = { version = "1.2.2", optional = true }
 bitflags = "2.3.1"
 lazy_static = "1.4.0"
+libloading = "0.8.0"
+
 
 [lib]
 doctest = false

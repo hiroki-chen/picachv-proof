@@ -74,11 +74,7 @@ where
                     .map(|val| BooleanType::new(val.gt(other)))
                     .collect();
 
-                Ok(BooleanFieldData::new(
-                    self.field.clone(),
-                    boolean,
-                    self.data_type,
-                ))
+                Ok(BooleanFieldData::new(self.field.clone(), boolean))
             }
 
             (1, _) => {
@@ -89,11 +85,7 @@ where
                     .map(|val| BooleanType::new(this.gt(val)))
                     .collect();
 
-                Ok(BooleanFieldData::new(
-                    other.field.clone(),
-                    boolean,
-                    other.data_type,
-                ))
+                Ok(BooleanFieldData::new(other.field.clone(), boolean))
             }
 
             (lhs_len, rhs_len) => {
@@ -111,11 +103,7 @@ where
                     .map(|(lhs, rhs)| BooleanType::new(lhs.gt(rhs)))
                     .collect();
 
-                Ok(BooleanFieldData::new(
-                    other.field.clone(),
-                    boolean,
-                    other.data_type,
-                ))
+                Ok(BooleanFieldData::new(other.field.clone(), boolean))
             }
         }
     }
@@ -131,11 +119,7 @@ where
                     .map(|val| BooleanType::new(val.ge(other)))
                     .collect();
 
-                Ok(BooleanFieldData::new(
-                    self.field.clone(),
-                    boolean,
-                    self.data_type,
-                ))
+                Ok(BooleanFieldData::new(self.field.clone(), boolean))
             }
 
             (1, _) => {
@@ -146,11 +130,7 @@ where
                     .map(|val| BooleanType::new(this.ge(val)))
                     .collect();
 
-                Ok(BooleanFieldData::new(
-                    other.field.clone(),
-                    boolean,
-                    other.data_type,
-                ))
+                Ok(BooleanFieldData::new(other.field.clone(), boolean))
             }
 
             (lhs_len, rhs_len) => {
@@ -168,11 +148,7 @@ where
                     .map(|(lhs, rhs)| BooleanType::new(lhs.ge(rhs)))
                     .collect();
 
-                Ok(BooleanFieldData::new(
-                    other.field.clone(),
-                    boolean,
-                    other.data_type,
-                ))
+                Ok(BooleanFieldData::new(other.field.clone(), boolean))
             }
         }
     }
@@ -188,11 +164,7 @@ where
                     .map(|val| BooleanType::new(val.lt(other)))
                     .collect();
 
-                Ok(BooleanFieldData::new(
-                    self.field.clone(),
-                    boolean,
-                    self.data_type,
-                ))
+                Ok(BooleanFieldData::new(self.field.clone(), boolean))
             }
 
             (1, _) => {
@@ -203,11 +175,7 @@ where
                     .map(|val| BooleanType::new(this.lt(val)))
                     .collect();
 
-                Ok(BooleanFieldData::new(
-                    other.field.clone(),
-                    boolean,
-                    other.data_type,
-                ))
+                Ok(BooleanFieldData::new(other.field.clone(), boolean))
             }
 
             (lhs_len, rhs_len) => {
@@ -225,11 +193,7 @@ where
                     .map(|(lhs, rhs)| BooleanType::new(lhs.lt(rhs)))
                     .collect();
 
-                Ok(BooleanFieldData::new(
-                    other.field.clone(),
-                    boolean,
-                    other.data_type,
-                ))
+                Ok(BooleanFieldData::new(other.field.clone(), boolean))
             }
         }
     }
@@ -245,11 +209,7 @@ where
                     .map(|val| BooleanType::new(val.le(other)))
                     .collect();
 
-                Ok(BooleanFieldData::new(
-                    self.field.clone(),
-                    boolean,
-                    self.data_type,
-                ))
+                Ok(BooleanFieldData::new(self.field.clone(), boolean))
             }
 
             (1, _) => {
@@ -260,11 +220,7 @@ where
                     .map(|val| BooleanType::new(this.le(val)))
                     .collect();
 
-                Ok(BooleanFieldData::new(
-                    other.field.clone(),
-                    boolean,
-                    other.data_type,
-                ))
+                Ok(BooleanFieldData::new(other.field.clone(), boolean))
             }
 
             (lhs_len, rhs_len) => {
@@ -282,11 +238,7 @@ where
                     .map(|(lhs, rhs)| BooleanType::new(lhs.le(rhs)))
                     .collect();
 
-                Ok(BooleanFieldData::new(
-                    other.field.clone(),
-                    boolean,
-                    other.data_type,
-                ))
+                Ok(BooleanFieldData::new(other.field.clone(), boolean))
             }
         }
     }
@@ -307,11 +259,7 @@ where
                     .map(|val| BooleanType::new(val.eq(other)))
                     .collect();
 
-                Ok(BooleanFieldData::new(
-                    self.field.clone(),
-                    boolean,
-                    self.data_type,
-                ))
+                Ok(BooleanFieldData::new(self.field.clone(), boolean))
             }
 
             (1, _) => {
@@ -322,11 +270,7 @@ where
                     .map(|val| BooleanType::new(this.eq(val)))
                     .collect();
 
-                Ok(BooleanFieldData::new(
-                    other.field.clone(),
-                    boolean,
-                    other.data_type,
-                ))
+                Ok(BooleanFieldData::new(other.field.clone(), boolean))
             }
 
             (lhs_len, rhs_len) => {
@@ -344,11 +288,7 @@ where
                     .map(|(lhs, rhs)| BooleanType::new(lhs.eq(rhs)))
                     .collect();
 
-                Ok(BooleanFieldData::new(
-                    other.field.clone(),
-                    boolean,
-                    other.data_type,
-                ))
+                Ok(BooleanFieldData::new(other.field.clone(), boolean))
             }
         }
     }
@@ -364,11 +304,7 @@ where
                     .map(|val| BooleanType::new(val.ne(other)))
                     .collect();
 
-                Ok(BooleanFieldData::new(
-                    self.field.clone(),
-                    boolean,
-                    self.data_type,
-                ))
+                Ok(BooleanFieldData::new(self.field.clone(), boolean))
             }
 
             (1, _) => {
@@ -379,11 +315,7 @@ where
                     .map(|val| BooleanType::new(this.ne(val)))
                     .collect();
 
-                Ok(BooleanFieldData::new(
-                    other.field.clone(),
-                    boolean,
-                    other.data_type,
-                ))
+                Ok(BooleanFieldData::new(other.field.clone(), boolean))
             }
 
             (lhs_len, rhs_len) => {
@@ -401,11 +333,7 @@ where
                     .map(|(lhs, rhs)| BooleanType::new(lhs.ne(rhs)))
                     .collect();
 
-                Ok(BooleanFieldData::new(
-                    other.field.clone(),
-                    boolean,
-                    other.data_type,
-                ))
+                Ok(BooleanFieldData::new(other.field.clone(), boolean))
             }
         }
     }
@@ -585,11 +513,7 @@ impl<'a> BitAnd<&'a FieldDataArray<BooleanType>> for &'a FieldDataArray<BooleanT
             .map(|(lhs, rhs)| BooleanType::new(lhs.0 & rhs.0))
             .collect::<Vec<_>>();
 
-        Ok(FieldDataArray::new(
-            self.field.clone(),
-            data,
-            DataType::Boolean,
-        ))
+        Ok(FieldDataArray::new(self.field.clone(), data))
     }
 }
 
@@ -611,11 +535,7 @@ impl<'a> BitOr<&'a FieldDataArray<BooleanType>> for &'a FieldDataArray<BooleanTy
             .map(|(lhs, rhs)| BooleanType::new(lhs.0 | rhs.0))
             .collect::<Vec<_>>();
 
-        Ok(FieldDataArray::new(
-            self.field.clone(),
-            data,
-            DataType::Boolean,
-        ))
+        Ok(FieldDataArray::new(self.field.clone(), data))
     }
 }
 impl BitXor for FieldDataArray<BooleanType> {
@@ -636,10 +556,6 @@ impl<'a> BitXor<&'a FieldDataArray<BooleanType>> for &'a FieldDataArray<BooleanT
             .map(|(lhs, rhs)| BooleanType::new(lhs.0 ^ rhs.0))
             .collect::<Vec<_>>();
 
-        Ok(FieldDataArray::new(
-            self.field.clone(),
-            data,
-            DataType::Boolean,
-        ))
+        Ok(FieldDataArray::new(self.field.clone(), data))
     }
 }

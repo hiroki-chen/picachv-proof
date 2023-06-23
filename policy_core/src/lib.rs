@@ -11,7 +11,6 @@ pub mod ast;
 pub mod data_type;
 pub mod error;
 pub mod expr;
-pub mod ffi;
 pub mod policy;
 
 #[cfg(test)]

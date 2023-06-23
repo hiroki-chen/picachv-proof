@@ -35,61 +35,61 @@ macro_rules! pcd {
                     $crate::field::FieldDataArray::new(
                         field.clone(),
                         $content.iter().map(|e| Int8Type::new(*e as _)).collect(),
-                        $ty)
+                        )
                     ),
                 DataType::Int16 => std::sync::Arc::new(
                     $crate::field::FieldDataArray::new(
                         field.clone(),
                         $content.iter().map(|e| Int16Type::new(*e as _)).collect(),
-                        $ty)
+                        )
                     ),
                 DataType::Int32 => std::sync::Arc::new(
                     $crate::field::FieldDataArray::new(
                         field.clone(),
                         $content.iter().map(|e| Int32Type::new(*e as _)).collect(),
-                        $ty)
+                        )
                     ),
                 DataType::Int64 => std::sync::Arc::new(
                     $crate::field::FieldDataArray::new(
                         field.clone(),
                         $content.iter().map(|e| Int64Type::new(*e as _)).collect(),
-                        $ty)
+                        )
                     ),
                 DataType::UInt8 => std::sync::Arc::new(
                     $crate::field::FieldDataArray::new(
                         field.clone(),
                         $content.iter().map(|e| UInt8Type::new(*e as _)).collect(),
-                        $ty)
+                        )
                     ),
                 DataType::UInt16 => std::sync::Arc::new(
                     $crate::field::FieldDataArray::new(
                         field.clone(),
                         $content.iter().map(|e| UInt16Type::new(*e as _)).collect(),
-                        $ty)
+                        )
                     ),
                 DataType::UInt32 => std::sync::Arc::new(
                     $crate::field::FieldDataArray::new(
                         field.clone(),
                         $content.iter().map(|e| UInt32Type::new(*e as _)).collect(),
-                        $ty)
+                        )
                     ),
                 DataType::UInt64 => std::sync::Arc::new(
                     $crate::field::FieldDataArray::new(
                         field.clone(),
                         $content.iter().map(|e| UInt64Type::new(*e as _)).collect(),
-                        $ty)
+                        )
                     ),
                 DataType::Float32 => std::sync::Arc::new(
                     $crate::field::FieldDataArray::new(
                         field.clone(),
                         $content.iter().map(|e| Float32Type::new(*e as _)).collect(),
-                        $ty)
+                        )
                     ),
                 DataType::Float64 => std::sync::Arc::new(
                     $crate::field::FieldDataArray::new(
                         field.clone(),
                         $content.iter().map(|e| Float64Type::new(*e as _)).collect(),
-                        $ty)
+                        )
                     ),
                 _ => unimplemented!(),
             };
