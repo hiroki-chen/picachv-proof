@@ -1,16 +1,20 @@
 //! This `lalrpop` file defines the syntax of the Policy Definition Language (PDL) which is used to
 //! generate a parser that can be used to convert human-readable policies into a Rust struct.
 
+// (id) => single-column policy; (id_1, id_2, ...) = cross-column policy.
+
 use std::str::FromStr;
 
-// Import all the types.
-use crate::ast::*;
+// Import all the AST types.
+use crate::ast;
 
 grammar;
 
 // Match between keywords and identifiers.
 match {
     r"(?i)(allow)",
+    r"(?i)(and)",
+    r"(?i)(or)",
     r"(?i)(attribute)",
     r"(?i)(deny)",
     r"(?i)(scheme)",
@@ -48,6 +52,25 @@ Comma<T>: Vec<T> = { // (1)
         }
     }
 };
+
+/// The policy itself.
+pub Policy: ast::Policy = {
+    <name: Identifier> <list: AttributeList> ":" "(" <clause_list: Comma<Clause>> ")" =>
+        ast::Policy::new(name.into(), list, clause_list),
+}
+
+/// The policy clauses.
+pub Clause: ast::Clause = {
+    <allow: Allow> <list: AttributeNameList> => ast::Clause::Allow {
+        attribute_list: list,
+        scheme: Vec::new(),
+    },
+    <allow: Allow> <list: AttributeNameList> <and: And> <scheme: Scheme> => ast::Clause::Allow {
+        attribute_list: list,
+        scheme: Vec::new(),
+    },
+    <deny: Deny> <list: AttributeNameList> => ast::Clause::Deny(list),
+}
 
 pub Num: f64 = {
     <f: Float> => f,
@@ -96,6 +119,12 @@ pub AttributeList: Vec<(String, crate::data_type::DataType)> = {
     "(" <list: AttributeList> ")" => list,
 }
 
+/// The attribute name list: Attribute(id_1, id_2, ...)
+pub AttributeNameList: Vec<String> = {
+    "(" <list: Comma<Identifier>> ")" => list.into_iter().map(|s| s.to_string()).collect(),
+    "(" <list: AttributeNameList> ")" => list.into_iter().map(|s| s.to_string()).collect(),
+}
+
 /// The attribute.
 pub AttributeDeclaration: (String, crate::data_type::DataType) = {
     <id: Identifier> ":" <ty: DataType> => (id.to_string(), ty),
@@ -107,6 +136,8 @@ Float: f64 = <s:r"[+-]?([0-9]+([.][0-9]*)?|[.][0-9]+)"> => f64::from_str(s).unwr
 
 // Keywords.
 Allow: String = <s:r"(?i)(allow)"> => s.into();
+And: String = <s:r"(?i)(and)"> => s.into();
+Or: String = <s:r"(?i)(or)"> => s.into();
 Attribute: String = <s:r"(?i)(attribute)"> => s.into();
 Deny: String = <s:r"(?i)(deny)"> => s.into();
 PrivacyScheme: String = <s:r"(?i)(scheme)"> => s.into();

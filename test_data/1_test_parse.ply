@@ -1,0 +1,4 @@
+DiagnosisDataPolicy ATTRIBUTE(foo: i64):
+  (
+    ALLOW (foo),
+  )

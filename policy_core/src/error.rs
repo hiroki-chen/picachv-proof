@@ -27,6 +27,10 @@ pub enum PolicyCarryingError {
     SymbolNotFound(String),
     /// Operation not allowed: policy forbids this.
     OperationNotAllowed(String),
+    /// Parse failed.
+    ParseError(String, String),
+    /// Sub-command failed.
+    CommandFailed(i32),
     /// Unknown error.
     Unknown,
 }
@@ -46,6 +50,10 @@ impl Debug for PolicyCarryingError {
             Self::SymbolNotFound(info) => write!(f, "Symbol not found for {}", info),
             Self::PrivacyError(info) => {
                 write!(f, "Privacy scheme encountered a fatal error: {}", info)
+            }
+            Self::ParseError(file, info) => write!(f, "Cannot parse {}, {}", file, info),
+            Self::CommandFailed(code) => {
+                write!(f, "Command exited with non-zero exit code {}", code)
             }
             Self::Unknown => write!(
                 f,

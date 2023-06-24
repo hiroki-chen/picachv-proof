@@ -1,0 +1,20 @@
+let name = unsafe {
+    let str = std::slice::from_raw_parts(name, len);
+    std::str::from_utf8_unchecked(str)
+};
+
+if name != PLUGIN_NAME {
+    eprintln!("error: loading a wrong module");
+    // Error!
+    1
+} else {
+    // Double pointer to ensure that we do not lose information in a fat pointer.
+    let wrapped = Box::pin(Arc::new({}::new()) as Arc<dyn PolicyApiSet>);
+
+    unsafe {
+        // Consume the box and leave the ownership to the caller.
+        *ptr = Box::into_raw(Pin::into_inner_unchecked(wrapped)) as u64;
+    }
+
+    0
+}

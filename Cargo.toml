@@ -3,5 +3,6 @@ members = [
   "policy_carrying_data",
   "policy_proc_macro",
   "policy_core",
+  "policy_generator",
   "examples/*",
 ]

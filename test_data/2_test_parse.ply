@@ -1,0 +1,4 @@
+DiagnosisDataPolicy ATTRIBUTE(foo: i64, bar: f32, baz: u64):
+  (
+    Deny (foo, baz), Deny (foo), Allow(foo),
+  )

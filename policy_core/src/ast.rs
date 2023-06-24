@@ -3,6 +3,7 @@
 //! The structs defined in this module can be exported to `lalrpop`.
 
 use crate::{
+    data_type::DataType,
     expr::{Aggregation, BinaryOp, Expr},
     policy::Schema,
 };
@@ -17,7 +18,7 @@ pub enum PrivacyScheme {
 }
 
 /// Scheme for ensuring privacy.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum Scheme {
     Redact,
     Filter(Box<Expr>),
@@ -35,21 +36,50 @@ pub enum Scheme {
 }
 
 /// Policy clauses.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum Clause {
     Allow {
         attribute_list: Vec<String>,
-        schema: Vec<Scheme>,
+        scheme: Vec<Scheme>,
     },
     /// Deny access on a list of attributes.
     Deny(Vec<String>),
 }
 
 /// The root node of the policy AST.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Policy {
+    name: String,
     schema: Schema,
     clause: Vec<Clause>,
+}
+
+impl Policy {
+    #[inline]
+    /// Constructs a policy node from the parsed AST sub-trees.
+    pub fn new(name: String, schema: Schema, clause: Vec<Clause>) -> Self {
+        Self {
+            name,
+            schema,
+            clause,
+        }
+    }
+
+    #[inline]
+    pub fn name(&self) -> &str {
+        self.name.as_ref()
+    }
+
+    pub fn schema(&self) -> &[(String, DataType)] {
+        self.schema.as_ref()
+    }
+
+    pub fn clause(&self) -> &[Clause] {
+        self.clause.as_ref()
+    }
+
+    /// Performs the postprocessing that removes duplications.
+    pub fn postprocess(&mut self) {}
 }
 
 #[cfg(test)]

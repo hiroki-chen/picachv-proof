@@ -76,6 +76,10 @@ impl DataType {
         )
     }
 
+    pub fn to_qualified_str(&self) -> String {
+        format!("DataType::{self}")
+    }
+
     /// Fast conversion from trait to concrete data type.
     pub fn from_primitive_trait<T: PrimitiveDataType>() -> Self {
         let ty = TypeId::of::<T>();

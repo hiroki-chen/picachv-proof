@@ -5,3 +5,8 @@ Cargo.lock
 build
 /lean_packages/*
 !/lean_packages/manifest.json
+
+# Some special folders.
+test
+backup
+log

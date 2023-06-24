@@ -11,7 +11,8 @@ static PLUGIN_NAME: &str = "foo";
 #[no_mangle]
 extern "C" fn load_module(name: *const u8, len: usize, ptr: *mut u64) -> i32 {
     let name = unsafe {
-        let str = std::slice::from_raw_parts(name, len);
+        let str = std::slice::from_raw_parts(name, 
+            len);
         std::str::from_utf8_unchecked(str)
     };
 

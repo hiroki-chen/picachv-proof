@@ -84,6 +84,7 @@ Although we cannot determine the concrete appearance of the policy now, we may f
 - [ ] Implement an parser that automatically generates the API layer.
   - [ ] Human-reable policy parser: use `lalrpop`.
     - [ ] Syntax: partially done.
-    - [ ] AST design: WIP.
+    - [x] AST design.
     - [ ] codegen to Rust: WIP.
     - [ ] procedural macro generation.
+  - [ ] Check policy consistency: use SMT solvers?
