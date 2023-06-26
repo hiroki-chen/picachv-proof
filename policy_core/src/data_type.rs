@@ -4,12 +4,16 @@ use std::{
     fmt::{Debug, Display, Formatter},
 };
 
+use serde::{Deserialize, Serialize};
+
 /// The set of datatypes that are supported. Typically, this enum is used to describe the type of a column.
 ///
 /// Other data analytic systems or engines may support more complex and nested data types like lists, dicts, or even
 /// structs that may contain [`DataType`]s, but we do not seek to support such complex types because we only focus on
 /// primitive types (note that [`String`] or [`std::str`] are also primitive types in data analytics).
-#[derive(Clone, Copy, Debug, Hash, PartialOrd, PartialEq, Eq, Ord, Default)]
+#[derive(
+    Clone, Copy, Debug, Hash, PartialOrd, PartialEq, Eq, Ord, Default, Serialize, Deserialize,
+)]
 #[repr(i64)]
 pub enum DataType {
     /// Denotes data types that contain null or empty data.
@@ -39,6 +43,15 @@ pub enum DataType {
     Float64,
     /// The UTF-8 encoded string.
     Utf8Str,
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+pub enum JoinType {
+    Left,
+    Right,
+    Full,
+    #[default]
+    Natural,
 }
 
 impl Display for DataType {
@@ -159,7 +172,7 @@ impl PartialOrd for dyn PrimitiveDataType {
 #[macro_export]
 macro_rules! declare_type {
     ($name:ident, $ty:expr, $primitive:tt) => {
-        #[derive(Clone, PartialEq, PartialOrd)]
+        #[derive(Clone, PartialEq, PartialOrd, Serialize, Deserialize)]
         pub struct $name(pub $primitive, pub $crate::data_type::DataType);
 
         impl $crate::data_type::PrimitiveDataType for $name {

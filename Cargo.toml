@@ -4,5 +4,7 @@ members = [
   "policy_proc_macro",
   "policy_core",
   "policy_generator",
+  "policy_function",
+  "policy_execution",
   "examples/*",
 ]

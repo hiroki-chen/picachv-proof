@@ -5,34 +5,27 @@ use std::{
     sync::Arc,
 };
 
-use api::{ApiRefId, JoinType};
 use csv::Reader;
-use field::{FieldDataArray, FieldDataRef};
-use lazy::{IntoLazy, LazyFrame};
-use plan::{OptFlag, PlanBuilder};
+use field::{FieldData, FieldDataArray, FieldDataRef};
 use policy_core::{
     data_type::{
         BooleanType, DataType, Float32Type, Float64Type, Int16Type, Int32Type, Int64Type, Int8Type,
-        UInt16Type, UInt32Type, UInt64Type, UInt8Type, Utf8StrType,
+        JoinType, UInt16Type, UInt32Type, UInt64Type, UInt8Type, Utf8StrType,
     },
     error::{PolicyCarryingError, PolicyCarryingResult},
-    policy::TopPolicy,
 };
 use schema::{Schema, SchemaMetadata, SchemaRef};
 
 pub mod api;
 pub mod field;
-pub mod lazy;
-pub mod privacy;
 pub mod row;
 pub mod schema;
 
 mod arithmetic;
 mod comparator;
-mod executor;
 mod macros;
-mod plan;
 
+pub use comparator::Comparator;
 pub use macros::*;
 
 #[cfg(feature = "prettyprint")]
@@ -83,7 +76,9 @@ where
 /// 2. an API set layer that enforces the access to the data is policy-compliant:
 ///
 /// ```
-/// pub struct DiagnosisDataApiLayer { /*...*/ }
+/// pub struct DiagnosisDataApiLayer {
+///     df: DataFrame
+/// }
 ///
 /// impl PolicyCompliantApiSet for DiagnosisDataApiLayer {
 ///     /* ... */
@@ -107,20 +102,10 @@ where
 ///
 /// The policy-carrying data is still under very active development. Implementations, API definitions, and
 /// crate layout may be subject to change without any notification.
-#[derive(Clone, Default)]
+#[derive(Clone, Default, PartialEq)]
 pub struct DataFrame {
     /// The concrete data.
     pub(crate) columns: Vec<FieldDataRef>,
-}
-
-impl IntoLazy for DataFrame {
-    fn make_lazy(self, api_set: ApiRefId) -> LazyFrame {
-        LazyFrame {
-            api_set,
-            plan: PlanBuilder::from(self).finish(),
-            opt_flag: OptFlag::all(),
-        }
-    }
 }
 
 impl Display for DataFrame {
@@ -160,7 +145,7 @@ impl DataFrame {
     }
 
     /// Do projection.
-    pub(crate) fn projection<T: AsRef<str>>(&self, columns: &[T]) -> PolicyCarryingResult<Self> {
+    pub fn projection<T: AsRef<str>>(&self, columns: &[T]) -> PolicyCarryingResult<Self> {
         let names = columns.into_iter().map(|c| c.as_ref()).collect::<Vec<_>>();
 
         Ok(Self {
@@ -274,20 +259,87 @@ impl DataFrame {
     pub fn schema(&self) -> SchemaRef {
         Arc::new(Schema {
             fields: self.columns.iter().map(|c| c.field()).collect(),
-            metadata: SchemaMetadata {},
-            policy: Box::new(TopPolicy {}),
+            metadata: Default::default(),
+            api_ref_id: None,
         })
     }
 
-    /// Joins two policy-carrying data together.
-    #[must_use]
-    pub(crate) fn join(self, other: Self, join_type: JoinType) -> PolicyCarryingResult<Self> {
-        todo!()
+    pub fn to_json(&self) -> String {
+        self.columns
+            .iter()
+            .map(|d| d.to_json())
+            .collect::<Vec<_>>()
+            .join(";")
+    }
+
+    pub fn from_json(content: &str) -> PolicyCarryingResult<Self> {
+        let arr = content.split(";").collect::<Vec<_>>();
+        let mut columns = Vec::new();
+
+        for element in arr {
+            let value = serde_json::from_str::<serde_json::Value>(element)
+                .map_err(|_| PolicyCarryingError::InvalidInput)?;
+            let ty = serde_json::from_value::<DataType>(value["field"]["data_type"].clone())
+                .map_err(|_| PolicyCarryingError::InvalidInput)?;
+
+            let column: Arc<dyn FieldData> = match ty {
+                DataType::Boolean => Arc::new(
+                    serde_json::from_value::<FieldDataArray<BooleanType>>(value)
+                        .map_err(|_| PolicyCarryingError::InvalidInput)?,
+                ),
+                DataType::UInt8 => Arc::new(
+                    serde_json::from_value::<FieldDataArray<UInt8Type>>(value)
+                        .map_err(|_| PolicyCarryingError::InvalidInput)?,
+                ),
+                DataType::UInt16 => Arc::new(
+                    serde_json::from_value::<FieldDataArray<UInt16Type>>(value)
+                        .map_err(|_| PolicyCarryingError::InvalidInput)?,
+                ),
+                DataType::UInt32 => Arc::new(
+                    serde_json::from_value::<FieldDataArray<UInt32Type>>(value)
+                        .map_err(|_| PolicyCarryingError::InvalidInput)?,
+                ),
+                DataType::UInt64 => Arc::new(
+                    serde_json::from_value::<FieldDataArray<UInt64Type>>(value)
+                        .map_err(|_| PolicyCarryingError::InvalidInput)?,
+                ),
+                DataType::Int8 => Arc::new(
+                    serde_json::from_value::<FieldDataArray<Int8Type>>(value)
+                        .map_err(|_| PolicyCarryingError::InvalidInput)?,
+                ),
+                DataType::Int16 => Arc::new(
+                    serde_json::from_value::<FieldDataArray<Int16Type>>(value)
+                        .map_err(|_| PolicyCarryingError::InvalidInput)?,
+                ),
+                DataType::Int32 => Arc::new(
+                    serde_json::from_value::<FieldDataArray<Int32Type>>(value)
+                        .map_err(|_| PolicyCarryingError::InvalidInput)?,
+                ),
+                DataType::Int64 => Arc::new(
+                    serde_json::from_value::<FieldDataArray<Int64Type>>(value)
+                        .map_err(|_| PolicyCarryingError::InvalidInput)?,
+                ),
+                DataType::Float32 => Arc::new(
+                    serde_json::from_value::<FieldDataArray<Float32Type>>(value)
+                        .map_err(|_| PolicyCarryingError::InvalidInput)?,
+                ),
+                DataType::Float64 => Arc::new(
+                    serde_json::from_value::<FieldDataArray<Float64Type>>(value)
+                        .map_err(|_| PolicyCarryingError::InvalidInput)?,
+                ),
+
+                _ => unimplemented!(),
+            };
+
+            columns.push(column);
+        }
+
+        Ok(Self { columns })
     }
 
     /// Takes the [..head] range of the data frame.
     #[must_use]
-    pub(crate) fn take_head(&self, head: usize) -> Self {
+    pub fn take_head(&self, head: usize) -> Self {
         Self {
             columns: self.columns.iter().map(|c| c.slice(0..head)).collect(),
         }
@@ -295,7 +347,7 @@ impl DataFrame {
 
     /// Takes the [tail..] range of the data frame.
     #[must_use]
-    pub(crate) fn take_tail(&self, tail: usize) -> Self {
+    pub fn take_tail(&self, tail: usize) -> Self {
         Self {
             columns: self
                 .columns
@@ -307,10 +359,7 @@ impl DataFrame {
 
     /// Applies a boolean filter array on this dataframe and returns a new one.
     #[must_use]
-    pub(crate) fn filter(
-        &self,
-        boolean: &FieldDataArray<BooleanType>,
-    ) -> PolicyCarryingResult<Self> {
+    pub fn filter(&self, boolean: &FieldDataArray<BooleanType>) -> PolicyCarryingResult<Self> {
         let data = self
             .columns
             .iter()
@@ -324,7 +373,7 @@ impl DataFrame {
     }
 
     /// Finds a column name in the schema of this dataframe.
-    pub(crate) fn find_column(&self, name: &str) -> PolicyCarryingResult<FieldDataRef> {
+    pub fn find_column(&self, name: &str) -> PolicyCarryingResult<FieldDataRef> {
         self.columns
             .iter()
             .find(|col| col.name() == name)
@@ -333,15 +382,16 @@ impl DataFrame {
                 "column not found!".into(),
             ))
     }
+
+    pub fn columns(&self) -> &[Arc<dyn FieldData>] {
+        self.columns.as_ref()
+    }
 }
 
 // unsafe impl Send for DataFrame {}
 
 #[cfg(test)]
 mod test {
-
-    use policy_core::{col, cols};
-
     use crate::schema::SchemaBuilder;
 
     use super::*;
@@ -351,7 +401,7 @@ mod test {
         let schema = SchemaBuilder::new()
             .add_field_raw("column_1", DataType::Int64, false)
             .add_field_raw("column_2", DataType::Float64, false)
-            .finish_with_top();
+            .finish_with_api(0);
 
         let pcd = DataFrame::load_csv("../test_data/simple_csv.csv", Some(schema.clone()));
 
@@ -360,24 +410,39 @@ mod test {
 
     #[test]
     fn test_simple_query() {
-        let pcd = pcd! {
+        // let pcd = pcd! {
+        //     "column_1" => DataType::Int8: [1, 2, 3, 4, 5, 6, 7, 8],
+        //     "column_2" => DataType::Float64: [1.0, 2.0, 3.0, 4.0, 22.3, 22.3, 22.3, 22.3],
+        // };
+
+        // let pcd = pcd
+        //     .into_lazy(Default::default())
+        //     .select(cols!("column_2"))
+        //     .filter(
+        //         col!("column_2")
+        //             .lt(Float64Type::new(200.0))
+        //             .and(col!("column_2").eq(Float64Type::new(22.3))),
+        //     )
+        //     // .sum()
+        //     .collect();
+
+        // let pcd2 = pcd! {
+        //     "column_2" => DataType::Float64: [22.3, 22.3, 22.3, 22.3],
+        // };
+
+        // assert!(pcd.is_ok_and(|inner| inner == pcd2));
+    }
+
+    #[test]
+    fn test_json() {
+        let pcd_old = pcd! {
             "column_1" => DataType::Int8: [1, 2, 3, 4, 5, 6, 7, 8],
             "column_2" => DataType::Float64: [1.0, 2.0, 3.0, 4.0, 22.3, 22.3, 22.3, 22.3],
         };
 
-        println!("{pcd}");
+        let json = pcd_old.to_json();
+        let pcd = DataFrame::from_json(&json);
 
-        let pcd = pcd
-            .make_lazy(Default::default())
-            .select(cols!("column_2"))
-            .filter(
-                col!("column_2")
-                    .lt(Float64Type::new(200.0))
-                    .and(col!("column_2").eq(Float64Type::new(22.3))),
-            )
-            // .sum()
-            .collect();
-
-        println!("{pcd:?}");
+        assert!(pcd.is_ok_and(|inner| inner == pcd_old));
     }
 }

@@ -1,5 +1,6 @@
 use std::{
     any::Any,
+    collections::HashMap,
     fmt::{Debug, Formatter},
     marker::PhantomData,
     ops::{Index, Range},
@@ -13,9 +14,11 @@ use policy_core::{
     },
     error::{PolicyCarryingError, PolicyCarryingResult},
 };
+use serde::{Deserialize, Serialize};
 
 pub type FieldRef = Arc<Field>;
 pub type FieldDataRef = Arc<dyn FieldData>;
+pub type FieldMetadata = HashMap<String, String>;
 
 // Column data arrays.
 pub type Int8FieldData = FieldDataArray<Int8Type>;
@@ -50,12 +53,9 @@ macro_rules! index_primitive {
     };
 }
 
-#[derive(Clone, Debug, Hash, Default)]
-pub struct FieldMetadata {}
-
 /// Represents a column/attribute in the data table which may carry some specific policies. This struct is an element in
 /// the schema's ([`crate::schema::Schema`]) vector of fields.
-#[derive(Clone, Debug, Hash, Default)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Field {
     /// The name of the field
     pub name: String,
@@ -98,6 +98,9 @@ pub trait FieldData: Debug + Send + Sync {
 
     /// Gets the field.
     fn field(&self) -> FieldRef;
+
+    /// To json.
+    fn to_json(&self) -> String;
 
     /// Gets the name.
     fn name(&self) -> &str;
@@ -195,7 +198,7 @@ impl PartialEq for dyn FieldData + '_ {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Deserialize, Serialize)]
 pub struct FieldDataArray<T>
 where
     T: PrimitiveDataType + Debug + Send + Sync + Clone + 'static,
@@ -348,7 +351,7 @@ pub trait ArrayAccess {
 
 impl<T> FieldData for FieldDataArray<T>
 where
-    T: PrimitiveDataType + Debug + Send + Sync + Clone + PartialEq + 'static,
+    T: PrimitiveDataType + Serialize + Debug + Send + Sync + Clone + PartialEq + 'static,
 {
     fn as_any_ref(&self) -> &dyn Any {
         self
@@ -377,6 +380,10 @@ where
         })
     }
 
+    fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
     fn slice(&self, range: Range<usize>) -> FieldDataRef {
         Arc::new(Self {
             field: self.field.clone(),
@@ -389,7 +396,7 @@ where
             name: name.into(),
             data_type: self.field.data_type,
             nullable: self.field.nullable,
-            metadata: FieldMetadata {},
+            metadata: Default::default(),
         });
 
         Ok(())
@@ -507,7 +514,7 @@ where
                 name,
                 data_type: DataType::from_primitive_trait::<T>(),
                 nullable: false,
-                metadata: FieldMetadata {},
+                metadata: Default::default(),
             }),
             inner: vec![item.clone(); num],
         }

@@ -7,18 +7,13 @@ use std::{
 };
 
 use bitflags::bitflags;
+use policy_carrying_data::{api::ApiRefId, field::FieldDataRef, schema::SchemaRef, DataFrame};
 use policy_core::{
     error::{PolicyCarryingError, PolicyCarryingResult},
     expr::AExpr,
 };
 
-use crate::{
-    api::ApiRefId,
-    field::FieldDataRef,
-    plan::{physical_expr::PhysicalExpr, ALogicalPlan},
-    schema::SchemaRef,
-    DataFrame,
-};
+use crate::plan::{physical_expr::PhysicalExpr, ALogicalPlan};
 
 use self::arena::Arena;
 
@@ -59,7 +54,7 @@ bitflags! {
 
 /// The executor for the physical plan.
 pub trait PhysicalExecutor: Send {
-    // WIP: What is returned?
+    // WIP: What is returned??
     fn execute(&mut self, state: &ExecutionState) -> PolicyCarryingResult<DataFrame>;
 }
 
@@ -139,7 +134,7 @@ pub(crate) fn evaluate_physical_expr_vec(
         .collect::<PolicyCarryingResult<Vec<_>>>()?;
     state.clear_expr();
 
-    expand_projection_literal(state, selected_columns, df.columns.is_empty())
+    expand_projection_literal(state, selected_columns, df.columns().is_empty())
 }
 
 /// Sometimes the projected columns do not represent anything and are just a bunch of literals.
@@ -196,7 +191,7 @@ pub(crate) fn expand_projection_literal(
     // If we are projecting on an empty data frame, we just take the common part of
     // the literals and then make it a data frame.
     match empty {
-        true => match df.columns.iter().map(|c| c.len()).min() {
+        true => match df.columns().iter().map(|c| c.len()).min() {
             Some(len) => Ok(df.take_head(len)),
             None => Ok(df),
         },

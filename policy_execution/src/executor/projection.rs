@@ -1,8 +1,9 @@
 use std::sync::Arc;
 
+use policy_carrying_data::{schema::SchemaRef, DataFrame};
 use policy_core::error::PolicyCarryingResult;
 
-use crate::{plan::physical_expr::PhysicalExpr, schema::SchemaRef, trace, DataFrame};
+use crate::{plan::physical_expr::PhysicalExpr, trace};
 
 use super::{evaluate_physical_expr_vec, ExecutionState, PhysicalExecutor};
 

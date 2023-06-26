@@ -7,6 +7,8 @@ pub type PolicyCarryingResult<T> = std::result::Result<T, PolicyCarryingError>;
 pub enum PolicyCarryingError {
     /// Already loaded.
     AlreadyLoaded,
+    /// Invalid input.
+    InvalidInput,
     /// An operation is impossible or the operands are in-compatible.
     ImpossibleOperation(String),
     /// Inconsistent policies.
@@ -40,8 +42,9 @@ impl Debug for PolicyCarryingError {
         match self {
             Self::AlreadyLoaded => write!(f, "already loaded"),
             Self::ImpossibleOperation(info) => write!(f, "This operation is impossible: {}", info),
-            Self::InconsistentPolicy(info) => write!(f, "Inconsistent policies: {}", info),
             Self::SchemaMismatch(info) => write!(f, "Schema mismatch: {}", info),
+            Self::InconsistentPolicy(info) => write!(f, "Inconsistent policies: {}", info),
+            Self::InvalidInput => write!(f, "invalid input"),
             Self::TypeMismatch(info) => write!(f, "Type mismatch: {}", info),
             Self::OutOfBound(info) => write!(f, "Index out of bound: {}", info),
             Self::OperationNotSupported => write!(f, "Operation not supported"),

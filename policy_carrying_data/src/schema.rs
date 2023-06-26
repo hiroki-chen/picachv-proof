@@ -1,14 +1,14 @@
-use std::{ops::Add, sync::Arc};
+use std::{collections::HashMap, ops::Add, sync::Arc};
 
-use policy_core::{
-    data_type::DataType,
-    error::PolicyCarryingResult,
-    policy::{Policy, TopPolicy},
+use policy_core::{data_type::DataType, error::PolicyCarryingResult};
+
+use crate::{
+    api::ApiRefId,
+    field::{new_empty, Field, FieldData, FieldRef},
 };
 
-use crate::field::{new_empty, Field, FieldData, FieldMetadata, FieldRef};
-
 pub type SchemaRef = Arc<Schema>;
+pub type SchemaMetadata = HashMap<String, String>;
 
 /// A builder that avoids manually constructing a new [`Schema`].
 #[derive(Clone, Debug, Default)]
@@ -57,35 +57,30 @@ impl SchemaBuilder {
             name: name.into(),
             data_type,
             nullable,
-            metadata: FieldMetadata {},
+            metadata: Default::default(),
         });
 
         self.add_field(field)
     }
 
     #[inline]
-    pub fn finish(self, policy: Box<dyn Policy>) -> Arc<Schema> {
+    pub fn finish(self) -> Arc<Schema> {
         Arc::new(Schema {
             fields: self.fields,
-            metadata: SchemaMetadata {},
-            policy,
+            metadata: Default::default(),
+            api_ref_id: None,
         })
     }
 
     #[inline]
-    pub fn finish_with_top(self) -> Arc<Schema> {
+    pub fn finish_with_api(self, id: usize) -> Arc<Schema> {
         Arc::new(Schema {
             fields: self.fields,
-            metadata: SchemaMetadata {},
-            policy: Box::new(TopPolicy {}),
+            metadata: Default::default(),
+            api_ref_id: Some(ApiRefId(id)),
         })
     }
 }
-
-/// The metadata for the schema.
-/// TODO: Include something important components that can be added to this struct.
-#[derive(Clone, Debug, Default)]
-pub struct SchemaMetadata {}
 
 /// This struct represents a schema of the input data which, in most cases, is in a table form.
 /// Schema for such data types, in fact, is something that describes the attribute/column of the table.
@@ -95,16 +90,16 @@ pub struct Schema {
     pub(crate) fields: Vec<FieldRef>,
     /// The matadata of the schema.
     pub(crate) metadata: SchemaMetadata,
-    /// The policy of the schema.
-    pub(crate) policy: Box<dyn Policy>,
+    /// The api reference id.
+    pub api_ref_id: Option<ApiRefId>,
 }
 
 impl Default for Schema {
     fn default() -> Self {
         Self {
-            policy: Box::new(TopPolicy {}),
             metadata: Default::default(),
             fields: Vec::new(),
+            api_ref_id: None,
         }
     }
 }
@@ -141,11 +136,11 @@ impl Add for Schema {
 
 impl Schema {
     /// Constructs a new schema from an array of field descriptions.
-    pub fn new(fields: Vec<FieldRef>, metadata: SchemaMetadata, policy: Box<dyn Policy>) -> Self {
+    pub fn new(fields: Vec<FieldRef>, metadata: SchemaMetadata, id: Option<usize>) -> Self {
         Self {
             fields,
             metadata,
-            policy,
+            api_ref_id: id.map(|id| ApiRefId(id)),
         }
     }
 
@@ -172,5 +167,9 @@ impl Schema {
             .iter()
             .map(|column| new_empty(column.clone()))
             .collect()
+    }
+
+    pub fn fields(&self) -> &[Arc<Field>] {
+        self.fields.as_ref()
     }
 }

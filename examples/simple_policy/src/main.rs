@@ -1,5 +1,4 @@
-use policy_carrying_data::{lazy::IntoLazy, pcd};
-use policy_core::{col, data_type::*};
+use policy_carrying_data::pcd;
 
 fn main() {
     let pcd = pcd! {
@@ -8,17 +7,4 @@ fn main() {
     };
 
     println!("{pcd}");
-
-    let data = pcd
-        .make_lazy(Default::default())
-        .select([col!("*")])
-        .filter(
-            col!("column_2")
-                .ne(Float64Type::new(3.0))
-                .and(col!("column_1").gt(UInt8Type::new(2))),
-        )
-        .collect()
-        .unwrap();
-
-    println!("{data}");
 }

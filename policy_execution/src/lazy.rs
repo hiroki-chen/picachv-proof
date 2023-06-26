@@ -1,28 +1,17 @@
 //! The lazy data frame module.
 
-use std::{
-    fmt::{Debug, Formatter},
-    sync::Arc,
-};
+use std::fmt::{Debug, Formatter};
 
+use policy_carrying_data::{api::ApiRefId, schema::SchemaRef, DataFrame};
 use policy_core::{col, error::PolicyCarryingResult, expr::Expr};
 
 use crate::{
-    api::{ApiRef, ApiRefId},
     executor::execution_epilogue,
     plan::{make_physical_plan, LogicalPlan, OptFlag, PlanBuilder},
-    schema::SchemaRef,
-    DataFrame,
 };
 
-pub trait IntoLazy {
-    /// Converts a dafaframe into a lazy frame.
-    fn make_lazy(self, api_set: ApiRefId) -> LazyFrame;
-}
-
 #[derive(Clone)]
-#[must_use]
-// TODO： How do (or do we need to) propagate api_set into each [`LogicalPlan`]? Who will propagate or set this field?
+#[must_use = "LazyFrame must be consumed"]
 pub struct LazyFrame {
     /// In case we need this.
     pub(crate) api_set: ApiRefId,
@@ -30,6 +19,23 @@ pub struct LazyFrame {
     pub(crate) plan: LogicalPlan,
     /// The optimization flag.
     pub(crate) opt_flag: OptFlag,
+}
+
+impl From<SchemaRef> for LazyFrame {
+    fn from(value: SchemaRef) -> Self {
+        Self {
+            api_set: value
+                .api_ref_id
+                .expect("Must set the api id to construct a `LazyFrame`"),
+            opt_flag: OptFlag::all(),
+            plan: LogicalPlan::DataFrameScan {
+                schema: value.clone(),
+                output_schema: None,
+                projection: None,
+                selection: None,
+            },
+        }
+    }
 }
 
 impl Debug for LazyFrame {

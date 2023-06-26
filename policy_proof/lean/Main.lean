@@ -23,3 +23,24 @@ def Tree.make (tree: Tree beta) (key: Nat) (val: beta) : Tree beta :=
       if key < k then lhs.make key val
       else if key > k then rhs.make key val
       else node lhs key val rhs
+
+def Tree.as_list (tree: Tree beta) : List Nat :=
+  match tree with
+    | leaf => List.nil
+    | node lhs k _ rhs => lhs.as_list ++ [k] ++ rhs.as_list
+
+inductive pred_holds_for_tree (pred: Nat -> beta -> Prop) : Tree beta -> Prop 
+  | leaf: pred_holds_for_tree pred Tree.leaf
+  | node:
+    -- lhs => mid => rhs => all
+    pred_holds_for_tree pred lhs ->
+    pred k v ->
+    pred_holds_for_tree pred rhs ->
+    pred_holds_for_tree pred (Tree.node lhs k v rhs)
+
+inductive is_bst : Tree beta -> Prop
+  | leaf : is_bst Tree.leaf
+  | node:
+    pred_holds_for_tree (fun k _ => k < key) lhs ->
+    pred_holds_for_tree (fun k _ => k > key) rhs ->
+    is_bst lhs -> is_bst rhs -> is_bst (Tree.node lhs k v rhs)

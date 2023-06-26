@@ -5,6 +5,11 @@ use std::{
     sync::Arc,
 };
 
+use policy_carrying_data::{
+    field::{Field, FieldDataArray, FieldDataRef},
+    schema::SchemaRef,
+    Comparator, DataFrame, UserDefinedFunction,
+};
 use policy_core::{
     data_type::{
         BooleanType, DataType, Float32Type, Float64Type, Int32Type, Int64Type, Int8Type,
@@ -14,13 +19,7 @@ use policy_core::{
     expr::{AAggExpr, AExpr, BinaryOp, Expr, GroupByMethod, Node},
 };
 
-use crate::{
-    comparator::Comparator,
-    executor::{ExecutionState, ExprArena},
-    field::{Field, FieldDataArray, FieldDataRef},
-    schema::SchemaRef,
-    DataFrame, UserDefinedFunction,
-};
+use crate::executor::{ExecutionState, ExprArena};
 
 use super::{aexpr_to_expr, ApplyOption};
 
@@ -402,7 +401,7 @@ pub(crate) fn get_field_from_aexpr(
             }
         },
         AExpr::Column(name) => schema
-            .fields
+            .fields()
             .iter()
             .find(|column| &column.name == name)
             .map(|inner| inner.deref().clone())

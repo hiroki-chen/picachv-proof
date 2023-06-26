@@ -1,21 +1,20 @@
 use std::{collections::HashSet, ops::Deref, sync::Arc};
 
 use bitflags::bitflags;
+use policy_carrying_data::{api::ApiRefId, schema::SchemaRef, DataFrame, UserDefinedFunction};
 use policy_core::{
+    data_type::JoinType,
     error::{PolicyCarryingError, PolicyCarryingResult},
     expr::{AAggExpr, AExpr, Aggregation, Expr, Node},
     policy::Policy,
 };
 
 use crate::{
-    api::{ApiRefId, JoinType},
     executor::{
         filter::FilterExec, projection::ProjectionExec, scan::DataFrameExec, ExecutionState,
         ExprArena, LogicalPlanArena, PhysicalExecutor, EXPR_ARENA_SIZE, LP_ARENA_SIZE,
     },
     plan::physical_expr::make_physical_expr,
-    schema::SchemaRef,
-    DataFrame, UserDefinedFunction,
 };
 
 pub mod physical_expr;
@@ -108,7 +107,6 @@ pub enum LogicalPlan {
     },
 
     DataFrameScan {
-        df: Arc<DataFrame>,
         schema: SchemaRef,
         // schema of the projected file
         output_schema: Option<SchemaRef>,
@@ -125,7 +123,6 @@ pub enum ALogicalPlan {
         predicate: Node,
     },
     DataFrameScan {
-        df: Arc<DataFrame>,
         schema: SchemaRef,
         // schema of the projected file
         output_schema: Option<SchemaRef>,
@@ -252,7 +249,6 @@ impl From<DataFrame> for PlanBuilder {
         let schema = df.schema();
 
         LogicalPlan::DataFrameScan {
-            df: Arc::new(df),
             schema,
             output_schema: None,
             projection: None,
@@ -518,13 +514,11 @@ pub(crate) fn lp_to_alp(
         }
 
         LogicalPlan::DataFrameScan {
-            df,
             projection,
             selection,
             schema,
             output_schema,
         } => ALogicalPlan::DataFrameScan {
-            df,
             schema,
             output_schema,
             projection,
@@ -633,7 +627,6 @@ fn do_make_physical_plan(
             Ok(Box::new(FilterExec::new(predicate, input)))
         }
         ALogicalPlan::DataFrameScan {
-            df,
             schema,
             projection,
             selection,
@@ -651,10 +644,14 @@ fn do_make_physical_plan(
                 None => None,
             };
 
-            // here!
-            Ok(Box::new(DataFrameExec::new(
-                df, selection, projection, false,
-            )))
+            match schema.api_ref_id {
+                Some(api_ref_id) => Ok(Box::new(DataFrameExec::new(
+                    api_ref_id, selection, projection, false,
+                ))),
+                None => Err(PolicyCarryingError::ImpossibleOperation(
+                    "no api id is set, operation cannot proceed".into(),
+                )),
+            }
         }
         ALogicalPlan::Projection { input, expr, .. } => {
             let schema = lp_arena.get(input).schema(lp_arena);

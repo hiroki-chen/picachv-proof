@@ -32,111 +32,10 @@ pub type ApiRef = Arc<dyn PolicyApiSet>;
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Default)]
 pub struct ApiRefId(pub usize);
 
-/// Gets the next available API id.
-pub fn next_api_id() -> usize {
-    API_COUNT.fetch_add(1, Ordering::Release)
-}
-
-/// Gets the current available API id.
-pub fn cur_api_id() -> usize {
-    API_COUNT.load(Ordering::Acquire)
-}
-
-/// This functions will register new API implementation from the plugin that can be loaded at runtime. Note
-/// however, that the API must be compiled separately with the same Rust toolchain to be ABI-safe.
-pub fn register_api(path: &str, name: &str) -> PolicyCarryingResult<ApiRefId> {
-    let id = next_api_id();
-    match API_MANAGER.write() {
-        Ok(mut lock) => {
-            lock.load(path, name)?;
-            Ok(ApiRefId(id))
-        }
-        Err(_) => Err(PolicyCarryingError::Unknown),
-    }
-}
-
-/// This is called at the executor level when we want to get the [`PolicyApiSet`] for data access.
-pub fn get_api(id: ApiRefId) -> PolicyCarryingResult<ApiRef> {
-    let name = API_ID_MAP
-        .read()
-        .map_err(|_| PolicyCarryingError::Unknown)?
-        .get(&id)
-        .ok_or(PolicyCarryingError::OperationNotAllowed(
-            "this api set is not registerd".into(),
-        ))?;
-
-    todo!()
-}
-
-// Some common APIs that can be used implement the `PolicyCompliantApiSet`'s trait methods.
-
-/// An identity function transformation.
-pub fn pcd_identity<T>(input: FieldDataArray<T>) -> PolicyCarryingResult<FieldDataArray<T>>
-where
-    T: PrimitiveDataType + Debug + Send + Sync + Clone + 'static,
-{
-    Ok(input)
-}
-
-/// Returns the maximum value of the array. Deal with f64?
-pub fn pcd_max<T>(input: &FieldDataArray<T>) -> PolicyCarryingResult<T>
-where
-    T: PrimitiveDataType + PartialOrd + Debug + Send + Sync + Clone + 'static,
-{
-    input
-        .into_iter()
-        .max_by(|&lhs, &rhs| lhs.partial_cmp(rhs).unwrap()) // May panic when NaN
-        .cloned()
-        .ok_or(PolicyCarryingError::ImpossibleOperation(
-            "Input is empty".into(),
-        ))
-}
-
-/// Sums up the value.
-pub fn pcd_sum<R, T>(
-    input: &FieldDataArray<T>,
-    init: R,
-    upper: Option<T>,
-) -> PolicyCarryingResult<R>
-where
-    T: PrimitiveDataType + Add<R, Output = R> + PartialOrd + Debug + Send + Sync + Clone + 'static,
-{
-    // Can we really add on utf8 strings?
-    if !(input.data_type().is_numeric() || input.data_type().is_utf8()) {
-        Err(PolicyCarryingError::ImpossibleOperation(
-            "Cannot add on non-numeric types".into(),
-        ))
-    } else {
-        // A bad thing is, we cannot directly call `sum()` on iterator on a generic type `T`,
-        // but we may call the `fold()` method to aggregate all the elements together.
-        Ok(input.iter().fold(init, |acc, e| {
-            let cur = match upper {
-                Some(ref upper) => {
-                    if upper >= e {
-                        e.clone()
-                    } else {
-                        upper.clone()
-                    }
-                }
-                None => e.clone(),
-            };
-
-            cur + acc
-        }))
-    }
-}
-
-#[derive(Clone, Debug)]
-pub enum JoinType {
-    Left,
-    Right,
-}
-
 #[derive(Clone, Debug, Default)]
 pub enum ApiRequest {
     #[default]
     Invalid,
-    
 }
 
 /// The 'real' implementation of all the allowed APIs for a policy-carrying data. By default,
@@ -149,12 +48,19 @@ pub enum ApiRequest {
 pub trait PolicyApiSet: Send + Sync {
     fn name(&self) -> &'static str;
 
+    /// Some prelude function that should be called when the module is loaded.
     fn load(&self) {
-        panic!("not implemented");
+        unimplemented!()
     }
 
+    /// Some epilogue function that should be called when the module is unloaded.
     fn unload(&self) {
-        panic!("not implemented");
+        unimplemented!()
+    }
+
+    /// Loads the data.
+    fn load_data(&self) -> PolicyCarryingResult<()> {
+        unimplemented!()
     }
 
     /// The entry function of the api set.
@@ -178,7 +84,7 @@ impl PolicyApiSet for ApiSetSink {
 type Loader = fn(name: *const u8, len: usize, ptr: *mut u64) -> i64;
 
 pub struct ApiModuleManager {
-    plugins: HashMap<String, Box<Arc<dyn PolicyApiSet>>>,
+    plugins: HashMap<String, Arc<dyn PolicyApiSet>>,
     libs: HashMap<String, Library>,
 }
 
@@ -217,7 +123,8 @@ impl ApiModuleManager {
 
         println!("{}", plugin.name());
         self.libs.insert(plugin_name.into(), lib);
-        self.plugins.insert(plugin_name.into(), plugin);
+        self.plugins.insert(plugin_name.into(), *plugin);
+
         Ok(())
     }
 
@@ -227,7 +134,7 @@ impl ApiModuleManager {
         Ok(())
     }
 
-    pub fn get(&self, name: &str) -> PolicyCarryingResult<Box<Arc<dyn PolicyApiSet>>> {
+    pub fn get(&self, name: &str) -> PolicyCarryingResult<Arc<dyn PolicyApiSet>> {
         self.plugins
             .get(name)
             .cloned()
@@ -248,5 +155,42 @@ impl ApiModuleManager {
     }
 }
 
-#[cfg(test)]
-mod test {}
+/// Gets the next available API id.
+pub fn next_api_id() -> usize {
+    API_COUNT.fetch_add(1, Ordering::Release)
+}
+
+/// Gets the current available API id.
+pub fn cur_api_id() -> usize {
+    API_COUNT.load(Ordering::Acquire)
+}
+
+/// This functions will register new API implementation from the plugin that can be loaded at runtime. Note
+/// however, that the API must be compiled separately with the same Rust toolchain to be ABI-safe.
+pub fn register_api(path: &str, name: &str) -> PolicyCarryingResult<ApiRefId> {
+    let id = next_api_id();
+    match API_MANAGER.write() {
+        Ok(mut lock) => {
+            lock.load(path, name)?;
+            Ok(ApiRefId(id))
+        }
+        Err(_) => Err(PolicyCarryingError::Unknown),
+    }
+}
+
+/// This is called at the executor level when we want to get the [`PolicyApiSet`] for data access.
+pub fn get_api(id: ApiRefId) -> PolicyCarryingResult<ApiRef> {
+    let lock = API_ID_MAP
+        .read()
+        .map_err(|_| PolicyCarryingError::Unknown)?;
+    let name = lock
+        .get(&id)
+        .ok_or(PolicyCarryingError::OperationNotAllowed(
+            "this api set is not registerd".into(),
+        ))?;
+
+    match API_MANAGER.read() {
+        Ok(api) => api.get(name),
+        Err(_) => Err(PolicyCarryingError::Unknown),
+    }
+}
