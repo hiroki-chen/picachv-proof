@@ -3,9 +3,9 @@
 //! The structs defined in this module can be exported to `lalrpop`.
 
 use crate::{
-    data_type::DataType,
     expr::{Aggregation, BinaryOp, Expr},
     policy::Schema,
+    types::DataType,
 };
 
 /// Defines the type of the privacy scheme that should be applied.

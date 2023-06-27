@@ -1,7 +1,6 @@
 use std::{
     collections::HashMap,
     fmt::Debug,
-    ops::Add,
     sync::{
         atomic::{AtomicUsize, Ordering},
         Arc, RwLock,
@@ -10,12 +9,9 @@ use std::{
 
 use lazy_static::lazy_static;
 use libloading::Library;
-use policy_core::{
-    data_type::PrimitiveDataType,
-    error::{PolicyCarryingError, PolicyCarryingResult},
-};
+use policy_core::error::{PolicyCarryingError, PolicyCarryingResult};
 
-use crate::{field::FieldDataArray, DataFrame};
+use crate::DataFrame;
 
 static API_COUNT: AtomicUsize = AtomicUsize::new(0);
 
@@ -38,7 +34,7 @@ pub enum ApiRequest {
     Invalid,
 }
 
-/// The 'real' implementation of all the allowed APIs for a policy-carrying data. By default,
+/// The 'real' implementation of all the allowed APIs for a policy-carrpub ying data. By default,
 /// all the operations called directly on a [`PolicyApiSet`] will invoke the provided methods
 /// implemented by this trait. It is also recommended that the concrete data is stored within
 /// the struct that implements this trait for optimal security.

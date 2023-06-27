@@ -4,8 +4,8 @@ use std::{
 };
 
 use policy_core::{
-    data_type::PrimitiveDataType,
-    data_type::{
+    types::PrimitiveDataType,
+    types::{
         DataType, Float32Type, Float64Type, Int16Type, Int32Type, Int64Type, Int8Type, UInt16Type,
         UInt32Type, UInt64Type, UInt8Type,
     },

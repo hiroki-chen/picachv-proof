@@ -11,19 +11,19 @@ macro_rules! push_type {
 
 #[macro_export]
 macro_rules! define_schema {
-    ($($name:expr => $ty:path), + $(,)?) => {{
-        use policy_core::data_type::*;
+    ($id:expr, $($name:expr => $ty:path), + $(,)?) => {{
+        use policy_core::types::*;
 
         $crate::schema::SchemaBuilder::new()
             $(.add_field_raw($name, $ty, false))*
-            .finish_with_top()
+            .finish_with_executor($id)
     }};
 }
 
 #[macro_export]
 macro_rules! pcd {
   ($($col_name:expr => $ty:path: $content:expr), + $(,)?) => {{
-        use policy_core::data_type::*;
+        use policy_core::types::*;
 
         let mut fields = Vec::new();
         let mut field_array = Vec::new();

@@ -1,61 +1,58 @@
-use std::{pin::Pin, sync::Arc};
-
-use policy_carrying_data::{
-    api::{ApiRequest, PolicyApiSet},
-    pcd, DataFrame,
+use policy_carrying_data::DataFrame;
+use policy_core::{
+    error::PolicyCarryingResult,
+    types::{ExecutorType, FunctionArguments},
 };
-use policy_core::error::PolicyCarryingResult;
-
-static PLUGIN_NAME: &str = "foo";
+use policy_execution::executor::{scan::DataFrameExec, ExecutionState, PhysicalExecutor};
 
 #[no_mangle]
-extern "C" fn load_module(name: *const u8, len: usize, ptr: *mut u64) -> i32 {
-    let name = unsafe {
-        let str = std::slice::from_raw_parts(name, 
-            len);
-        std::str::from_utf8_unchecked(str)
+extern "C" fn create_executor(
+    executor_type: u64,
+    args: *const u8,
+    args_len: usize,
+    p_executor: *mut usize,
+) -> i64 {
+    // Deserialize the arguments.
+    let args = unsafe {
+        let args = std::slice::from_raw_parts(args, args_len);
+        std::str::from_utf8_unchecked(args)
+    };
+    let args = match serde_json::from_str::<FunctionArguments>(args) {
+        Ok(args) => args,
+        Err(_) => return -2,
     };
 
-    if name != PLUGIN_NAME {
-        eprintln!("error: loading a wrong module");
-        // Error!
-        1
-    } else {
-        // Double pointer to ensure that we do not lose information in a fat pointer.
-        let wrapped = Box::pin(Arc::new(PluginImpl) as Arc<dyn PolicyApiSet>);
-
-        unsafe {
-            // Consume the box and leave the ownership to the caller.
-            *ptr = Box::into_raw(Pin::into_inner_unchecked(wrapped)) as u64;
+    let executor_type = unsafe { std::mem::transmute::<u64, ExecutorType>(executor_type) };
+    let executor = match executor_type {
+        ExecutorType::DataframeScan =>
+        // MyDataFrameScanExec(DataFrameExec::new(
+        //     df,
+        //     selection,
+        //     projection,
+        //     predicate_has_windows,
+        // )),
+        {
+            todo!()
         }
 
-        0
+        // Not implemented
+        _ => return -1,
+    };
+
+    let executor = Box::new(Box::new(executor));
+    unsafe {
+        // Leak the box and transfer the ownership to the Rust caller.
+        *p_executor = Box::into_raw(executor) as usize;
     }
+
+    0
 }
 
-#[derive(Clone, Default)]
-#[repr(C)]
-pub struct PluginImpl;
+#[derive(Debug)]
+pub struct MyDataFrameScanExec(DataFrameExec);
 
-impl PolicyApiSet for PluginImpl {
-    fn name(&self) -> &'static str {
-        "foo"
-    }
-
-    fn load(&self) {
-        eprintln!("doing a series of things.");
-    }
-
-    fn unload(&self) {
-        eprintln!("undoing a series of things.");
-    }
-
-    fn entry(&self, _req: ApiRequest) -> PolicyCarryingResult<DataFrame> {
-        let pcd = pcd! {
-            "column_1" => DataType::Int8: [1, 2, 3, 4, 5, 6, 7, 8],
-            "column_2" => DataType::Float64: [1.0, 2.0, 3.0, 4.0, 22.3, 22.3, 22.3, 22.3],
-        };
-
-        Ok(pcd)
+impl PhysicalExecutor for MyDataFrameScanExec {
+    fn execute(&mut self, state: &ExecutionState) -> PolicyCarryingResult<DataFrame> {
+        todo!()
     }
 }

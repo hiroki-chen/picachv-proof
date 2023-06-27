@@ -6,6 +6,16 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 
+/// A wrapper ID for bookkeeping the executor sets.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Default)]
+pub struct ExecutorRefId(pub usize);
+
+impl Display for ExecutorRefId {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
 /// The set of datatypes that are supported. Typically, this enum is used to describe the type of a column.
 ///
 /// Other data analytic systems or engines may support more complex and nested data types like lists, dicts, or even
@@ -52,6 +62,24 @@ pub enum JoinType {
     Full,
     #[default]
     Natural,
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[repr(usize)]
+pub enum ExecutorType {
+    DataframeScan,
+    Filter,
+    Projection,
+    Apply,
+    Aggregation,
+    #[default]
+    Invalid,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug, Default)]
+pub struct FunctionArguments {
+    /// function argument name => value
+    pub inner: serde_json::Map<String, serde_json::Value>,
 }
 
 impl Display for DataType {
@@ -173,10 +201,10 @@ impl PartialOrd for dyn PrimitiveDataType {
 macro_rules! declare_type {
     ($name:ident, $ty:expr, $primitive:tt) => {
         #[derive(Clone, PartialEq, PartialOrd, Serialize, Deserialize)]
-        pub struct $name(pub $primitive, pub $crate::data_type::DataType);
+        pub struct $name(pub $primitive, pub $crate::types::DataType);
 
-        impl $crate::data_type::PrimitiveDataType for $name {
-            fn data_type(&self) -> $crate::data_type::DataType {
+        impl $crate::types::PrimitiveDataType for $name {
+            fn data_type(&self) -> $crate::types::DataType {
                 self.1
             }
 
@@ -184,7 +212,7 @@ macro_rules! declare_type {
                 self
             }
 
-            fn eq_impl(&self, other: &dyn $crate::data_type::PrimitiveDataType) -> bool {
+            fn eq_impl(&self, other: &dyn $crate::types::PrimitiveDataType) -> bool {
                 let other_downcast = match other.as_any_ref().downcast_ref::<$name>() {
                     Some(value) => value,
                     // Not the same type
@@ -194,10 +222,7 @@ macro_rules! declare_type {
                 self.0 == other_downcast.0
             }
 
-            fn ord_impl(
-                &self,
-                other: &dyn $crate::data_type::PrimitiveDataType,
-            ) -> Option<Ordering> {
+            fn ord_impl(&self, other: &dyn $crate::types::PrimitiveDataType) -> Option<Ordering> {
                 match other.as_any_ref().downcast_ref::<$name>() {
                     Some(value) => self.0.partial_cmp(&value.0),
                     None => None,
@@ -227,8 +252,8 @@ macro_rules! declare_type {
             }
         }
 
-        impl std::borrow::Borrow<dyn $crate::data_type::PrimitiveDataType> for $name {
-            fn borrow(&self) -> &dyn $crate::data_type::PrimitiveDataType {
+        impl std::borrow::Borrow<dyn $crate::types::PrimitiveDataType> for $name {
+            fn borrow(&self) -> &dyn $crate::types::PrimitiveDataType {
                 self
             }
         }

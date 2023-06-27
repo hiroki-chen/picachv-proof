@@ -11,22 +11,22 @@ use policy_carrying_data::{
     Comparator, DataFrame, UserDefinedFunction,
 };
 use policy_core::{
-    data_type::{
+    error::{PolicyCarryingError, PolicyCarryingResult},
+    expr::{AAggExpr, AExpr, BinaryOp, Expr, GroupByMethod, Node},
+    types::{
         BooleanType, DataType, Float32Type, Float64Type, Int32Type, Int64Type, Int8Type,
         PrimitiveDataType, UInt16Type, UInt32Type, UInt64Type, UInt8Type,
     },
-    error::{PolicyCarryingError, PolicyCarryingResult},
-    expr::{AAggExpr, AExpr, BinaryOp, Expr, GroupByMethod, Node},
 };
 
 use crate::executor::{ExecutionState, ExprArena};
 
 use super::{aexpr_to_expr, ApplyOption};
 
-pub(crate) type PhysicalExprRef = Arc<dyn PhysicalExpr>;
+pub type PhysicalExprRef = Arc<dyn PhysicalExpr>;
 
 /// A physical expression trait.
-pub(crate) trait PhysicalExpr: Send + Sync + Debug {
+pub trait PhysicalExpr: Send + Sync + Debug {
     /// Downcasts to any.
     fn as_any_ref(&self) -> &dyn Any;
 

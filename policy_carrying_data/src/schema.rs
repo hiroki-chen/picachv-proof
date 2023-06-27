@@ -1,11 +1,11 @@
 use std::{collections::HashMap, ops::Add, sync::Arc};
 
-use policy_core::{data_type::DataType, error::PolicyCarryingResult};
-
-use crate::{
-    api::ApiRefId,
-    field::{new_empty, Field, FieldData, FieldRef},
+use policy_core::{
+    error::PolicyCarryingResult,
+    types::{DataType, ExecutorRefId},
 };
+
+use crate::field::{new_empty, Field, FieldData, FieldRef};
 
 pub type SchemaRef = Arc<Schema>;
 pub type SchemaMetadata = HashMap<String, String>;
@@ -68,16 +68,16 @@ impl SchemaBuilder {
         Arc::new(Schema {
             fields: self.fields,
             metadata: Default::default(),
-            api_ref_id: None,
+            executor_ref_id: None,
         })
     }
 
     #[inline]
-    pub fn finish_with_api(self, id: usize) -> Arc<Schema> {
+    pub fn finish_with_executor(self, id: usize) -> Arc<Schema> {
         Arc::new(Schema {
             fields: self.fields,
             metadata: Default::default(),
-            api_ref_id: Some(ApiRefId(id)),
+            executor_ref_id: Some(ExecutorRefId(id)),
         })
     }
 }
@@ -89,9 +89,10 @@ pub struct Schema {
     /// The fields of the table.
     pub(crate) fields: Vec<FieldRef>,
     /// The matadata of the schema.
+    #[allow(unused)]
     pub(crate) metadata: SchemaMetadata,
     /// The api reference id.
-    pub api_ref_id: Option<ApiRefId>,
+    pub executor_ref_id: Option<ExecutorRefId>,
 }
 
 impl Default for Schema {
@@ -99,7 +100,7 @@ impl Default for Schema {
         Self {
             metadata: Default::default(),
             fields: Vec::new(),
-            api_ref_id: None,
+            executor_ref_id: None,
         }
     }
 }
@@ -140,16 +141,18 @@ impl Schema {
         Self {
             fields,
             metadata,
-            api_ref_id: id.map(|id| ApiRefId(id)),
+            executor_ref_id: id.map(|id| ExecutorRefId(id)),
         }
     }
 
     /// Performs the `join` operation that allows us to merge different schemas.
+    #[allow(unused)]
     pub fn join(self, other: Self) -> PolicyCarryingResult<Self> {
         todo!()
     }
 
     /// Performs a union operation that allows us to merge the **same** schemas.
+    #[allow(unused)]
     pub fn union(self, other: Self) -> PolicyCarryingResult<Self> {
         todo!()
     }

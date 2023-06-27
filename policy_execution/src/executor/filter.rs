@@ -1,15 +1,21 @@
-use std::sync::Arc;
+use std::{fmt::Debug, sync::Arc};
 
 use policy_carrying_data::DataFrame;
 use policy_core::error::PolicyCarryingResult;
 
 use crate::{plan::physical_expr::PhysicalExpr, trace};
 
-use super::{ExecutionState, PhysicalExecutor};
+use super::{ExecutionState, Executor, PhysicalExecutor};
 
-pub(crate) struct FilterExec {
+pub struct FilterExec {
     pub(crate) predicate: Arc<dyn PhysicalExpr>,
-    pub(crate) input: Box<dyn PhysicalExecutor>,
+    pub(crate) input: Executor,
+}
+
+impl Debug for FilterExec {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "FilterExec")
+    }
 }
 
 impl PhysicalExecutor for FilterExec {
@@ -25,7 +31,7 @@ impl PhysicalExecutor for FilterExec {
 }
 
 impl FilterExec {
-    pub fn new(predicate: Arc<dyn PhysicalExpr>, input: Box<dyn PhysicalExecutor>) -> Self {
+    pub fn new(predicate: Arc<dyn PhysicalExpr>, input: Executor) -> Self {
         Self { predicate, input }
     }
 }

@@ -2,15 +2,20 @@
 
 use std::{
     cell::OnceCell,
-    collections::{HashMap, HashSet, VecDeque},
+    collections::{hash_map::Entry, HashMap, HashSet, VecDeque},
+    fmt::Debug,
     sync::{Arc, Mutex, RwLock},
 };
 
 use bitflags::bitflags;
-use policy_carrying_data::{api::ApiRefId, field::FieldDataRef, schema::SchemaRef, DataFrame};
+use lazy_static::lazy_static;
+use libloading::Library;
+use policy_carrying_data::{field::FieldDataRef, schema::SchemaRef, DataFrame};
 use policy_core::{
     error::{PolicyCarryingError, PolicyCarryingResult},
     expr::AExpr,
+    get_lock,
+    types::{ExecutorRefId, ExecutorType, FunctionArguments},
 };
 
 use crate::plan::{physical_expr::PhysicalExpr, ALogicalPlan};
@@ -22,8 +27,15 @@ pub mod filter;
 pub mod projection;
 pub mod scan;
 
+#[cfg(feature = "buildin")]
+pub mod builtin;
+
 pub type ExprArena = Arena<AExpr>;
 pub type LogicalPlanArena = Arena<ALogicalPlan>;
+pub type Executor = Box<dyn PhysicalExecutor + Send + Sync>;
+
+type ExecutorCreator =
+    fn(executor_type: usize, args: *const u8, args_len: usize, p_executor: *mut usize) -> i32;
 
 pub(crate) const EXPR_ARENA_SIZE: usize = 0x100;
 pub(crate) const LP_ARENA_SIZE: usize = 0x80;
@@ -52,12 +64,81 @@ bitflags! {
     }
 }
 
+lazy_static! {
+    pub static ref EXECUTORS: ExecutorManager = ExecutorManager::new();
+}
+
+/// The manager of the executors when the dataframe is to be accessed.
+pub struct ExecutorManager {
+    /// Loaded libraries for the creation of new executors.
+    libs: Arc<RwLock<HashMap<ExecutorRefId, Arc<Library>>>>,
+}
+
+impl ExecutorManager {
+    #[inline]
+    pub fn new() -> Self {
+        Self {
+            libs: Arc::new(RwLock::new(HashMap::new())),
+        }
+    }
+
+    /// Loads the library into the manager.
+    pub fn load_lib(&self, path: &str, id: ExecutorRefId) -> PolicyCarryingResult<()> {
+        let lib =
+            unsafe { Library::new(path).map_err(|e| PolicyCarryingError::FsError(e.to_string()))? };
+
+        let mut lock = get_lock!(self.libs, write);
+        match lock.entry(id) {
+            Entry::Occupied(_) => return Err(PolicyCarryingError::AlreadyLoaded),
+            Entry::Vacant(entry) => {
+                entry.insert(Arc::new(lib));
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Creates a new executor from the library.
+    pub fn create_executor(
+        &self,
+        id: &ExecutorRefId,
+        executor_type: ExecutorType,
+        args: FunctionArguments,
+    ) -> PolicyCarryingResult<Executor> {
+        let lock = get_lock!(self.libs, read);
+        match lock.get(id) {
+            Some(lib) => {
+                let f = unsafe { lib.get::<ExecutorCreator>(b"create_executor") }
+                    .map_err(|e| PolicyCarryingError::SymbolNotFound(e.to_string()))?;
+                let mut executor = 0usize;
+                let args = serde_json::to_string(&args)
+                    .map_err(|e| PolicyCarryingError::SerializeError(e.to_string()))?;
+
+                match f(
+                    executor_type as usize,
+                    args.as_ptr(),
+                    args.len(),
+                    &mut executor,
+                ) {
+                    0 => Ok(unsafe { *Box::from_raw(executor as *mut Executor) }),
+                    ret => Err(PolicyCarryingError::CommandFailed(ret)),
+                }
+            }
+
+            None => Err(PolicyCarryingError::SymbolNotFound(format!(
+                "{id:?} not loaded"
+            ))),
+        }
+    }
+}
+
 /// The executor for the physical plan.
-pub trait PhysicalExecutor: Send {
+pub trait PhysicalExecutor: Debug {
     // WIP: What is returned??
     fn execute(&mut self, state: &ExecutionState) -> PolicyCarryingResult<DataFrame>;
 }
 
+#[derive(Debug)]
 pub struct Sink;
 
 impl PhysicalExecutor for Sink {
@@ -66,7 +147,7 @@ impl PhysicalExecutor for Sink {
     }
 }
 
-impl Default for Box<dyn PhysicalExecutor> {
+impl Default for Executor {
     fn default() -> Self {
         Box::new(Sink {})
     }
@@ -85,7 +166,7 @@ pub struct ExecutionState {
     /// The log trace.
     pub(crate) log: Arc<RwLock<VecDeque<String>>>,
     /// The api set layer for managing the policy compliance.
-    pub(crate) policy_layer: Arc<RwLock<ApiRefId>>,
+    pub(crate) executor_ref_id: Arc<RwLock<ExecutorRefId>>,
 }
 
 impl Default for ExecutionState {
@@ -95,7 +176,7 @@ impl Default for ExecutionState {
             execution_flag: Arc::new(RwLock::new(ExecutionFlag::default())),
             expr_cache: Arc::new(Mutex::new(HashMap::new())),
             log: Arc::new(RwLock::new(VecDeque::new())),
-            policy_layer: Default::default(),
+            executor_ref_id: Default::default(),
         }
     }
 }
@@ -108,10 +189,9 @@ impl ExecutionState {
         }
     }
 
-    // TODO: Who / where should we pass `api_set` into this ExecutionState?
-    pub fn with_api_set(api_set: ApiRefId) -> Self {
+    pub fn with_executors(executor_ref_id: ExecutorRefId) -> Self {
         let mut state = Self::default();
-        state.policy_layer = Arc::new(RwLock::new(api_set));
+        state.executor_ref_id = Arc::new(RwLock::new(executor_ref_id));
 
         state
     }

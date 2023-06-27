@@ -2,8 +2,8 @@ use std::{fmt::Debug, ops::Add};
 
 use policy_carrying_data::field::FieldDataArray;
 use policy_core::{
-    data_type::PrimitiveDataType,
     error::{PolicyCarryingError, PolicyCarryingResult},
+    types::PrimitiveDataType,
 };
 
 /// An identity function transformation.

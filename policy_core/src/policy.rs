@@ -4,7 +4,7 @@ use std::{
     fmt::{Debug, Formatter},
 };
 
-use crate::data_type::DataType;
+use crate::types::DataType;
 
 pub type DpParam = (f64, f64);
 pub type TParam = f64;

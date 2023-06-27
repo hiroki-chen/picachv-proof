@@ -9,6 +9,8 @@ pub enum PolicyCarryingError {
     AlreadyLoaded,
     /// Invalid input.
     InvalidInput,
+    /// Cannot ser / deserialize.
+    SerializeError(String),
     /// An operation is impossible or the operands are in-compatible.
     ImpossibleOperation(String),
     /// Inconsistent policies.
@@ -46,6 +48,7 @@ impl Debug for PolicyCarryingError {
             Self::InconsistentPolicy(info) => write!(f, "Inconsistent policies: {}", info),
             Self::InvalidInput => write!(f, "invalid input"),
             Self::TypeMismatch(info) => write!(f, "Type mismatch: {}", info),
+            Self::SerializeError(info) => write!(f, "Ser- / deserialization error: {}", info),
             Self::OutOfBound(info) => write!(f, "Index out of bound: {}", info),
             Self::OperationNotSupported => write!(f, "Operation not supported"),
             Self::FsError(info) => write!(f, "IO error: {}", info),

@@ -98,23 +98,23 @@ pub Scheme: crate::policy::PrivacyScheme = {
     "(" <scheme: Scheme> ")" => scheme,
 }
 
-pub DataType: crate::data_type::DataType = {
-    r"i8" => crate::data_type::DataType::Int8,
-    r"i16" => crate::data_type::DataType::Int16,
-    r"i32" => crate::data_type::DataType::Int32,
-    r"i64" => crate::data_type::DataType::Int64,
-    r"u8" => crate::data_type::DataType::UInt8,
-    r"u16" => crate::data_type::DataType::UInt16,
-    r"u32" => crate::data_type::DataType::UInt32,
-    r"u64" => crate::data_type::DataType::UInt64,
-    r"f32" => crate::data_type::DataType::Float32,
-    r"f64" => crate::data_type::DataType::Float64,
-    r"(bool)|(boolean)" => crate::data_type::DataType::Boolean,
-    r"(str)|([sS]tring)" => crate::data_type::DataType::Utf8Str,
+pub DataType: crate::types::DataType = {
+    r"i8" => crate::types::DataType::Int8,
+    r"i16" => crate::types::DataType::Int16,
+    r"i32" => crate::types::DataType::Int32,
+    r"i64" => crate::types::DataType::Int64,
+    r"u8" => crate::types::DataType::UInt8,
+    r"u16" => crate::types::DataType::UInt16,
+    r"u32" => crate::types::DataType::UInt32,
+    r"u64" => crate::types::DataType::UInt64,
+    r"f32" => crate::types::DataType::Float32,
+    r"f64" => crate::types::DataType::Float64,
+    r"(bool)|(boolean)" => crate::types::DataType::Boolean,
+    r"(str)|([sS]tring)" => crate::types::DataType::Utf8Str,
 }
 
 /// The attribute list: Attribute(id_1: type_1, id_2: type_2, ...)
-pub AttributeList: Vec<(String, crate::data_type::DataType)> = {
+pub AttributeList: Vec<(String, crate::types::DataType)> = {
     <attribute: Attribute> "(" <list: Comma<AttributeDeclaration>> ")" => list,
     "(" <list: AttributeList> ")" => list,
 }
@@ -126,7 +126,7 @@ pub AttributeNameList: Vec<String> = {
 }
 
 /// The attribute.
-pub AttributeDeclaration: (String, crate::data_type::DataType) = {
+pub AttributeDeclaration: (String, crate::types::DataType) = {
     <id: Identifier> ":" <ty: DataType> => (id.to_string(), ty),
     "(" <attribute: AttributeDeclaration> ")" => attribute,
 }

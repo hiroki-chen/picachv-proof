@@ -1,6 +1,6 @@
 use std::fmt::{Debug, Display, Formatter};
 
-use crate::{data_type::PrimitiveDataType, error::PolicyCarryingResult};
+use crate::{error::PolicyCarryingResult, types::PrimitiveDataType};
 
 /// Represents the index of the element it points to in the arena.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -412,14 +412,14 @@ macro_rules! col {
 }
 
 impl AExpr {
-    pub(crate) fn is_leaf(&self) -> bool {
+    pub fn is_leaf(&self) -> bool {
         matches!(self, AExpr::Column(_) | AExpr::Literal(_))
     }
 }
 
 #[cfg(test)]
 mod test {
-    use crate::data_type::Int8Type;
+    use crate::types::Int8Type;
 
     #[test]
     fn test_visit() {

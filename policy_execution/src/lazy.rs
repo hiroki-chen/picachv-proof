@@ -2,8 +2,8 @@
 
 use std::fmt::{Debug, Formatter};
 
-use policy_carrying_data::{api::ApiRefId, schema::SchemaRef, DataFrame};
-use policy_core::{col, error::PolicyCarryingResult, expr::Expr};
+use policy_carrying_data::{schema::SchemaRef, DataFrame};
+use policy_core::{col, error::PolicyCarryingResult, expr::Expr, types::ExecutorRefId};
 
 use crate::{
     executor::execution_epilogue,
@@ -14,19 +14,17 @@ use crate::{
 #[must_use = "LazyFrame must be consumed"]
 pub struct LazyFrame {
     /// In case we need this.
-    pub(crate) api_set: ApiRefId,
+    pub(crate) executor_ref_id: ExecutorRefId,
     /// The logical plan.
     pub(crate) plan: LogicalPlan,
     /// The optimization flag.
     pub(crate) opt_flag: OptFlag,
 }
 
-impl From<SchemaRef> for LazyFrame {
-    fn from(value: SchemaRef) -> Self {
+impl LazyFrame {
+    pub fn new_from_schema(value: SchemaRef) -> Self {
         Self {
-            api_set: value
-                .api_ref_id
-                .expect("Must set the api id to construct a `LazyFrame`"),
+            executor_ref_id: value.executor_ref_id.expect("must set `executor_ref_id`"),
             opt_flag: OptFlag::all(),
             plan: LogicalPlan::DataFrameScan {
                 schema: value.clone(),
@@ -66,7 +64,7 @@ impl LazyFrame {
             .finish();
 
         Self {
-            api_set: self.api_set,
+            executor_ref_id: self.executor_ref_id,
             plan,
             opt_flag: self.opt_flag,
         }
@@ -77,7 +75,7 @@ impl LazyFrame {
         let plan = PlanBuilder::from(self.plan).filter(expression).finish();
 
         Self {
-            api_set: self.api_set,
+            executor_ref_id: self.executor_ref_id,
             plan,
             opt_flag: self.opt_flag,
         }
@@ -115,7 +113,7 @@ impl LazyFrame {
     pub fn collect(self) -> PolicyCarryingResult<DataFrame> {
         // Generate a phyiscal plan.
         let (state, mut executor) =
-            make_physical_plan(self.plan, self.opt_flag, self.api_set.clone())?;
+            make_physical_plan(self.plan, self.opt_flag, self.executor_ref_id)?;
         let df = executor.execute(&state)?;
 
         execution_epilogue(df, &state)

@@ -1,8 +1,8 @@
 use std::{fmt::Debug, ops::Index, sync::Arc};
 
 use policy_core::{
-    data_type::PrimitiveDataType,
     error::{PolicyCarryingError, PolicyCarryingResult},
+    types::PrimitiveDataType,
 };
 
 use crate::{field::FieldRef, DataFrame};

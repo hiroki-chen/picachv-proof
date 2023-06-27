@@ -1,4 +1,5 @@
 #![cfg_attr(not(test), deny(unused_must_use))]
+#![cfg_attr(test, allow(unused))]
 
 use std::{
     fmt::{Debug, Display, Formatter},
@@ -8,15 +9,15 @@ use std::{
 use csv::Reader;
 use field::{FieldData, FieldDataArray, FieldDataRef};
 use policy_core::{
-    data_type::{
-        BooleanType, DataType, Float32Type, Float64Type, Int16Type, Int32Type, Int64Type, Int8Type,
-        JoinType, UInt16Type, UInt32Type, UInt64Type, UInt8Type, Utf8StrType,
-    },
     error::{PolicyCarryingError, PolicyCarryingResult},
+    types::{
+        BooleanType, DataType, Float32Type, Float64Type, Int16Type, Int32Type, Int64Type, Int8Type,
+        UInt16Type, UInt32Type, UInt64Type, UInt8Type, Utf8StrType,
+    },
 };
-use schema::{Schema, SchemaMetadata, SchemaRef};
+use schema::{Schema, SchemaRef};
 
-pub mod api;
+// pub mod api;
 pub mod field;
 pub mod row;
 pub mod schema;
@@ -73,19 +74,18 @@ where
 ///
 /// , and
 ///
-/// 2. an API set layer that enforces the access to the data is policy-compliant:
+/// 2. an execution layer that enforces the access to the data is policy-compliant:
 ///
 /// ```
-/// pub struct DiagnosisDataApiLayer {
-///     df: DataFrame
-/// }
 ///
-/// impl PolicyCompliantApiSet for DiagnosisDataApiLayer {
+/// pub struct MyDataFrameScanExec(DataFrameExec);
+///
+/// impl PhysicalExecutor for MyDataFrameScanExec {
 ///     /* ... */
 /// }
 /// ```
 ///
-/// where policy-compliant APIs can be executed while those not allowed will trigger an error at runtime.
+/// where policy-compliant executors can be executed while those not allowed will trigger an error at runtime.
 ///
 /// Note that there is no way to directly access the data because no methods are implemented for the
 /// [`DataFrame`], and the function tha tries to use the confidential data for data analysis must forbid
@@ -260,7 +260,7 @@ impl DataFrame {
         Arc::new(Schema {
             fields: self.columns.iter().map(|c| c.field()).collect(),
             metadata: Default::default(),
-            api_ref_id: None,
+            executor_ref_id: None,
         })
     }
 
@@ -388,8 +388,6 @@ impl DataFrame {
     }
 }
 
-// unsafe impl Send for DataFrame {}
-
 #[cfg(test)]
 mod test {
     use crate::schema::SchemaBuilder;
@@ -401,36 +399,11 @@ mod test {
         let schema = SchemaBuilder::new()
             .add_field_raw("column_1", DataType::Int64, false)
             .add_field_raw("column_2", DataType::Float64, false)
-            .finish_with_api(0);
+            .finish_with_executor(0);
 
         let pcd = DataFrame::load_csv("../test_data/simple_csv.csv", Some(schema.clone()));
 
         assert!(pcd.is_ok());
-    }
-
-    #[test]
-    fn test_simple_query() {
-        // let pcd = pcd! {
-        //     "column_1" => DataType::Int8: [1, 2, 3, 4, 5, 6, 7, 8],
-        //     "column_2" => DataType::Float64: [1.0, 2.0, 3.0, 4.0, 22.3, 22.3, 22.3, 22.3],
-        // };
-
-        // let pcd = pcd
-        //     .into_lazy(Default::default())
-        //     .select(cols!("column_2"))
-        //     .filter(
-        //         col!("column_2")
-        //             .lt(Float64Type::new(200.0))
-        //             .and(col!("column_2").eq(Float64Type::new(22.3))),
-        //     )
-        //     // .sum()
-        //     .collect();
-
-        // let pcd2 = pcd! {
-        //     "column_2" => DataType::Float64: [22.3, 22.3, 22.3, 22.3],
-        // };
-
-        // assert!(pcd.is_ok_and(|inner| inner == pcd2));
     }
 
     #[test]

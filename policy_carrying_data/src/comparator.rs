@@ -4,8 +4,8 @@ use std::{
 };
 
 use policy_core::{
-    data_type::*,
     error::{PolicyCarryingError, PolicyCarryingResult},
+    types::*,
 };
 
 use crate::field::{BooleanFieldData, FieldData, FieldDataArray};

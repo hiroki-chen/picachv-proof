@@ -7,5 +7,13 @@ edition = "2021"
 
 [dependencies]
 bitflags = "2.3.2"
+lazy_static = "1.4.0"
+libloading = "0.8.0"
 policy_carrying_data = { path = "../policy_carrying_data" }
 policy_core = { path = "../policy_core" }
+serde_json = "1.0.99"
+
+[features]
+default = []
+# Enable built-in executors.
+builtin = []

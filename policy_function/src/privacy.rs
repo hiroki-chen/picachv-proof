@@ -7,10 +7,10 @@ use std::{
 use opendp::traits::samplers::SampleDiscreteLaplaceZ2k;
 use policy_carrying_data::field::FieldDataArray;
 use policy_core::{
-    data_type::PrimitiveDataType,
     error::{PolicyCarryingError, PolicyCarryingResult},
     expr::Aggregation,
     policy::DpParam,
+    types::PrimitiveDataType,
 };
 
 use crate::func::pcd_sum;
@@ -183,8 +183,11 @@ impl DpManager {
     /// query function in another closure like below.
     ///
     /// ```
+    /// use policy_function::{func::pcd_max, privacy::DpManager};
+    ///
     /// let wrapper_query = || pcd_max(&arr);
-    /// let dp_query = dp_manager.make_dp_compliant_scalar(wrapper_query);
+    /// let dp_manager = DpManager::new(0, (1.0, 0.01));
+    /// # let dp_query = dp_manager.make_dp_compliant_scalar(wrapper_query);
     /// ```
     pub fn make_dp_compliant_scalar<F, T>(
         &mut self,

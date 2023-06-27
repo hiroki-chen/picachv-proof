@@ -8,11 +8,11 @@ use std::{
 };
 
 use policy_core::{
-    data_type::{
+    error::{PolicyCarryingError, PolicyCarryingResult},
+    types::{
         BooleanType, DataType, Float32Type, Float64Type, Int16Type, Int32Type, Int64Type, Int8Type,
         PrimitiveDataType, UInt16Type, UInt32Type, UInt64Type, UInt8Type, Utf8StrType,
     },
-    error::{PolicyCarryingError, PolicyCarryingResult},
 };
 use serde::{Deserialize, Serialize};
 
