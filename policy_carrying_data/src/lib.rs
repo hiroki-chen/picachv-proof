@@ -10,13 +10,13 @@ use field::{FieldData, FieldDataArray, FieldDataRef};
 use policy_core::{
     data_type::{
         BooleanType, DataType, Float32Type, Float64Type, Int16Type, Int32Type, Int64Type, Int8Type,
-        JoinType, UInt16Type, UInt32Type, UInt64Type, UInt8Type, Utf8StrType,
+        UInt16Type, UInt32Type, UInt64Type, UInt8Type, Utf8StrType,
     },
     error::{PolicyCarryingError, PolicyCarryingResult},
+    RRef,
 };
-use schema::{Schema, SchemaMetadata, SchemaRef};
+use schema::{Schema, SchemaRef};
 
-pub mod api;
 pub mod field;
 pub mod row;
 pub mod schema;
@@ -48,6 +48,23 @@ where
 {
     fn call(&self, df: DataFrame) -> PolicyCarryingResult<DataFrame> {
         self(df)
+    }
+}
+
+pub type DataFrameRef = Arc<DataFrame>;
+pub type DataFrameRRef = RRef<DataFrame>;
+pub type FieldDataRRef = RRef<dyn FieldData>;
+
+/// A state wrapper around a [`DataFrame`] that allows us to track the execution state of the API set.
+pub struct DataFrameState {
+    pub df: DataFrameRef,
+    pub df_state: (),
+}
+
+impl DataFrameState {
+    #[inline]
+    pub fn new(df: DataFrameRef) -> Self {
+        Self { df, df_state: () }
     }
 }
 

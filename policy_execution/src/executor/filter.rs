@@ -1,9 +1,13 @@
 use std::sync::Arc;
 
-use policy_carrying_data::DataFrame;
-use policy_core::error::PolicyCarryingResult;
+use policy_carrying_data::{get_rwlock, DataFrameRRef};
+use policy_core::error::{PolicyCarryingError, PolicyCarryingResult};
 
-use crate::{plan::physical_expr::PhysicalExpr, trace};
+use crate::{
+    api::{get_api, ApiRequest},
+    plan::physical_expr::PhysicalExpr,
+    trace,
+};
 
 use super::{ExecutionState, PhysicalExecutor};
 
@@ -13,14 +17,25 @@ pub(crate) struct FilterExec {
 }
 
 impl PhysicalExecutor for FilterExec {
-    fn execute(&mut self, state: &ExecutionState) -> PolicyCarryingResult<DataFrame> {
+    fn execute(&mut self, state: &ExecutionState) -> PolicyCarryingResult<DataFrameRRef> {
         trace!(state, "FilterExec");
 
-        let df = self.input.execute(state)?;
-        let filtered = self.predicate.evaluate(&df, state)?;
-        let boolean_array = filtered.as_boolean()?;
+        let api = get_api(*get_rwlock!(
+            state.policy_layer,
+            read,
+            PolicyCarryingError::Unknown
+        ))?;
 
-        df.filter(&boolean_array)
+        let df = self.input.execute(state)?;
+        let filtered = api.evaluate(df.clone(), self.predicate.clone())?;
+
+        api.entry(
+            Some(df),
+            ApiRequest::Filter {
+                by: filtered,
+                has_windows: false,
+            },
+        )
     }
 }
 

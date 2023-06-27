@@ -1,12 +1,13 @@
 use std::{collections::HashSet, ops::Deref, sync::Arc};
 
 use bitflags::bitflags;
-use policy_carrying_data::{api::ApiRefId, schema::SchemaRef, DataFrame, UserDefinedFunction};
+use policy_carrying_data::{schema::SchemaRef, DataFrame, UserDefinedFunction};
 use policy_core::{
     data_type::JoinType,
     error::{PolicyCarryingError, PolicyCarryingResult},
     expr::{AAggExpr, AExpr, Aggregation, Expr, Node},
     policy::Policy,
+    ApiRefId,
 };
 
 use crate::{
@@ -598,7 +599,7 @@ pub(crate) fn lp_to_alp(
 pub(crate) fn make_physical_plan(
     lp: LogicalPlan,
     opt_flag: OptFlag,
-    api_set: ApiRefId,
+    api_ref_id: ApiRefId,
 ) -> PolicyCarryingResult<PhysicalPlan> {
     // Create two arenas for expressions and logical plans (for their optimizations).
     let mut expr_arena = ExprArena::with_capacity(EXPR_ARENA_SIZE);
@@ -607,9 +608,9 @@ pub(crate) fn make_physical_plan(
     let mut nodes = Vec::new();
 
     let root = optimize(lp, opt_flag, &mut lp_arena, &mut expr_arena, &mut nodes)?;
-    let executor = do_make_physical_plan(root, &mut lp_arena, &mut expr_arena)?;
+    let executor = do_make_physical_plan(root, &mut lp_arena, &mut expr_arena, api_ref_id)?;
 
-    Ok((ExecutionState::with_api_set(api_set), executor))
+    Ok((ExecutionState::with_api_set(api_ref_id), executor))
 }
 
 /// A recursive function that handles the conversion from [`ALogicalPlan`] to the [`PhysicalExecutor`] AST.
@@ -617,11 +618,12 @@ fn do_make_physical_plan(
     root: Node,
     lp_arena: &mut LogicalPlanArena,
     expr_arena: &mut ExprArena,
+    api_ref_id: ApiRefId,
 ) -> PolicyCarryingResult<Box<dyn PhysicalExecutor>> {
     match lp_arena.take(root) {
         ALogicalPlan::Selection { input, predicate } => {
-            let input = do_make_physical_plan(input, lp_arena, expr_arena)?;
-            let state = ExecutionState::default();
+            let input = do_make_physical_plan(input, lp_arena, expr_arena, api_ref_id)?;
+            let state = ExecutionState::with_api_set(api_ref_id);
             let predicate = make_physical_expr(predicate, expr_arena, None, &state, false)?;
 
             Ok(Box::new(FilterExec::new(predicate, input)))
@@ -632,7 +634,7 @@ fn do_make_physical_plan(
             selection,
             ..
         } => {
-            let state = ExecutionState::default();
+            let state = ExecutionState::with_api_set(api_ref_id);
             let selection = match selection {
                 Some(node) => {
                     match make_physical_expr(node, expr_arena, Some(schema.clone()), &state, false)
@@ -644,19 +646,12 @@ fn do_make_physical_plan(
                 None => None,
             };
 
-            match schema.api_ref_id {
-                Some(api_ref_id) => Ok(Box::new(DataFrameExec::new(
-                    api_ref_id, selection, projection, false,
-                ))),
-                None => Err(PolicyCarryingError::ImpossibleOperation(
-                    "no api id is set, operation cannot proceed".into(),
-                )),
-            }
+            Ok(Box::new(DataFrameExec::new(selection, projection, false)))
         }
         ALogicalPlan::Projection { input, expr, .. } => {
             let schema = lp_arena.get(input).schema(lp_arena);
-            let input = do_make_physical_plan(input, lp_arena, expr_arena)?;
-            let state = ExecutionState::default();
+            let input = do_make_physical_plan(input, lp_arena, expr_arena, api_ref_id)?;
+            let state = ExecutionState::with_api_set(api_ref_id);
             let expr = expr
                 .into_iter()
                 .map(|expr| {

@@ -21,6 +21,26 @@ macro_rules! define_schema {
 }
 
 #[macro_export]
+macro_rules! get_rwlock {
+    ($lock:expr, $op:ident, $err:path) => {
+        match $lock.$op() {
+            Ok(lock) => lock,
+            Err(_) => return Err($err),
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! get_mutex {
+    ($lock:ident, $err:path) => {
+        match $lock.lock() {
+            Ok(lock) => lock,
+            Err(_) => return Err($err),
+        }
+    };
+}
+
+#[macro_export]
 macro_rules! pcd {
   ($($col_name:expr => $ty:path: $content:expr), + $(,)?) => {{
         use policy_core::data_type::*;

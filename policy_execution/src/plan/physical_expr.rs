@@ -23,10 +23,10 @@ use crate::executor::{ExecutionState, ExprArena};
 
 use super::{aexpr_to_expr, ApplyOption};
 
-pub(crate) type PhysicalExprRef = Arc<dyn PhysicalExpr>;
+pub type PhysicalExprRef = Arc<dyn PhysicalExpr>;
 
 /// A physical expression trait.
-pub(crate) trait PhysicalExpr: Send + Sync + Debug {
+pub trait PhysicalExpr: Send + Sync + Debug {
     /// Downcasts to any.
     fn as_any_ref(&self) -> &dyn Any;
 
@@ -139,6 +139,7 @@ impl PhysicalExpr for BinaryOpExpr {
         vec![self.left.clone(), self.right.clone()]
     }
 
+    // TODO: Api change => evaluate on dataframe?
     fn evaluate(
         &self,
         df: &DataFrame,

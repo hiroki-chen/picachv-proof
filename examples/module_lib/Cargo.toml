@@ -8,6 +8,7 @@ edition = "2021"
 [dependencies]
 "policy_carrying_data" = { path = "../../policy_carrying_data" }
 "policy_core" = { path = "../../policy_core" }
+"policy_execution" = { path = "../../policy_execution" }
 
 [lib]
 crate-type = ["cdylib"]

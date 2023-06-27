@@ -1,11 +1,8 @@
 use std::{collections::HashMap, ops::Add, sync::Arc};
 
-use policy_core::{data_type::DataType, error::PolicyCarryingResult};
+use policy_core::{data_type::DataType, error::PolicyCarryingResult, ApiRefId};
 
-use crate::{
-    api::ApiRefId,
-    field::{new_empty, Field, FieldData, FieldRef},
-};
+use crate::field::{new_empty, Field, FieldData, FieldRef};
 
 pub type SchemaRef = Arc<Schema>;
 pub type SchemaMetadata = HashMap<String, String>;

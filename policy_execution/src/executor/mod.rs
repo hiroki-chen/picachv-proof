@@ -1,5 +1,3 @@
-// TODO: Integrate api set to the executor layer.
-
 use std::{
     cell::OnceCell,
     collections::{HashMap, HashSet, VecDeque},
@@ -7,12 +5,16 @@ use std::{
 };
 
 use bitflags::bitflags;
-use policy_carrying_data::{api::ApiRefId, field::FieldDataRef, schema::SchemaRef, DataFrame};
+use policy_carrying_data::{
+    field::FieldDataRef, get_rwlock, schema::SchemaRef, DataFrame, DataFrameRRef,
+};
 use policy_core::{
     error::{PolicyCarryingError, PolicyCarryingResult},
     expr::AExpr,
+    ApiRefId,
 };
 
+use crate::api::get_api;
 use crate::plan::{physical_expr::PhysicalExpr, ALogicalPlan};
 
 use self::arena::Arena;
@@ -54,14 +56,14 @@ bitflags! {
 
 /// The executor for the physical plan.
 pub trait PhysicalExecutor: Send {
-    // WIP: What is returned??
-    fn execute(&mut self, state: &ExecutionState) -> PolicyCarryingResult<DataFrame>;
+    // Lets the exeuctor do its job and returns the remote reference to the data frame.
+    fn execute(&mut self, state: &ExecutionState) -> PolicyCarryingResult<DataFrameRRef>;
 }
 
 pub struct Sink;
 
 impl PhysicalExecutor for Sink {
-    fn execute(&mut self, _state: &ExecutionState) -> PolicyCarryingResult<DataFrame> {
+    fn execute(&mut self, _state: &ExecutionState) -> PolicyCarryingResult<DataFrameRRef> {
         panic!("This is the sink. All queries to this executor are consumed forever.");
     }
 }
@@ -108,7 +110,6 @@ impl ExecutionState {
         }
     }
 
-    // TODO: Who / where should we pass `api_set` into this ExecutionState?
     pub fn with_api_set(api_set: ApiRefId) -> Self {
         let mut state = Self::default();
         state.policy_layer = Arc::new(RwLock::new(api_set));
@@ -117,30 +118,37 @@ impl ExecutionState {
     }
 }
 
-/// Given a vector of [`PhysicalExpr`]s, evaluates all of them on a given [`DataFrame`] and
+/// Given a vector of [`PhysicalExpr`]s, evaluates all of them on a given [`DataFrameRRef`] and
 /// returns the result.
-pub(crate) fn evaluate_physical_expr_vec(
-    df: &DataFrame,
+pub fn evaluate_physical_expr_vec(
+    df: DataFrameRRef,
     expr: &[Arc<dyn PhysicalExpr>],
     state: &ExecutionState,
-) -> PolicyCarryingResult<DataFrame> {
+) -> PolicyCarryingResult<DataFrameRRef> {
     trace!(state, "evaluate_physical_expr_vec");
 
     // Create the expression cache for physical expression evaluation.
     state.clear_expr();
+    let api = get_api(*get_rwlock!(
+        state.policy_layer,
+        read,
+        PolicyCarryingError::Unknown
+    ))?;
+
     let selected_columns = expr
         .into_iter()
-        .map(|expr| expr.evaluate(df, state))
+        .map(|expr| api.evaluate(df.clone(), expr.clone()))
         .collect::<PolicyCarryingResult<Vec<_>>>()?;
     state.clear_expr();
 
-    expand_projection_literal(state, selected_columns, df.columns().is_empty())
+    // expand_projection_literal(state, selected_columns, df.columns().is_empty())
+
+    todo!();
 }
 
 /// Sometimes the projected columns do not represent anything and are just a bunch of literals.
 /// We need to expand literals to fill the shape of the dataframe.
-pub(crate) fn expand_projection_literal(
-    state: &ExecutionState,
+pub fn expand_projection_literal(
     mut selected_columns: Vec<FieldDataRef>,
     empty: bool,
 ) -> PolicyCarryingResult<DataFrame> {
@@ -202,8 +210,13 @@ pub(crate) fn expand_projection_literal(
 
 /// This function is called at the epilogue of the [`lazy::LazyFrame::collect()`].
 pub(crate) fn execution_epilogue(
-    mut df: DataFrame,
+    df: DataFrameRRef,
     state: &ExecutionState,
 ) -> PolicyCarryingResult<DataFrame> {
-    Ok(df)
+    get_api(*get_rwlock!(
+        state.policy_layer,
+        read,
+        PolicyCarryingError::Unknown
+    ))?
+    .collect(df)
 }

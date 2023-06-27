@@ -1,4 +1,4 @@
-use policy_carrying_data::api::{ApiModuleManager, ApiRequest};
+use policy_execution::api::{ApiModuleManager, ApiRequest};
 
 fn main() {
     let mut pm = ApiModuleManager::new();
@@ -6,7 +6,11 @@ fn main() {
     pm.load("../../target/release/libmodule_lib.so", "foo")
         .unwrap();
 
-    let df = pm.get("foo").unwrap().entry(ApiRequest::Invalid).unwrap();
+    let df = pm
+        .get("foo")
+        .unwrap()
+        .entry(None, ApiRequest::Invalid)
+        .unwrap();
 
-    println!("{df}");
+    println!("{df:?}");
 }

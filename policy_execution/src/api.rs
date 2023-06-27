@@ -1,7 +1,6 @@
 use std::{
-    collections::HashMap,
+    collections::{hash_map::Entry, HashMap},
     fmt::Debug,
-    ops::Add,
     sync::{
         atomic::{AtomicUsize, Ordering},
         Arc, RwLock,
@@ -11,11 +10,13 @@ use std::{
 use lazy_static::lazy_static;
 use libloading::Library;
 use policy_core::{
-    data_type::PrimitiveDataType,
     error::{PolicyCarryingError, PolicyCarryingResult},
+    ApiRefId,
 };
 
-use crate::{field::FieldDataArray, DataFrame};
+use policy_carrying_data::{get_rwlock, DataFrame, DataFrameRRef, FieldDataRRef};
+
+use crate::plan::physical_expr::PhysicalExprRef;
 
 static API_COUNT: AtomicUsize = AtomicUsize::new(0);
 
@@ -28,12 +29,18 @@ lazy_static! {
 
 pub type ApiRef = Arc<dyn PolicyApiSet>;
 
-/// An id for bookkeeping the data access Api Set.
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Default)]
-pub struct ApiRefId(pub usize);
-
 #[derive(Clone, Debug, Default)]
 pub enum ApiRequest {
+    /// Filter.
+    Filter {
+        by: FieldDataRRef,
+        has_windows: bool,
+    },
+    /// Scan the data frame.
+    Scan,
+    /// Do projection.
+    Projection { columns: Arc<Vec<String>> },
+    /// An invalid request as a default value.
     #[default]
     Invalid,
 }
@@ -63,20 +70,31 @@ pub trait PolicyApiSet: Send + Sync {
         unimplemented!()
     }
 
+    /// Evalautes the phyiscal expression on a given dataframe reference [`DataFrameRRef`].
+    fn evaluate(
+        &self,
+        _df: DataFrameRRef,
+        _expr: PhysicalExprRef,
+    ) -> PolicyCarryingResult<FieldDataRRef> {
+        unimplemented!()
+    }
+
     /// The entry function of the api set.
-    fn entry(&self, req: ApiRequest) -> PolicyCarryingResult<DataFrame> {
+    fn entry(
+        &self,
+        _df: Option<DataFrameRRef>,
+        req: ApiRequest,
+    ) -> PolicyCarryingResult<DataFrameRRef> {
         Err(PolicyCarryingError::OperationNotAllowed(format!(
             "this operation cannot be done: {req:?}!"
         )))
     }
-}
 
-/// An ApiSet that simply forbids everything and should not used for any other purposes except for testing.
-pub struct ApiSetSink;
-
-impl PolicyApiSet for ApiSetSink {
-    fn name(&self) -> &'static str {
-        "api_sink"
+    /// Collects the dataframe.
+    fn collect(&self, _df: DataFrameRRef) -> PolicyCarryingResult<DataFrame> {
+        Err(PolicyCarryingError::OperationNotAllowed(format!(
+            "this collection cannot be done!"
+        )))
     }
 }
 
@@ -141,6 +159,20 @@ impl ApiModuleManager {
             .ok_or(PolicyCarryingError::SymbolNotFound(name.into()))
     }
 
+    pub fn add(&mut self, plugin: Arc<dyn PolicyApiSet>) -> PolicyCarryingResult<()> {
+        let name = plugin.name();
+
+        match self.plugins.entry(name.into()) {
+            Entry::Occupied(_) => Err(PolicyCarryingError::ImpossibleOperation(
+                "duplicate key".into(),
+            )),
+            Entry::Vacant(e) => {
+                e.insert(plugin);
+                Ok(())
+            }
+        }
+    }
+
     fn unload_all(&mut self) {
         for (name, plugin) in self.plugins.drain() {
             println!("unloading the plugin {}", name);
@@ -169,13 +201,10 @@ pub fn cur_api_id() -> usize {
 /// however, that the API must be compiled separately with the same Rust toolchain to be ABI-safe.
 pub fn register_api(path: &str, name: &str) -> PolicyCarryingResult<ApiRefId> {
     let id = next_api_id();
-    match API_MANAGER.write() {
-        Ok(mut lock) => {
-            lock.load(path, name)?;
-            Ok(ApiRefId(id))
-        }
-        Err(_) => Err(PolicyCarryingError::Unknown),
-    }
+    let mut lock = get_rwlock!(API_MANAGER, write, PolicyCarryingError::Unknown);
+
+    lock.load(path, name)?;
+    Ok(ApiRefId(id))
 }
 
 /// This is called at the executor level when we want to get the [`PolicyApiSet`] for data access.
@@ -189,8 +218,5 @@ pub fn get_api(id: ApiRefId) -> PolicyCarryingResult<ApiRef> {
             "this api set is not registerd".into(),
         ))?;
 
-    match API_MANAGER.read() {
-        Ok(api) => api.get(name),
-        Err(_) => Err(PolicyCarryingError::Unknown),
-    }
+    get_rwlock!(API_MANAGER, read, PolicyCarryingError::Unknown).get(name)
 }

@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use policy_carrying_data::{schema::SchemaRef, DataFrame};
+use policy_carrying_data::{schema::SchemaRef, DataFrameRRef};
 use policy_core::error::PolicyCarryingResult;
 
 use crate::{plan::physical_expr::PhysicalExpr, trace};
@@ -16,10 +16,10 @@ pub(crate) struct ProjectionExec {
 }
 
 impl PhysicalExecutor for ProjectionExec {
-    fn execute(&mut self, state: &ExecutionState) -> PolicyCarryingResult<DataFrame> {
+    fn execute(&mut self, state: &ExecutionState) -> PolicyCarryingResult<DataFrameRRef> {
         trace!(state, "ProjectionExec");
 
-        evaluate_physical_expr_vec(&self.input.execute(state)?, self.expr.as_ref(), state)
+        evaluate_physical_expr_vec(self.input.execute(state)?, self.expr.as_ref(), state)
     }
 }
 

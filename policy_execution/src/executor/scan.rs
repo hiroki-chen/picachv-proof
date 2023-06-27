@@ -1,17 +1,19 @@
-use std::{ops::Deref, sync::Arc};
+use std::sync::Arc;
 
-use policy_carrying_data::{api::ApiRefId, DataFrame};
+use policy_carrying_data::{get_rwlock, DataFrameRRef};
 use policy_core::error::{PolicyCarryingError, PolicyCarryingResult};
 
-use crate::{plan::physical_expr::PhysicalExpr, trace};
+use crate::{
+    api::{get_api, ApiRequest},
+    plan::physical_expr::PhysicalExpr,
+    trace,
+};
 
 use super::{ExecutionState, PhysicalExecutor};
 
 /// Producer of an in memory [`DataFrame`]. This should be the deepmost executor that cannot be dependent on any
 /// other executors because the data must eventually come from data frame.
 pub(crate) struct DataFrameExec {
-    /// The id of the api set.
-    pub(crate) api_ref_id: ApiRefId,
     /// This is the predicate.
     pub(crate) selection: Option<Arc<dyn PhysicalExpr>>,
     /// This is the 'select' action; one should not be confused with its name.
@@ -21,31 +23,44 @@ pub(crate) struct DataFrameExec {
 }
 
 impl PhysicalExecutor for DataFrameExec {
-    fn execute(&mut self, state: &ExecutionState) -> PolicyCarryingResult<DataFrame> {
+    fn execute(&mut self, state: &ExecutionState) -> PolicyCarryingResult<DataFrameRRef> {
         trace!(state, "DataFrameExec");
 
-        // Check if the dataframe is being used or referenced by other executors.
-        // If there is no other pointers, we can modify the dataframe in-place. Otherwise, we need
-        // to make a clone.
-        // let df = std::mem::take(&mut self.df);
-        // let mut df = Arc::try_unwrap(df).unwrap_or_else(|df| df.deref().clone());
-        // TODO: DataFrame's provenance / policy tracking.
-        let mut df = DataFrame::default();
+        // Get the api set reference.
+        let api_set = get_api(*get_rwlock!(
+            state.policy_layer,
+            read,
+            PolicyCarryingError::Unknown
+        ))?;
 
-        // Apply projection and selection at first to reduce the amount of data that should be returned.
+        // Get the initial dataframe reference.
+        let mut df = api_set.entry(None, ApiRequest::Scan)?;
+
+        // Apply projection and selection first to reduce the amount of data that should be returned.
         if let Some(projection) = self.projection.as_ref() {
-            df = df.projection(projection)?;
+            df = api_set.entry(
+                Some(df),
+                ApiRequest::Projection {
+                    columns: projection.clone(),
+                },
+            )?;
         }
 
         // Then apply filter.
         if let Some(selection) = self.selection.as_ref() {
-            let selection = selection.evaluate(&df, state)?;
-
             if self.predicate_has_windows {
                 return Err(PolicyCarryingError::OperationNotSupported);
             }
 
-            df = df.filter(selection.as_boolean()?)?;
+            let selection = api_set.evaluate(df.clone(), selection.clone())?;
+
+            df = api_set.entry(
+                Some(df),
+                ApiRequest::Filter {
+                    by: selection,
+                    has_windows: self.predicate_has_windows,
+                },
+            )?;
         }
 
         Ok(df)
@@ -54,13 +69,11 @@ impl PhysicalExecutor for DataFrameExec {
 
 impl DataFrameExec {
     pub fn new(
-        api_ref_id: ApiRefId,
         selection: Option<Arc<dyn PhysicalExpr>>,
         projection: Option<Arc<Vec<String>>>,
         predicate_has_windows: bool,
     ) -> Self {
         Self {
-            api_ref_id,
             selection,
             projection,
             predicate_has_windows,

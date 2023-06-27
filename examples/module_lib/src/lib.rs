@@ -1,18 +1,15 @@
 use std::{pin::Pin, sync::Arc};
 
-use policy_carrying_data::{
-    api::{ApiRequest, PolicyApiSet},
-    pcd, DataFrame,
-};
+use policy_carrying_data::{pcd, DataFrameRRef};
 use policy_core::error::PolicyCarryingResult;
+use policy_execution::api::{ApiRequest, PolicyApiSet};
 
 static PLUGIN_NAME: &str = "foo";
 
 #[no_mangle]
 extern "C" fn load_module(name: *const u8, len: usize, ptr: *mut u64) -> i32 {
     let name = unsafe {
-        let str = std::slice::from_raw_parts(name, 
-            len);
+        let str = std::slice::from_raw_parts(name, len);
         std::str::from_utf8_unchecked(str)
     };
 
@@ -50,12 +47,16 @@ impl PolicyApiSet for PluginImpl {
         eprintln!("undoing a series of things.");
     }
 
-    fn entry(&self, _req: ApiRequest) -> PolicyCarryingResult<DataFrame> {
+    fn entry(
+        &self,
+        _df: Option<DataFrameRRef>,
+        _req: ApiRequest,
+    ) -> PolicyCarryingResult<DataFrameRRef> {
         let pcd = pcd! {
             "column_1" => DataType::Int8: [1, 2, 3, 4, 5, 6, 7, 8],
             "column_2" => DataType::Float64: [1.0, 2.0, 3.0, 4.0, 22.3, 22.3, 22.3, 22.3],
         };
 
-        Ok(pcd)
+        todo!()
     }
 }

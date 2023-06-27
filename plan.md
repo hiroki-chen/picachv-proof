@@ -76,10 +76,8 @@ Although we cannot determine the concrete appearance of the policy now, we may f
 # TODOs
 
 - [x] Implement the pluggable API set module: use Rust-to-Rust FFI. Caveat: [see here](./docs/api_load.md).
-- [ ] Implement the type coercion for any two comparable data field arrays.
 - [ ] Implement aggregation and DP on it.
   - [x] Implement aggregation expression generation.
-  - [ ] Implement basic query to `PhysicalExpr` lowering down: should differentiate different cases (e.g., `groupby`, applying aggregation on a single list).
   - [ ] Implement the executor for aggretation.
 - [ ] Implement an parser that automatically generates the API layer.
   - [ ] Human-reable policy parser: use `lalrpop`.
@@ -88,3 +86,5 @@ Although we cannot determine the concrete appearance of the policy now, we may f
     - [ ] codegen to Rust: WIP.
     - [ ] procedural macro generation.
   - [ ] Check policy consistency: use SMT solvers?
+- [ ] Encode the policy: can we use extended provenance semi-ring.
+- [x] Cross-domain call to the API set: resolve the issue of the intermediate dataframes: do we need to have a remote reference to the underlying dataframe since it is not owned by executors.
