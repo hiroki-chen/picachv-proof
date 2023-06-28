@@ -586,10 +586,8 @@ macro_rules! define_from_arr {
 
         impl From<&[$primitive]> for $name {
             fn from(other: &[$primitive]) -> Self {
-                let mut field = Field::default();
-
                 Self {
-                    field: FieldRef::new(field),
+                    field: Default::default(),
                     inner: other.into_iter().map(|t| $ty::new(t.clone())).collect(),
                 }
             }

@@ -11,8 +11,8 @@ use field::{FieldData, FieldDataArray, FieldDataRef};
 use policy_core::{
     error::{PolicyCarryingError, PolicyCarryingResult},
     types::{
-        BooleanType, DataType, Float32Type, Float64Type, Int16Type, Int32Type, Int64Type, Int8Type,
-        UInt16Type, UInt32Type, UInt64Type, UInt8Type, Utf8StrType,
+        BooleanType, DataType, Float32Type, Float64Type, FunctionArguments, Int16Type, Int32Type,
+        Int64Type, Int8Type, UInt16Type, UInt32Type, UInt64Type, UInt8Type, Utf8StrType,
     },
 };
 use schema::{Schema, SchemaRef};
@@ -385,6 +385,21 @@ impl DataFrame {
 
     pub fn columns(&self) -> &[Arc<dyn FieldData>] {
         self.columns.as_ref()
+    }
+}
+
+impl TryFrom<FunctionArguments> for DataFrame {
+    type Error = PolicyCarryingError;
+
+    fn try_from(args: FunctionArguments) -> Result<Self, Self::Error> {
+        let df_path = args.get_and_apply("df_path", |path: String| path)?;
+        let schema = args
+            .get_and_apply("schema", |schema: String| {
+                serde_json::from_str::<Schema>(&schema)
+            })?
+            .unwrap();
+
+        Self::load_csv(&df_path, Some(schema.into()))
     }
 }
 

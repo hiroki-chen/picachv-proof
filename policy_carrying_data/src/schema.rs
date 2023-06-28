@@ -4,6 +4,7 @@ use policy_core::{
     error::PolicyCarryingResult,
     types::{DataType, ExecutorRefId},
 };
+use serde::{Deserialize, Serialize};
 
 use crate::field::{new_empty, Field, FieldData, FieldRef};
 
@@ -84,7 +85,7 @@ impl SchemaBuilder {
 
 /// This struct represents a schema of the input data which, in most cases, is in a table form.
 /// Schema for such data types, in fact, is something that describes the attribute/column of the table.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Schema {
     /// The fields of the table.
     pub(crate) fields: Vec<FieldRef>,

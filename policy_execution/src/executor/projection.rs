@@ -1,32 +1,17 @@
-use std::{fmt::Debug, sync::Arc};
+use std::sync::Arc;
 
-use policy_carrying_data::{schema::SchemaRef, DataFrame};
-use policy_core::error::PolicyCarryingResult;
+use policy_carrying_data::schema::{Schema, SchemaRef};
+use policy_core::{error::PolicyCarryingError, types::FunctionArguments};
 
-use crate::{plan::physical_expr::PhysicalExpr, trace};
+use crate::plan::physical_expr::{PhysicalExpr, PhysicalExprRef};
 
-use super::{evaluate_physical_expr_vec, ExecutionState, Executor, PhysicalExecutor};
+use super::Executor;
 
 /// Implementes the physical executor for projection.
 pub struct ProjectionExec {
-    pub(crate) input: Executor,
-    pub(crate) expr: Vec<Arc<dyn PhysicalExpr>>,
-    #[allow(unused)]
-    pub(crate) input_schema: SchemaRef,
-}
-
-impl Debug for ProjectionExec {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "ProjectionExec")
-    }
-}
-
-impl PhysicalExecutor for ProjectionExec {
-    fn execute(&mut self, state: &ExecutionState) -> PolicyCarryingResult<DataFrame> {
-        trace!(state, "ProjectionExec");
-
-        evaluate_physical_expr_vec(&self.input.execute(state)?, self.expr.as_ref(), state)
-    }
+    pub input: Executor,
+    pub expr: Vec<Arc<dyn PhysicalExpr>>,
+    pub input_schema: SchemaRef,
 }
 
 impl ProjectionExec {
@@ -36,5 +21,35 @@ impl ProjectionExec {
             expr,
             input_schema,
         }
+    }
+}
+
+impl TryFrom<FunctionArguments> for ProjectionExec {
+    type Error = PolicyCarryingError;
+
+    fn try_from(args: FunctionArguments) -> Result<Self, Self::Error> {
+        let input = args.get_and_apply("input", |ptr: usize| unsafe {
+            *Box::from_raw(ptr as *mut Executor)
+        })?;
+
+        let expr_len = args.get_and_apply("expr_len", |len: usize| len)?;
+        let expr = args.get_and_apply("expr", move |expr: usize| {
+            let vec =
+                unsafe { std::slice::from_raw_parts(expr as *const usize, expr_len) }.to_vec();
+            vec.into_iter()
+                .map(|inner| unsafe { *Box::from_raw(inner as *mut PhysicalExprRef) })
+                .collect::<Vec<_>>()
+        })?;
+
+        let input_schema =
+            args.get_and_apply(
+                "input_schema",
+                |input_schema: String| match serde_json::from_str::<Schema>(&input_schema) {
+                    Ok(input_schema) => Ok(input_schema),
+                    Err(e) => Err(PolicyCarryingError::SerializeError(e.to_string())),
+                },
+            )??;
+
+        Ok(ProjectionExec::new(input, expr, input_schema.into()))
     }
 }

@@ -11,8 +11,7 @@ use policy_core::{
 
 use crate::{
     executor::{
-        filter::FilterExec, projection::ProjectionExec, scan::DataFrameExec, ExecutionState,
-        Executor, ExprArena, LogicalPlanArena, EXPR_ARENA_SIZE, LP_ARENA_SIZE,
+        ExecutionState, Executor, ExprArena, LogicalPlanArena, EXPR_ARENA_SIZE, LP_ARENA_SIZE,
     },
     plan::physical_expr::make_physical_expr,
 };
@@ -20,14 +19,6 @@ use crate::{
 pub mod physical_expr;
 
 pub type PhysicalPlan = (ExecutionState, Executor);
-
-#[cfg(test)]
-lazy_static::lazy_static! {
-     static ref TEST_PCD: Arc<DataFrame> = Arc::new(policy_carrying_data::pcd! {
-        "column_1" => DataType::Int8: [1, 2, 3, 4, 5, 6, 7, 8],
-        "column_2" => DataType::Float64: [1.0, 2.0, 3.0, 4.0, 22.3, 22.3, 22.3, 22.3],
-    });
-}
 
 bitflags! {
     #[derive(Copy, Clone, Debug)]
@@ -66,7 +57,7 @@ macro_rules! delayed_err {
 /// * An aggreation.
 /// * Combinations of the above operations.
 ///
-/// FIXME: Where do we put the policy?
+/// FIXME: Where do we put the policy? Probably not here.
 #[derive(Clone, Debug)]
 pub enum LogicalPlan {
     /// Select with *filter conditions* that work on a [`LogicalPlan`].
@@ -615,26 +606,41 @@ pub(crate) fn make_physical_plan(
     let mut nodes = Vec::new();
 
     let root = optimize(lp, opt_flag, &mut lp_arena, &mut expr_arena, &mut nodes)?;
+
+    #[cfg(feature = "builtin")]
+    let executor = do_make_physical_plan(root, &mut lp_arena, &mut expr_arena)?;
+
+    #[cfg(not(feature = "builtin"))]
     let executor = do_make_physical_plan(root, &mut lp_arena, &mut expr_arena, executor_ref_id)?;
 
     Ok((ExecutionState::with_executors(executor_ref_id), executor))
 }
 
 /// A recursive function that handles the conversion from [`ALogicalPlan`] to the [`PhysicalExecutor`] AST.
-/// TODO: Load from executors rather than built-in ones.
 fn do_make_physical_plan(
     root: Node,
     lp_arena: &mut LogicalPlanArena,
     expr_arena: &mut ExprArena,
     executor_ref_id: ExecutorRefId,
 ) -> PolicyCarryingResult<Executor> {
+    use policy_core::{args, types::ExecutorType};
+
+    use crate::executor::create_executor;
+
     match lp_arena.take(root) {
         ALogicalPlan::Selection { input, predicate } => {
             let input = do_make_physical_plan(input, lp_arena, expr_arena, executor_ref_id)?;
             let state = ExecutionState::with_executors(executor_ref_id);
             let predicate = make_physical_expr(predicate, expr_arena, None, &state, false)?;
 
-            Ok(Box::new(FilterExec::new(predicate, input)))
+            create_executor(
+                executor_ref_id,
+                ExecutorType::Filter,
+                args! {
+                    "predicate": Box::into_raw(Box::new(predicate)) as *mut _ as usize,
+                    "input": Box::into_raw(Box::new(input))as *mut _ as usize,
+                },
+            )
         }
         ALogicalPlan::DataFrameScan {
             schema,
@@ -654,20 +660,17 @@ fn do_make_physical_plan(
                 None => None,
             };
 
-            match schema.executor_ref_id {
-                #[cfg(test)]
-                Some(_) => Ok(Box::new(DataFrameExec::new(
-                    TEST_PCD.clone(),
-                    selection,
-                    projection,
-                    false,
-                ))),
-                #[cfg(not(test))]
-                Some(id) => unimplemented!("todo {id}"),
-                None => Err(PolicyCarryingError::ImpossibleOperation(
-                    "no api id is set, operation cannot proceed".into(),
-                )),
-            }
+            create_executor(
+                executor_ref_id,
+                ExecutorType::DataframeScan,
+                args! {
+                    "df_path": "../../test_data/simple_csv.csv",
+                    "schema": serde_json::to_string(&schema).unwrap(),
+                    "projection": projection.map(|proj| proj.deref().clone()),
+                    "predicate_has_windows": false,
+                    "selection": selection.map(|sel| &sel as *const _ as usize),
+                },
+            )
         }
         ALogicalPlan::Projection { input, expr, .. } => {
             let schema = lp_arena.get(input).schema(lp_arena);
@@ -679,8 +682,21 @@ fn do_make_physical_plan(
                     make_physical_expr(expr, expr_arena, Some(schema.clone()), &state, false)
                 })
                 .collect::<PolicyCarryingResult<Vec<_>>>()?;
+            let expr = expr
+                .into_iter()
+                .map(|expr| Box::into_raw(Box::new(expr)) as *mut _ as usize)
+                .collect::<Vec<_>>();
 
-            Ok(Box::new(ProjectionExec::new(input, expr, schema)))
+            create_executor(
+                executor_ref_id,
+                ExecutorType::Projection,
+                args! {
+                    "input": Box::into_raw(Box::new(input)) as *mut _ as usize,
+                    "expr": expr.as_ptr() as usize,
+                    "expr_len": expr.len(),
+                    "input_schema": serde_json::to_string(&schema).unwrap(),
+                },
+            )
         }
         ALogicalPlan::Aggregate {
             input,

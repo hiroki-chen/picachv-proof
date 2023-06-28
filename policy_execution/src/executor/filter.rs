@@ -1,37 +1,31 @@
-use std::{fmt::Debug, sync::Arc};
+use policy_core::{error::PolicyCarryingError, types::FunctionArguments};
 
-use policy_carrying_data::DataFrame;
-use policy_core::error::PolicyCarryingResult;
+use crate::plan::physical_expr::PhysicalExprRef;
 
-use crate::{plan::physical_expr::PhysicalExpr, trace};
-
-use super::{ExecutionState, Executor, PhysicalExecutor};
+use super::Executor;
 
 pub struct FilterExec {
-    pub(crate) predicate: Arc<dyn PhysicalExpr>,
-    pub(crate) input: Executor,
-}
-
-impl Debug for FilterExec {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "FilterExec")
-    }
-}
-
-impl PhysicalExecutor for FilterExec {
-    fn execute(&mut self, state: &ExecutionState) -> PolicyCarryingResult<DataFrame> {
-        trace!(state, "FilterExec");
-
-        let df = self.input.execute(state)?;
-        let filtered = self.predicate.evaluate(&df, state)?;
-        let boolean_array = filtered.as_boolean()?;
-
-        df.filter(&boolean_array)
-    }
+    pub predicate: PhysicalExprRef,
+    pub input: Executor,
 }
 
 impl FilterExec {
-    pub fn new(predicate: Arc<dyn PhysicalExpr>, input: Executor) -> Self {
+    pub fn new(predicate: PhysicalExprRef, input: Executor) -> Self {
         Self { predicate, input }
+    }
+}
+
+impl TryFrom<FunctionArguments> for FilterExec {
+    type Error = PolicyCarryingError;
+
+    fn try_from(args: FunctionArguments) -> Result<Self, Self::Error> {
+        let predicate = args.get_and_apply("predicate", |predicate: usize| unsafe {
+            *Box::from_raw(predicate as *mut PhysicalExprRef)
+        })?;
+        let input = args.get_and_apply("input", |ptr: usize| unsafe {
+            *Box::from_raw(ptr as *mut Executor)
+        })?;
+
+        Ok(Self::new(predicate, input))
     }
 }

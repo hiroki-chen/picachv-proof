@@ -4,7 +4,10 @@ use std::{
     cell::OnceCell,
     collections::{hash_map::Entry, HashMap, HashSet, VecDeque},
     fmt::Debug,
-    sync::{Arc, Mutex, RwLock},
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc, Mutex, RwLock,
+    },
 };
 
 use bitflags::bitflags;
@@ -27,13 +30,12 @@ pub mod filter;
 pub mod projection;
 pub mod scan;
 
-#[cfg(feature = "buildin")]
-pub mod builtin;
-
 pub type ExprArena = Arena<AExpr>;
 pub type LogicalPlanArena = Arena<ALogicalPlan>;
 pub type Executor = Box<dyn PhysicalExecutor + Send + Sync>;
 
+type LibOnLoad = fn(args: *const u8, args_len: usize) -> i32;
+type LibOnUnload = fn(args: *const u8, args_len: usize) -> i32;
 type ExecutorCreator =
     fn(executor_type: usize, args: *const u8, args_len: usize, p_executor: *mut usize) -> i32;
 
@@ -66,12 +68,29 @@ bitflags! {
 
 lazy_static! {
     pub static ref EXECUTORS: ExecutorManager = ExecutorManager::new();
+    pub static ref EXECUTOR_ID: AtomicUsize = AtomicUsize::new(0);
 }
 
 /// The manager of the executors when the dataframe is to be accessed.
 pub struct ExecutorManager {
     /// Loaded libraries for the creation of new executors.
     libs: Arc<RwLock<HashMap<ExecutorRefId, Arc<Library>>>>,
+}
+
+/// Loads the executors from the shared library and returns the id to these executors.
+pub fn load_lib(path: &str, args: FunctionArguments) -> PolicyCarryingResult<ExecutorRefId> {
+    let next_id = ExecutorRefId(EXECUTOR_ID.fetch_add(1, Ordering::Release));
+
+    EXECUTORS.load_lib(path, next_id, args)?;
+    Ok(next_id)
+}
+
+pub fn create_executor(
+    id: ExecutorRefId,
+    executor_type: ExecutorType,
+    args: FunctionArguments,
+) -> PolicyCarryingResult<Executor> {
+    EXECUTORS.create_executor(&id, executor_type, args)
 }
 
 impl ExecutorManager {
@@ -83,9 +102,23 @@ impl ExecutorManager {
     }
 
     /// Loads the library into the manager.
-    pub fn load_lib(&self, path: &str, id: ExecutorRefId) -> PolicyCarryingResult<()> {
+    pub fn load_lib(
+        &self,
+        path: &str,
+        id: ExecutorRefId,
+        args: FunctionArguments,
+    ) -> PolicyCarryingResult<()> {
         let lib =
             unsafe { Library::new(path).map_err(|e| PolicyCarryingError::FsError(e.to_string()))? };
+        let f = unsafe { lib.get::<LibOnLoad>(b"on_load") }
+            .map_err(|e| PolicyCarryingError::SymbolNotFound(e.to_string()))?;
+        let args = serde_json::to_string(&args)
+            .map_err(|e| PolicyCarryingError::SerializeError(e.to_string()))?;
+
+        let ret = f(args.as_ptr(), args.len());
+        if ret != 0 {
+            return Err(PolicyCarryingError::InvalidInput);
+        }
 
         let mut lock = get_lock!(self.libs, write);
         match lock.entry(id) {
@@ -96,6 +129,39 @@ impl ExecutorManager {
         }
 
         Ok(())
+    }
+
+    /// If a module is no longer needed, call this function to properly uninstall it.
+    pub fn unload_lib(
+        &self,
+        id: ExecutorRefId,
+        args: FunctionArguments,
+    ) -> PolicyCarryingResult<()> {
+        let mut lock = get_lock!(self.libs, write);
+
+        match lock.get_mut(&id) {
+            Some(lib) => {
+                if Arc::strong_count(lib) == 0 {
+                    let f = unsafe { lib.get::<LibOnUnload>(b"on_unload") }.map_err(|_| {
+                        PolicyCarryingError::SymbolNotFound("`on_unload` not found".into())
+                    })?;
+                    let args = serde_json::to_string(&args)
+                        .map_err(|e| PolicyCarryingError::SerializeError(e.to_string()))?;
+
+                    let ret = f(args.as_ptr(), args.len());
+                    if ret != 0 {
+                        return Err(PolicyCarryingError::CommandFailed(ret));
+                    }
+
+                    lock.remove(&id);
+                }
+
+                Ok(())
+            }
+            None => Err(PolicyCarryingError::SymbolNotFound(format!(
+                "{id} not found"
+            ))),
+        }
     }
 
     /// Creates a new executor from the library.
@@ -158,15 +224,16 @@ impl Default for Executor {
 #[derive(Clone)]
 pub struct ExecutionState {
     /// The cache of the current schema.
-    pub(crate) schema_cache: Arc<RwLock<Option<SchemaRef>>>,
+    pub schema_cache: Arc<RwLock<Option<SchemaRef>>>,
     /// The flag.
-    pub(crate) execution_flag: Arc<RwLock<ExecutionFlag>>,
+    pub execution_flag: Arc<RwLock<ExecutionFlag>>,
     /// An expression cache: expr id -> cached data.
-    pub(crate) expr_cache: Arc<Mutex<HashMap<usize, Arc<OnceCell<FieldDataRef>>>>>,
+    pub expr_cache: Arc<Mutex<HashMap<usize, Arc<OnceCell<FieldDataRef>>>>>,
     /// The log trace.
-    pub(crate) log: Arc<RwLock<VecDeque<String>>>,
+    pub log: Arc<RwLock<VecDeque<String>>>,
     /// The api set layer for managing the policy compliance.
-    pub(crate) executor_ref_id: Arc<RwLock<ExecutorRefId>>,
+    /// If executor_ref_id is a [`None`], then we use the built-in executors instead.
+    pub executor_ref_id: Arc<RwLock<Option<ExecutorRefId>>>,
 }
 
 impl Default for ExecutionState {
@@ -176,7 +243,7 @@ impl Default for ExecutionState {
             execution_flag: Arc::new(RwLock::new(ExecutionFlag::default())),
             expr_cache: Arc::new(Mutex::new(HashMap::new())),
             log: Arc::new(RwLock::new(VecDeque::new())),
-            executor_ref_id: Default::default(),
+            executor_ref_id: Arc::new(RwLock::new(None)),
         }
     }
 }
@@ -191,7 +258,7 @@ impl ExecutionState {
 
     pub fn with_executors(executor_ref_id: ExecutorRefId) -> Self {
         let mut state = Self::default();
-        state.executor_ref_id = Arc::new(RwLock::new(executor_ref_id));
+        state.executor_ref_id = Arc::new(RwLock::new(Some(executor_ref_id)));
 
         state
     }
@@ -199,7 +266,7 @@ impl ExecutionState {
 
 /// Given a vector of [`PhysicalExpr`]s, evaluates all of them on a given [`DataFrame`] and
 /// returns the result.
-pub(crate) fn evaluate_physical_expr_vec(
+pub fn evaluate_physical_expr_vec(
     df: &DataFrame,
     expr: &[Arc<dyn PhysicalExpr>],
     state: &ExecutionState,
@@ -219,7 +286,7 @@ pub(crate) fn evaluate_physical_expr_vec(
 
 /// Sometimes the projected columns do not represent anything and are just a bunch of literals.
 /// We need to expand literals to fill the shape of the dataframe.
-pub(crate) fn expand_projection_literal(
+pub fn expand_projection_literal(
     state: &ExecutionState,
     mut selected_columns: Vec<FieldDataRef>,
     empty: bool,
@@ -281,7 +348,7 @@ pub(crate) fn expand_projection_literal(
 }
 
 /// This function is called at the epilogue of the [`lazy::LazyFrame::collect()`].
-pub(crate) fn execution_epilogue(
+pub fn execution_epilogue(
     mut df: DataFrame,
     state: &ExecutionState,
 ) -> PolicyCarryingResult<DataFrame> {

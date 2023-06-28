@@ -1,3 +1,5 @@
+#![cfg_attr(test, allow(unused))]
+
 use proc_macro::TokenStream;
 
 /// This attribute will parse the struct that is annotated with `#[policy_carrying]` and automatically implement some

@@ -6,8 +6,12 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 
+use crate::error::{PolicyCarryingError, PolicyCarryingResult};
+
 /// A wrapper ID for bookkeeping the executor sets.
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Default)]
+#[derive(
+    Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Default, Serialize, Deserialize,
+)]
 pub struct ExecutorRefId(pub usize);
 
 impl Display for ExecutorRefId {
@@ -80,6 +84,25 @@ pub enum ExecutorType {
 pub struct FunctionArguments {
     /// function argument name => value
     pub inner: serde_json::Map<String, serde_json::Value>,
+}
+
+impl FunctionArguments {
+    /// Gets a key from the argument and apply the transformation function, if needed.
+    pub fn get_and_apply<F, T, U>(&self, key: &str, f: F) -> PolicyCarryingResult<U>
+    where
+        T: for<'de> Deserialize<'de>,
+        F: FnOnce(T) -> U,
+    {
+        match self.inner.get(key).cloned() {
+            Some(val) => match serde_json::from_value::<T>(val) {
+                Ok(val) => Ok(f(val)),
+                Err(e) => Err(PolicyCarryingError::SerializeError(e.to_string())),
+            },
+            None => Err(PolicyCarryingError::SerializeError(format!(
+                "{key} not found"
+            ))),
+        }
+    }
 }
 
 impl Display for DataType {

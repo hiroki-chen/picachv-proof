@@ -1,6 +1,8 @@
 //! This crate defines some common APIs that can be used implement the `PolicyCompliantApiSet`'s
 //! trait methods and can be re-used in building a new API set rather than from scrach.
 
+#![cfg_attr(test, allow(unused))]
+
 pub mod func;
 pub mod privacy;
 

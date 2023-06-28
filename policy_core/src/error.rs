@@ -41,6 +41,12 @@ pub enum PolicyCarryingError {
 
 impl Debug for PolicyCarryingError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{self}")
+    }
+}
+
+impl Display for PolicyCarryingError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::AlreadyLoaded => write!(f, "already loaded"),
             Self::ImpossibleOperation(info) => write!(f, "This operation is impossible: {}", info),
@@ -66,12 +72,6 @@ impl Debug for PolicyCarryingError {
                 "Unknown error. This may be due to some implementation bugs"
             ),
         }
-    }
-}
-
-impl Display for PolicyCarryingError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}", self)
     }
 }
 
