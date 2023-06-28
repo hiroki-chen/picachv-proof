@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use policy_carrying_data::{ DataFrame};
+use policy_carrying_data::DataFrame;
 use policy_core::{error::PolicyCarryingError, types::FunctionArguments};
 
 use crate::plan::physical_expr::PhysicalExpr;
