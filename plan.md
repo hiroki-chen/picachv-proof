@@ -90,4 +90,4 @@ Although we cannot determine the concrete appearance of the policy now, we may f
 - [ ] Make executors loadable <= compiled from the policy.
   - [x] Implement the manager and dynamic loader.
   - [x] Attach the reference id to the schema.
-  - [ ] Integrate to `make_physical_plan` function.
+  - [x] Integrate to `make_physical_plan` function.

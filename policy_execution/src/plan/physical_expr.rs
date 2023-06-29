@@ -6,7 +6,7 @@ use std::{
 };
 
 use policy_carrying_data::{
-    field::{Field, FieldDataArray, FieldDataRef},
+    field::{new_empty, new_null, Field, FieldDataArray, FieldDataRef, FieldRef},
     schema::SchemaRef,
     Comparator, DataFrame, UserDefinedFunction,
 };
@@ -19,7 +19,10 @@ use policy_core::{
     },
 };
 
-use crate::executor::{ExecutionState, ExprArena};
+use crate::{
+    executor::{ExecutionState, ExprArena},
+    plan::expr_to_aexpr,
+};
 
 use super::{aexpr_to_expr, ApplyOption};
 
@@ -42,7 +45,7 @@ pub trait PhysicalExpr: Send + Sync + Debug {
         Err(PolicyCarryingError::OperationNotSupported)
     }
 
-    /// Evaluate on groups due to `group_by()`.
+    /// Evaluate on groups due to `group_by()`; aggregations can be applied on both groups and a single column.
     fn evalute_group(
         &self,
         _df: &DataFrame,
@@ -236,7 +239,8 @@ impl PhysicalExpr for LiteralExpr {
                 1,
                 "literal".into(),
             ))),
-            _ => panic!(),
+
+            _ => unimplemented!(),
         }
     }
 
@@ -299,6 +303,7 @@ impl PhysicalExpr for AggregateExpr {
         vec![self.input.clone()]
     }
 
+    #[allow(unused)]
     fn evalute_group(
         &self,
         df: &DataFrame,
@@ -323,10 +328,21 @@ impl PhysicalExpr for ApplyExpr {
 
     fn evaluate(
         &self,
-        _df: &DataFrame,
-        _state: &ExecutionState,
+        df: &DataFrame,
+        state: &ExecutionState,
     ) -> PolicyCarryingResult<FieldDataRef> {
-        todo!()
+        let mut inputs = self
+            .inputs
+            .iter()
+            .map(|expr| expr.evaluate(df, state))
+            .collect::<PolicyCarryingResult<Vec<_>>>()?;
+
+        Ok(self.function.call(&mut inputs)?.unwrap_or_else(|| {
+            // If `to_field` failed here, there is nothing we can do to recover it from error state.
+            // So we simply panic if error occurs.
+            let field = self.to_field(self.input_schema.as_ref().unwrap()).unwrap();
+            Arc::from(new_null(field, 1))
+        }))
     }
 
     fn evalute_group(
@@ -339,6 +355,13 @@ impl PhysicalExpr for ApplyExpr {
 
     fn expr(&self) -> Option<&Expr> {
         Some(&self.expr)
+    }
+}
+
+impl ApplyExpr {
+    /// Given a schema, this function extracts the field from the schema.
+    pub fn to_field(&self, schema: &SchemaRef) -> PolicyCarryingResult<FieldRef> {
+        expr_to_field(&self.expr, schema, false)
     }
 }
 
@@ -405,9 +428,7 @@ pub(crate) fn get_field_from_aexpr(
             .iter()
             .find(|column| &column.name == name)
             .map(|inner| inner.deref().clone())
-            .ok_or(PolicyCarryingError::SchemaMismatch(format!(
-                "the column `{name}` was not found"
-            ))),
+            .ok_or(PolicyCarryingError::ColumnNotFound(name.clone())),
         // Alias: take the type of the expression input and propagate it to the output field.
         AExpr::Alias(input, name) => {
             let original =
@@ -455,34 +476,82 @@ pub(crate) fn make_physical_expr_aaggexpr(
     // Discern `in_aggregation`.
     in_aggregation: bool,
 ) -> PolicyCarryingResult<PhysicalExprRef> {
+    let input = make_physical_expr(
+        aexpr.get_input().clone(),
+        expr_arena,
+        schema.clone(),
+        state,
+        in_aggregation,
+    )?;
+
     match in_aggregation {
         // We are not in an aggregation context, so we need to manually create the function that applies to the final result.
         false => {
-            // WIP: Apply also the API SET's provided method here?
-            match aexpr {
-                AAggExpr::Max { propagate_nans, .. } => todo!(),
+            // TODO: These functions should be loaded from the external library because we are doing
+            // aggregation, and the policy makers may want to apply some privacy schemes when performing
+            // this task. We must build a function atop the original one.
+            let function: Arc<dyn UserDefinedFunction> = match aexpr {
+                AAggExpr::Max { propagate_nans, .. } => {
+                    let f = move |input: &mut [FieldDataRef]| {
+                        let first = replace_with_empty(&mut input[0]);
+
+                        if propagate_nans && first.data_type().is_float() {
+                            unimplemented!("cannot propapate nans for float")
+                        }
+
+                        // FIXME: Should add policy at the level because function `function` will fold
+                        // the whole array into an one-element array.
+                        Ok(Some(first.aggregate(GroupByMethod::Max)))
+                    };
+
+                    Arc::new(f)
+                }
+                AAggExpr::Min { propagate_nans, .. } => {
+                    let f = move |input: &mut [FieldDataRef]| {
+                        let first = replace_with_empty(&mut input[0]);
+
+                        if propagate_nans && first.data_type().is_float() {
+                            unimplemented!("cannot propapate nans for float")
+                        }
+
+                        Ok(Some(first.aggregate(GroupByMethod::Min)))
+                    };
+
+                    Arc::new(f)
+                }
+
+                AAggExpr::Sum(_) => {
+                    let f = move |input: &mut [FieldDataRef]| {
+                        let first = replace_with_empty(&mut input[0]);
+
+                        Ok(Some(first.aggregate(GroupByMethod::Sum)))
+                    };
+
+                    Arc::new(f)
+                }
+
                 _ => unimplemented!(),
-            }
+            };
+
+            Ok(Arc::new(ApplyExpr {
+                function,
+                input_schema: schema.clone(),
+                allow_rename: false,
+                pass_name_to_apply: false,
+                expr: aexpr_to_expr(parent, expr_arena),
+                inputs: vec![input],
+                collect_groups: ApplyOption::ApplyFlat,
+            }))
         }
 
         // We are already in an aggregation context.
-        true => {
-            let input = make_physical_expr(
-                aexpr.get_input().clone(),
-                expr_arena,
-                schema.clone(),
-                state,
-                in_aggregation,
-            )?;
-
-            Ok(Arc::new(AggregateExpr {
-                input,
-                agg_type: aexpr.into(),
-                field: schema
-                    .map(|schema| get_field_from_aexpr(expr_arena.get(parent), expr_arena, schema))
-                    .transpose()?,
-            }))
-        }
+        true => Ok(Arc::new(AggregateExpr {
+            input,
+            agg_type: aexpr.into(),
+            field: schema
+                .map(|schema| get_field_from_aexpr(expr_arena.get(parent), expr_arena, schema))
+                .transpose()?,
+        })),
     }
 }
 
@@ -536,6 +605,89 @@ pub(crate) fn make_physical_expr(
             state,
             in_aggregation,
         ),
-        AExpr::Wildcard => panic!("wildcard should be handled at hight level"),
+        AExpr::Wildcard => panic!("wildcard should be handled at higher levels"),
     }
+}
+
+/// Extracts the field information from a given arena-ed expression, which is useful for soem fallback operations.
+pub(crate) fn aexpr_to_field(
+    aexpr: &AExpr,
+    expr_arena: &ExprArena,
+    schema: &SchemaRef,
+    in_aggregation: bool,
+) -> PolicyCarryingResult<FieldRef> {
+    match aexpr {
+        AExpr::Column(column_name) => {
+            match schema
+                .fields()
+                .into_iter()
+                .find(|field| &field.name == column_name)
+            {
+                Some(field) => Ok(field.clone()),
+                None => Err(PolicyCarryingError::ColumnNotFound(column_name.clone())),
+            }
+        }
+        AExpr::Alias(from, to) => {
+            let field = aexpr_to_field(expr_arena.get(*from), expr_arena, schema, in_aggregation)?;
+            Ok(Arc::new(Field::new(
+                to.clone(),
+                field.data_type,
+                field.nullable,
+                field.metadata.clone(),
+            )))
+        }
+        AExpr::Literal(val) => Ok(Arc::new(Field::new(
+            "literal".into(),
+            val.data_type(),
+            true,
+            Default::default(),
+        ))),
+        // This has some potential problem: what if the real column is on the right side?
+        AExpr::BinaryOp { left, .. } => {
+            aexpr_to_field(expr_arena.get(*left), expr_arena, schema, in_aggregation)
+        }
+        AExpr::Filter { input, .. } => {
+            aexpr_to_field(expr_arena.get(*input), expr_arena, schema, in_aggregation)
+        }
+        AExpr::Agg(agg) => {
+            todo!()
+        }
+
+        // Cannot extract field information from this type because it should be expaned at higher level!
+        _ => Err(PolicyCarryingError::InvalidInput),
+    }
+}
+
+/// Extracts the field information from a given expression, which is useful for soem fallback operations.
+pub(crate) fn expr_to_field(
+    expr: &Expr,
+    schema: &SchemaRef,
+    in_aggregation: bool,
+) -> PolicyCarryingResult<FieldRef> {
+    fn expr_to_field_impl(
+        expr_arena: &mut ExprArena,
+        expr: &Expr,
+        schema: &SchemaRef,
+        in_aggregation: bool,
+    ) -> PolicyCarryingResult<FieldRef> {
+        let root = expr_to_aexpr(expr.clone(), expr_arena)?;
+        let root = expr_arena.get(root);
+        aexpr_to_field(root, expr_arena, schema, in_aggregation)
+    }
+
+    // A temporary arena for visiting the expression tree.
+    let mut expr_arena = ExprArena::with_capacity(8);
+    expr_to_field_impl(&mut expr_arena, expr, schema, in_aggregation)
+}
+
+fn replace_with_empty(dst: &mut FieldDataRef) -> FieldDataRef {
+    let field = Field::new(
+        dst.name().into(),
+        DataType::Int64,
+        false,
+        Default::default(),
+    );
+    let src = Arc::from(new_empty(field.into()));
+
+    std::mem::replace(dst, src)
 }

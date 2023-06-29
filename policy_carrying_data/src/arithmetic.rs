@@ -17,7 +17,14 @@ macro_rules! impl_operator {
     ($op:ident, $func:ident) => {
         impl<'a, T> $op<&'a FieldDataArray<T>> for &'a FieldDataArray<T>
         where
-            T: PrimitiveDataType + Debug + Send + Sync + Clone + PartialEq + $op<T, Output = T>,
+            T: PrimitiveDataType
+                + Debug
+                + Default
+                + Send
+                + Sync
+                + Clone
+                + PartialEq
+                + $op<T, Output = T>,
         {
             type Output = FieldDataArray<T>;
 
@@ -28,10 +35,7 @@ macro_rules! impl_operator {
                     .map(|(lhs, rhs)| lhs.clone().$func(rhs.clone()))
                     .collect();
 
-                Self::Output {
-                    field: self.field.clone(),
-                    inner: new_vec,
-                }
+                Self::Output::new(self.field.clone(), new_vec)
             }
         }
 

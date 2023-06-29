@@ -226,6 +226,12 @@ macro_rules! declare_type {
         #[derive(Clone, PartialEq, PartialOrd, Serialize, Deserialize)]
         pub struct $name(pub $primitive, pub $crate::types::DataType);
 
+        impl Default for $name {
+            fn default() -> Self {
+                Self(Default::default(), $ty)
+            }
+        }
+
         impl $crate::types::PrimitiveDataType for $name {
             fn data_type(&self) -> $crate::types::DataType {
                 self.1

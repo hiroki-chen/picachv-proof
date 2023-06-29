@@ -34,11 +34,15 @@ impl LazyFrame {
             },
         }
     }
+
+    pub fn explain(&self) -> String {
+        format!("{:?}", self.plan)
+    }
 }
 
 impl Debug for LazyFrame {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?} with {:?}", &self.plan, &self.opt_flag)
+        write!(f, "{:#?} with {:?}", &self.plan, &self.opt_flag)
     }
 }
 

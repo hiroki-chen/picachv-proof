@@ -111,6 +111,7 @@ where
         + From<usize>
         + PartialOrd
         + Debug
+        + Default
         + Send
         + Sync
         + Clone
@@ -196,7 +197,7 @@ impl DpManager {
         dp_param: DpParam,
     ) -> PolicyCarryingResult<F>
     where
-        T: PrimitiveDataType + PartialOrd + Debug + Send + Sync + Clone + 'static,
+        T: PrimitiveDataType + PartialOrd + Debug + Default + Send + Sync + Clone + 'static,
         F: Fn() -> T,
     {
         let epsilon = self.dp_budget.0;

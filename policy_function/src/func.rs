@@ -17,7 +17,7 @@ where
 /// Returns the maximum value of the array. Deal with f64?
 pub fn pcd_max<T>(input: &FieldDataArray<T>) -> PolicyCarryingResult<T>
 where
-    T: PrimitiveDataType + PartialOrd + Debug + Send + Sync + Clone + 'static,
+    T: PrimitiveDataType + PartialOrd + Debug + Default + Send + Sync + Clone + 'static,
 {
     input
         .into_iter()
@@ -35,7 +35,15 @@ pub fn pcd_sum<R, T>(
     upper: Option<T>,
 ) -> PolicyCarryingResult<R>
 where
-    T: PrimitiveDataType + Add<R, Output = R> + PartialOrd + Debug + Send + Sync + Clone + 'static,
+    T: PrimitiveDataType
+        + Add<R, Output = R>
+        + PartialOrd
+        + Debug
+        + Default
+        + Send
+        + Sync
+        + Clone
+        + 'static,
 {
     // Can we really add on utf8 strings?
     if !(input.data_type().is_numeric() || input.data_type().is_utf8()) {

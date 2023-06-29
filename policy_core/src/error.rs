@@ -25,6 +25,8 @@ pub enum PolicyCarryingError {
     OutOfBound(String),
     /// Privacy error.
     PrivacyError(String),
+    /// Not found.
+    ColumnNotFound(String),
     /// Filesystem error.
     FsError(String),
     /// Symbol not found.
@@ -54,6 +56,7 @@ impl Display for PolicyCarryingError {
             Self::InconsistentPolicy(info) => write!(f, "Inconsistent policies: {}", info),
             Self::InvalidInput => write!(f, "invalid input"),
             Self::TypeMismatch(info) => write!(f, "Type mismatch: {}", info),
+            Self::ColumnNotFound(info) => write!(f, "Missing column {}", info),
             Self::SerializeError(info) => write!(f, "Ser- / deserialization error: {}", info),
             Self::OutOfBound(info) => write!(f, "Index out of bound: {}", info),
             Self::OperationNotSupported => write!(f, "Operation not supported"),

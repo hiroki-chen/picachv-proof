@@ -1,7 +1,7 @@
 use std::{
     any::Any,
     collections::HashMap,
-    fmt::{Debug, Formatter},
+    fmt::{Debug, Display, Formatter},
     marker::PhantomData,
     ops::{Index, Range},
     sync::Arc,
@@ -9,11 +9,13 @@ use std::{
 
 use policy_core::{
     error::{PolicyCarryingError, PolicyCarryingResult},
+    expr::GroupByMethod,
     types::{
         BooleanType, DataType, Float32Type, Float64Type, Int16Type, Int32Type, Int64Type, Int8Type,
         PrimitiveDataType, UInt16Type, UInt32Type, UInt64Type, UInt8Type, Utf8StrType,
     },
 };
+use roaring::RoaringTreemap as Bitmap;
 use serde::{Deserialize, Serialize};
 
 pub type FieldRef = Arc<Field>;
@@ -67,6 +69,12 @@ pub struct Field {
     pub metadata: FieldMetadata,
 }
 
+impl Display for Field {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.name)
+    }
+}
+
 /// This trait allows us to store various types of columns into one concrete array without all the boilerplate related
 /// to the type conversion. Note however, that in our implementation, this trait is only implemented for the type
 /// [`FieldDataArray<T>`], and we will frequently case between trait objects.
@@ -99,8 +107,14 @@ pub trait FieldData: Debug + Send + Sync {
     /// Gets the field.
     fn field(&self) -> FieldRef;
 
+    /// Applies the aggregation.
+    fn aggregate(&self, op: GroupByMethod) -> FieldDataRef;
+
     /// To json.
     fn to_json(&self) -> String;
+
+    /// Creates a null array.
+    fn full_null(&self, len: usize) -> FieldDataRef;
 
     /// Gets the name.
     fn name(&self) -> &str;
@@ -207,6 +221,8 @@ where
     pub(crate) field: FieldRef,
     /// Inner storage.
     pub(crate) inner: Vec<T>,
+    /// The bitmap for bookkeeping the nullance.
+    pub(crate) bitmap: Bitmap,
 }
 
 impl<T> PartialOrd for FieldDataArray<T>
@@ -240,7 +256,7 @@ where
 
 impl<'a, T> IntoIterator for &'a FieldDataArray<T>
 where
-    T: PrimitiveDataType + Debug + Send + Sync + Clone + 'static,
+    T: PrimitiveDataType + Debug + Default + Send + Sync + Clone + 'static,
 {
     type Item = &'a T;
 
@@ -351,7 +367,16 @@ pub trait ArrayAccess {
 
 impl<T> FieldData for FieldDataArray<T>
 where
-    T: PrimitiveDataType + Serialize + Debug + Send + Sync + Clone + PartialEq + 'static,
+    T: PrimitiveDataType
+        + Serialize
+        + Debug
+        + Default
+        + Send
+        + Sync
+        + Clone
+        + PartialEq
+        + PartialOrd
+        + 'static,
 {
     fn as_any_ref(&self) -> &dyn Any {
         self
@@ -373,10 +398,61 @@ where
         &self.field.name
     }
 
+    fn full_null(&self, len: usize) -> FieldDataRef {
+        Arc::new(Self::new_null(self.field.clone(), len))
+    }
+
+    fn aggregate(&self, op: GroupByMethod) -> FieldDataRef {
+        let val = match op {
+            GroupByMethod::Max => {
+                match self
+                    .inner
+                    .iter()
+                    .max_by(|&lhs, &rhs| lhs.partial_cmp(rhs).unwrap())
+                    .cloned()
+                {
+                    Some(val) => val,
+                    None => return self.full_null(1),
+                }
+            }
+            GroupByMethod::Min => {
+                match self
+                    .inner
+                    .iter()
+                    .min_by(|&lhs, &rhs| lhs.partial_cmp(rhs).unwrap())
+                    .cloned()
+                {
+                    Some(val) => val,
+                    None => return self.full_null(1),
+                }
+            }
+            // TODO: Implement!
+            GroupByMethod::Sum => {
+                match self
+                    .inner
+                    .iter()
+                    .min_by(|&lhs, &rhs| lhs.partial_cmp(rhs).unwrap())
+                    .cloned()
+                {
+                    Some(val) => val,
+                    None => return self.full_null(1),
+                }
+            }
+
+            _ => unimplemented!("aggreate type not supported"),
+        };
+
+        Arc::new(Self::new_with_duplicate(val, 1, self.name().into()))
+    }
+
     fn new_from_index(&self, idx: usize, len: usize) -> FieldDataRef {
+        let mut bitmap = Bitmap::new();
+        bitmap.insert_range(0..len as u64);
+
         Arc::new(Self {
             field: self.field.clone(),
             inner: vec![self.inner[idx].clone(); len],
+            bitmap,
         })
     }
 
@@ -385,9 +461,13 @@ where
     }
 
     fn slice(&self, range: Range<usize>) -> FieldDataRef {
+        let mut bitmap = Bitmap::new();
+        bitmap.insert_range(range.start as u64..range.end as u64);
+
         Arc::new(Self {
             field: self.field.clone(),
             inner: self.inner[range].to_vec(),
+            bitmap,
         })
     }
 
@@ -479,11 +559,18 @@ where
 
 impl<T> FieldDataArray<T>
 where
-    T: PrimitiveDataType + Debug + Send + Sync + Clone,
+    T: PrimitiveDataType + Default + Debug + Send + Sync + Clone,
 {
     #[inline]
     pub fn new(field: FieldRef, inner: Vec<T>) -> Self {
-        Self { field, inner }
+        let mut bitmap = Bitmap::new();
+        bitmap.insert_range(0..inner.len() as u64);
+
+        Self {
+            field,
+            inner,
+            bitmap,
+        }
     }
 
     #[inline]
@@ -491,6 +578,17 @@ where
         Self {
             field,
             inner: Vec::new(),
+            bitmap: Bitmap::new(),
+        }
+    }
+
+    /// Creates a null array.
+    pub fn new_null(field: FieldRef, len: usize) -> Self {
+        Self {
+            field,
+            inner: vec![Default::default(); len],
+            // create an empty bitmap.
+            bitmap: Bitmap::new(),
         }
     }
 
@@ -508,7 +606,11 @@ where
         }
     }
 
+    /// Creates a new array with `item` duplicated `num` times.
     pub fn new_with_duplicate(item: T, num: usize, name: String) -> Self {
+        let mut bitmap = Bitmap::new();
+        bitmap.insert_range(0..num as u64);
+
         Self {
             field: Arc::new(Field {
                 name,
@@ -517,6 +619,7 @@ where
                 metadata: Default::default(),
             }),
             inner: vec![item.clone(); num],
+            bitmap,
         }
     }
 
@@ -577,25 +680,25 @@ macro_rules! define_from_arr {
                 let mut field = Field::default();
                 field.data_type = $data_type;
 
-                Self {
-                    field: FieldRef::new(field),
-                    inner: other.into_iter().map(|t| $ty::new(t)).collect(),
-                }
+                Self::new(
+                    FieldRef::new(field),
+                    other.into_iter().map(|t| $ty::new(t)).collect(),
+                )
             }
         }
 
         impl From<&[$primitive]> for $name {
             fn from(other: &[$primitive]) -> Self {
-                Self {
-                    field: Default::default(),
-                    inner: other.into_iter().map(|t| $ty::new(t.clone())).collect(),
-                }
+                Self::new(
+                    Default::default(),
+                    other.into_iter().map(|t| $ty::new(t.clone())).collect(),
+                )
             }
         }
     };
 }
 
-/// Creates an empty [`FieldData`] and returns a trait object.
+/// Creates an empty [`FieldDataArray`] and returns as a trait object.
 pub fn new_empty(field: FieldRef) -> Box<dyn FieldData> {
     match field.data_type {
         DataType::Boolean => Box::new(BooleanFieldData::new_empty(field)),
@@ -612,7 +715,29 @@ pub fn new_empty(field: FieldRef) -> Box<dyn FieldData> {
         DataType::Utf8Str => Box::new(StrFieldData::new_empty(field)),
 
         _ => {
-            panic!()
+            unimplemented!()
+        }
+    }
+}
+
+/// Creates a [`FieldDataArray`] with all null objects and returns as a trait object.
+pub fn new_null(field: FieldRef, len: usize) -> Box<dyn FieldData> {
+    match field.data_type {
+        DataType::Boolean => Box::new(BooleanFieldData::new_null(field, len)),
+        DataType::Int8 => Box::new(Int8FieldData::new_null(field, len)),
+        DataType::Int16 => Box::new(Int16FieldData::new_null(field, len)),
+        DataType::Int32 => Box::new(Int32FieldData::new_null(field, len)),
+        DataType::Int64 => Box::new(Int64FieldData::new_null(field, len)),
+        DataType::UInt8 => Box::new(UInt8FieldData::new_null(field, len)),
+        DataType::UInt16 => Box::new(UInt16FieldData::new_null(field, len)),
+        DataType::UInt32 => Box::new(UInt32FieldData::new_null(field, len)),
+        DataType::UInt64 => Box::new(UInt64FieldData::new_null(field, len)),
+        DataType::Float32 => Box::new(Float32FieldData::new_null(field, len)),
+        DataType::Float64 => Box::new(Float64FieldData::new_null(field, len)),
+        DataType::Utf8Str => Box::new(StrFieldData::new_null(field, len)),
+
+        _ => {
+            unimplemented!()
         }
     }
 }

@@ -1,5 +1,3 @@
-// TODO: Integrate api set to the executor layer.
-
 use std::{
     cell::OnceCell,
     collections::{hash_map::Entry, HashMap, HashSet, VecDeque},
@@ -352,5 +350,14 @@ pub fn execution_epilogue(
     mut df: DataFrame,
     state: &ExecutionState,
 ) -> PolicyCarryingResult<DataFrame> {
+    let lock = get_lock!(state.execution_flag, read);
+    if lock.contains(ExecutionFlag::TRACE) {
+        let log = get_lock!(state.log, read);
+
+        for info in log.iter() {
+            println!("{info}");
+        }
+    }
+
     Ok(df)
 }

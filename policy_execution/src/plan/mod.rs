@@ -1,17 +1,25 @@
-use std::{collections::HashSet, ops::Deref, sync::Arc};
+use std::{
+    borrow::Cow,
+    collections::HashSet,
+    fmt::{Debug, Formatter},
+    ops::Deref,
+    sync::Arc,
+};
 
 use bitflags::bitflags;
 use policy_carrying_data::{schema::SchemaRef, DataFrame, UserDefinedFunction};
 use policy_core::{
+    args,
     error::{PolicyCarryingError, PolicyCarryingResult},
     expr::{AAggExpr, AExpr, Aggregation, Expr, Node},
     policy::Policy,
-    types::{ExecutorRefId, JoinType},
+    types::{ExecutorRefId, ExecutorType, JoinType},
 };
 
 use crate::{
     executor::{
-        ExecutionState, Executor, ExprArena, LogicalPlanArena, EXPR_ARENA_SIZE, LP_ARENA_SIZE,
+        create_executor, ExecutionState, Executor, ExprArena, LogicalPlanArena, EXPR_ARENA_SIZE,
+        LP_ARENA_SIZE,
     },
     plan::physical_expr::make_physical_expr,
 };
@@ -58,7 +66,7 @@ macro_rules! delayed_err {
 /// * Combinations of the above operations.
 ///
 /// FIXME: Where do we put the policy? Probably not here.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub enum LogicalPlan {
     /// Select with *filter conditions* that work on a [`LogicalPlan`].
     Select {
@@ -112,6 +120,70 @@ pub enum LogicalPlan {
         projection: Option<Arc<Vec<String>>>,
         selection: Option<Expr>,
     },
+}
+
+impl Debug for LogicalPlan {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        self.fmt_impl(f, 0)
+    }
+}
+
+impl LogicalPlan {
+    fn fmt_impl(&self, f: &mut Formatter<'_>, indent: usize) -> std::fmt::Result {
+        if indent != 0 {
+            writeln!(f)?;
+        }
+
+        let sub_indent = indent + 4;
+        match self {
+            Self::Select {
+                input, predicate, ..
+            } => {
+                write!(f, "{:indent$}FILTER {predicate:?} FROM", "")?;
+                input.fmt_impl(f, indent)
+            }
+            Self::Projection {
+                input, expression, ..
+            } => {
+                write!(f, "{:indent$} SELECT {expression:?} FROM", "")?;
+                input.fmt_impl(f, sub_indent)
+            }
+            Self::DataFrameScan {
+                schema,
+                projection,
+                selection,
+                ..
+            } => {
+                let total_columns = schema.columns().len();
+                let mut n_columns = "*".to_string();
+                if let Some(columns) = projection {
+                    n_columns = format!("{}", columns.len());
+                }
+                let selection = match selection {
+                    Some(s) => Cow::Owned(format!("{s:?}")),
+                    None => Cow::Borrowed("None"),
+                };
+                write!(
+                    f,
+                    "{:indent$}DF {:?}; PROJECT {}/{} COLUMNS; SELECTION: {:?}",
+                    "",
+                    schema
+                        .columns()
+                        .into_iter()
+                        .map(|field| field.name.clone())
+                        .take(4)
+                        .collect::<Vec<_>>(),
+                    n_columns,
+                    total_columns,
+                    selection,
+                )
+            }
+            Self::StagedError { input, err } => {
+                write!(f, "{err:?}\n{input:?}")
+            }
+            _ => write!(f, "unsupported operation"),
+        }
+    }
 }
 
 /// ALogicalPlan is a representation of LogicalPlan with Nodes which are allocated in an Arena
@@ -194,7 +266,7 @@ impl LogicalPlan {
     }
 
     /// Gets the inner policy.
-    pub(crate) fn peek_policy(&self) -> Option<&Box<dyn Policy>> {
+    pub fn peek_policy(&self) -> Option<&Box<dyn Policy>> {
         match self {
             Self::Projection { policy, .. } => policy.as_ref(),
             _ => None,
@@ -271,7 +343,7 @@ impl PlanBuilder {
                 expressions,
                 schema.clone(),
                 &[],
-                self.plan.peek_policy().map(|p| p.as_ref())
+                // self.plan.peek_policy().map(|p| p.as_ref())
             ),
             self.plan
         );
@@ -298,7 +370,7 @@ impl PlanBuilder {
                 vec![expression],
                 schema,
                 &[],
-                self.plan.peek_policy().map(|policy| policy.as_ref()),
+                // self.plan.peek_policy().map(|policy| policy.as_ref()),
             );
 
             let mut expanded_columns = delayed_err!(expanded_columns, self.plan);
@@ -344,14 +416,13 @@ pub(crate) fn rewrite_projection(
     expressions: Vec<Expr>,
     schema: SchemaRef,
     keys: &[Expr],
-
-    // FIXME: immutable borrow? mutable borrow? trace? should we really need to attach it here?
-    policy: Option<&dyn Policy>,
 ) -> PolicyCarryingResult<Vec<Expr>> {
     let mut result = Vec::new();
 
     // Iterator over the expression list and try to
     for expression in expressions {
+        log::debug!("rewriting the projection {expression:?}");
+
         match expression {
             Expr::Wildcard =>
             // We remove the wildcard projection "*" with the current schema because this selects 'all'.
@@ -375,6 +446,20 @@ pub(crate) fn rewrite_projection(
                         }
                     }));
                 }
+            }
+
+            Expr::Agg(agg) => {
+                let mut new_expr =
+                    rewrite_projection(vec![agg.as_expr().clone()], schema.clone(), keys)?
+                        .into_iter()
+                        .map(|expr| match agg {
+                            Aggregation::Max(_) => Expr::Agg(Aggregation::Max(Box::new(expr))),
+                            Aggregation::Min(_) => Expr::Agg(Aggregation::Min(Box::new(expr))),
+                            Aggregation::Sum(_) => Expr::Agg(Aggregation::Sum(Box::new(expr))),
+                            Aggregation::Mean(_) => Expr::Agg(Aggregation::Mean(Box::new(expr))),
+                        })
+                        .collect::<Vec<_>>();
+                result.append(&mut new_expr);
             }
 
             _ => result.push(expression),
@@ -623,10 +708,6 @@ fn do_make_physical_plan(
     expr_arena: &mut ExprArena,
     executor_ref_id: ExecutorRefId,
 ) -> PolicyCarryingResult<Executor> {
-    use policy_core::{args, types::ExecutorType};
-
-    use crate::executor::create_executor;
-
     match lp_arena.take(root) {
         ALogicalPlan::Selection { input, predicate } => {
             let input = do_make_physical_plan(input, lp_arena, expr_arena, executor_ref_id)?;
@@ -740,7 +821,20 @@ pub(crate) fn aexpr_to_expr(aexpr: Node, expr_arena: &ExprArena) -> Expr {
             input: Box::new(aexpr_to_expr(input, expr_arena)),
             filter: Box::new(aexpr_to_expr(by, expr_arena)),
         },
-        AExpr::Agg(aggregation) => todo!(),
+        AExpr::Agg(agg) => match agg {
+            AAggExpr::Max { input, .. } => {
+                Expr::Agg(Aggregation::Max(Box::new(aexpr_to_expr(input, expr_arena))))
+            }
+            AAggExpr::Min { input, .. } => {
+                Expr::Agg(Aggregation::Min(Box::new(aexpr_to_expr(input, expr_arena))))
+            }
+            AAggExpr::Sum(input) => {
+                Expr::Agg(Aggregation::Sum(Box::new(aexpr_to_expr(input, expr_arena))))
+            }
+            AAggExpr::Mean(input) => Expr::Agg(Aggregation::Mean(Box::new(aexpr_to_expr(
+                input, expr_arena,
+            )))),
+        },
         AExpr::Wildcard => Expr::Wildcard,
     }
 }

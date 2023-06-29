@@ -32,9 +32,9 @@ pub use macros::*;
 #[cfg(feature = "prettyprint")]
 pub mod pretty;
 
-/// A user defiend function that can be applied on a dataframe.
+/// A user defiend function that can be applied on a mutable array of [`FieldDataRef`].
 pub trait UserDefinedFunction: Send + Sync {
-    fn call(&self, df: DataFrame) -> PolicyCarryingResult<DataFrame>;
+    fn call(&self, input: &mut [FieldDataRef]) -> PolicyCarryingResult<Option<FieldDataRef>>;
 }
 
 impl Debug for dyn UserDefinedFunction {
@@ -45,10 +45,10 @@ impl Debug for dyn UserDefinedFunction {
 
 impl<F> UserDefinedFunction for F
 where
-    F: Fn(DataFrame) -> PolicyCarryingResult<DataFrame> + Send + Sync,
+    F: Fn(&mut [FieldDataRef]) -> PolicyCarryingResult<Option<FieldDataRef>> + Send + Sync,
 {
-    fn call(&self, df: DataFrame) -> PolicyCarryingResult<DataFrame> {
-        self(df)
+    fn call(&self, input: &mut [FieldDataRef]) -> PolicyCarryingResult<Option<FieldDataRef>> {
+        self(input)
     }
 }
 
@@ -378,9 +378,7 @@ impl DataFrame {
             .iter()
             .find(|col| col.name() == name)
             .map(|col| col.clone())
-            .ok_or(PolicyCarryingError::SchemaMismatch(
-                "column not found!".into(),
-            ))
+            .ok_or(PolicyCarryingError::ColumnNotFound(name.into()))
     }
 
     pub fn columns(&self) -> &[Arc<dyn FieldData>] {
