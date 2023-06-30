@@ -7,5 +7,7 @@ members = [
   "policy_function",
   "policy_execution",
   "policy_algebra",
+  "policy_ffi",
+  "policy_utils",
   "examples/*",
 ]

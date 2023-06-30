@@ -2,6 +2,7 @@
 //! trait methods and can be re-used in building a new API set rather than from scrach.
 
 #![cfg_attr(test, allow(unused))]
+#![forbid(unsafe_code)]
 
 pub mod func;
 pub mod privacy;

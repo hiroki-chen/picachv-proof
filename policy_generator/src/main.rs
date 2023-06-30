@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 use std::{
     env, fs,
     path::{Path, PathBuf},
@@ -92,7 +94,7 @@ fn entry(args: Args) -> PolicyCarryingResult<()> {
             log::error!("cargo:\n{}", std::str::from_utf8(&output.stderr).unwrap());
 
             return Err(PolicyCarryingError::CommandFailed(
-                output.status.code().unwrap_or_default(),
+                output.status.code().unwrap_or_default().into(),
             ));
         }
 

@@ -36,7 +36,7 @@ pub enum PolicyCarryingError {
     /// Parse failed.
     ParseError(String, String),
     /// Sub-command failed.
-    CommandFailed(i32),
+    CommandFailed(i64),
     /// Unknown error.
     Unknown,
 }

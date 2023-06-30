@@ -7,6 +7,7 @@ use crate::plan::physical_expr::PhysicalExpr;
 
 /// Producer of an in memory [`DataFrame`]. This should be the deepmost executor that cannot be dependent on any
 /// other executors because the data must eventually come from data frame.
+#[derive(Clone)]
 pub struct DataFrameExec {
     /// The id of the api set.
     pub df: Option<Arc<DataFrame>>,

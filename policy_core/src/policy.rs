@@ -164,8 +164,3 @@ impl Policy for BottomPolicy {
         PolicyLevel::Bottom
     }
 }
-
-unsafe impl Send for TopPolicy {}
-unsafe impl Sync for TopPolicy {}
-unsafe impl Send for BottomPolicy {}
-unsafe impl Sync for BottomPolicy {}

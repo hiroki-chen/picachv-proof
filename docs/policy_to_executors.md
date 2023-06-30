@@ -32,7 +32,19 @@ extern "C" fn create_executor(
 ) -> i64;
 ```
 
+Similarly, if the policy allows for the use of some aggregation functions (e.g., sum, max, etc.), the library should also implement them in the following form
+
+```rust
+#[no_mangle]
+extern "C" fn agg_sum(
+  args: *const u8,
+  args_len: usize,
+) -> i64;
+```
+and note tha the function arguments are serialized using `serde_json` and can be de-serialized back.
+
 This function creates new executors on demand of the data analysis framework when the query is evaluated at the physical level.
+
 ## Examples
 
 The `examples` folder contains the sample usage of compiling the executors into a standalong shared library, which can be later loaded by the program. The `executor_lib` implements the minimal set of executors that can be dynamically loaded to the data analysis framework, and `executor_user` is the application that performs the data analysis job.

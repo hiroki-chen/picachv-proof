@@ -4,6 +4,7 @@
 //! * Policy struct definitions
 
 #![cfg_attr(test, allow(unused))]
+#![forbid(unsafe_code)]
 
 use lalrpop_util::lalrpop_mod;
 

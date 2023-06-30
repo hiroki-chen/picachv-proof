@@ -12,6 +12,7 @@ use crate::error::{PolicyCarryingError, PolicyCarryingResult};
 #[derive(
     Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Default, Serialize, Deserialize,
 )]
+#[repr(C)]
 pub struct ExecutorRefId(pub usize);
 
 impl Display for ExecutorRefId {
@@ -28,7 +29,7 @@ impl Display for ExecutorRefId {
 #[derive(
     Clone, Copy, Debug, Hash, PartialOrd, PartialEq, Eq, Ord, Default, Serialize, Deserialize,
 )]
-#[repr(i64)]
+#[repr(usize)]
 pub enum DataType {
     /// Denotes data types that contain null or empty data.
     #[default]
@@ -60,6 +61,7 @@ pub enum DataType {
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[repr(usize)]
 pub enum JoinType {
     Left,
     Right,
@@ -224,6 +226,7 @@ impl PartialOrd for dyn PrimitiveDataType {
 macro_rules! declare_type {
     ($name:ident, $ty:expr, $primitive:tt) => {
         #[derive(Clone, PartialEq, PartialOrd, Serialize, Deserialize)]
+        #[repr(C, align(8))]
         pub struct $name(pub $primitive, pub $crate::types::DataType);
 
         impl Default for $name {

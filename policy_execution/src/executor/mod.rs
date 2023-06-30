@@ -1,16 +1,13 @@
 use std::{
+    any::Any,
     cell::OnceCell,
-    collections::{hash_map::Entry, HashMap, HashSet, VecDeque},
+    collections::{HashMap, HashSet, VecDeque},
     fmt::Debug,
-    sync::{
-        atomic::{AtomicUsize, Ordering},
-        Arc, Mutex, RwLock,
-    },
+    sync::{Arc, Mutex, RwLock},
 };
 
 use bitflags::bitflags;
-use lazy_static::lazy_static;
-use libloading::Library;
+
 use policy_carrying_data::{field::FieldDataRef, schema::SchemaRef, DataFrame};
 use policy_core::{
     error::{PolicyCarryingError, PolicyCarryingResult},
@@ -31,11 +28,6 @@ pub mod scan;
 pub type ExprArena = Arena<AExpr>;
 pub type LogicalPlanArena = Arena<ALogicalPlan>;
 pub type Executor = Box<dyn PhysicalExecutor + Send + Sync>;
-
-type LibOnLoad = fn(args: *const u8, args_len: usize) -> i32;
-type LibOnUnload = fn(args: *const u8, args_len: usize) -> i32;
-type ExecutorCreator =
-    fn(executor_type: usize, args: *const u8, args_len: usize, p_executor: *mut usize) -> i32;
 
 pub(crate) const EXPR_ARENA_SIZE: usize = 0x100;
 pub(crate) const LP_ARENA_SIZE: usize = 0x80;
@@ -64,150 +56,34 @@ bitflags! {
     }
 }
 
-lazy_static! {
-    pub static ref EXECUTORS: ExecutorManager = ExecutorManager::new();
-    pub static ref EXECUTOR_ID: AtomicUsize = AtomicUsize::new(0);
-}
-
-/// The manager of the executors when the dataframe is to be accessed.
-pub struct ExecutorManager {
-    /// Loaded libraries for the creation of new executors.
-    libs: Arc<RwLock<HashMap<ExecutorRefId, Arc<Library>>>>,
-}
-
-/// Loads the executors from the shared library and returns the id to these executors.
-pub fn load_lib(path: &str, args: FunctionArguments) -> PolicyCarryingResult<ExecutorRefId> {
-    let next_id = ExecutorRefId(EXECUTOR_ID.fetch_add(1, Ordering::Release));
-
-    EXECUTORS.load_lib(path, next_id, args)?;
-    Ok(next_id)
-}
-
-pub fn create_executor(
-    id: ExecutorRefId,
-    executor_type: ExecutorType,
-    args: FunctionArguments,
-) -> PolicyCarryingResult<Executor> {
-    EXECUTORS.create_executor(&id, executor_type, args)
-}
-
-impl ExecutorManager {
-    #[inline]
-    pub fn new() -> Self {
-        Self {
-            libs: Arc::new(RwLock::new(HashMap::new())),
-        }
-    }
-
-    /// Loads the library into the manager.
-    pub fn load_lib(
-        &self,
-        path: &str,
-        id: ExecutorRefId,
-        args: FunctionArguments,
-    ) -> PolicyCarryingResult<()> {
-        let lib =
-            unsafe { Library::new(path).map_err(|e| PolicyCarryingError::FsError(e.to_string()))? };
-        let f = unsafe { lib.get::<LibOnLoad>(b"on_load") }
-            .map_err(|e| PolicyCarryingError::SymbolNotFound(e.to_string()))?;
-        let args = serde_json::to_string(&args)
-            .map_err(|e| PolicyCarryingError::SerializeError(e.to_string()))?;
-
-        let ret = f(args.as_ptr(), args.len());
-        if ret != 0 {
-            return Err(PolicyCarryingError::InvalidInput);
-        }
-
-        let mut lock = get_lock!(self.libs, write);
-        match lock.entry(id) {
-            Entry::Occupied(_) => return Err(PolicyCarryingError::AlreadyLoaded),
-            Entry::Vacant(entry) => {
-                entry.insert(Arc::new(lib));
-            }
-        }
-
-        Ok(())
-    }
-
-    /// If a module is no longer needed, call this function to properly uninstall it.
-    pub fn unload_lib(
-        &self,
-        id: ExecutorRefId,
-        args: FunctionArguments,
-    ) -> PolicyCarryingResult<()> {
-        let mut lock = get_lock!(self.libs, write);
-
-        match lock.get_mut(&id) {
-            Some(lib) => {
-                if Arc::strong_count(lib) == 0 {
-                    let f = unsafe { lib.get::<LibOnUnload>(b"on_unload") }.map_err(|_| {
-                        PolicyCarryingError::SymbolNotFound("`on_unload` not found".into())
-                    })?;
-                    let args = serde_json::to_string(&args)
-                        .map_err(|e| PolicyCarryingError::SerializeError(e.to_string()))?;
-
-                    let ret = f(args.as_ptr(), args.len());
-                    if ret != 0 {
-                        return Err(PolicyCarryingError::CommandFailed(ret));
-                    }
-
-                    lock.remove(&id);
-                }
-
-                Ok(())
-            }
-            None => Err(PolicyCarryingError::SymbolNotFound(format!(
-                "{id} not found"
-            ))),
-        }
-    }
-
-    /// Creates a new executor from the library.
-    pub fn create_executor(
-        &self,
-        id: &ExecutorRefId,
-        executor_type: ExecutorType,
-        args: FunctionArguments,
-    ) -> PolicyCarryingResult<Executor> {
-        let lock = get_lock!(self.libs, read);
-        match lock.get(id) {
-            Some(lib) => {
-                let f = unsafe { lib.get::<ExecutorCreator>(b"create_executor") }
-                    .map_err(|e| PolicyCarryingError::SymbolNotFound(e.to_string()))?;
-                let mut executor = 0usize;
-                let args = serde_json::to_string(&args)
-                    .map_err(|e| PolicyCarryingError::SerializeError(e.to_string()))?;
-
-                match f(
-                    executor_type as usize,
-                    args.as_ptr(),
-                    args.len(),
-                    &mut executor,
-                ) {
-                    0 => Ok(unsafe { *Box::from_raw(executor as *mut Executor) }),
-                    ret => Err(PolicyCarryingError::CommandFailed(ret)),
-                }
-            }
-
-            None => Err(PolicyCarryingError::SymbolNotFound(format!(
-                "{id:?} not loaded"
-            ))),
-        }
-    }
-}
-
 /// The executor for the physical plan.
 pub trait PhysicalExecutor: Debug {
     // WIP: What is returned??
     fn execute(&mut self, state: &ExecutionState) -> PolicyCarryingResult<DataFrame>;
+    fn as_any(&self) -> &dyn Any;
+    fn clone_box(&self) -> Executor;
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Sink;
 
 impl PhysicalExecutor for Sink {
     fn execute(&mut self, _state: &ExecutionState) -> PolicyCarryingResult<DataFrame> {
         panic!("This is the sink. All queries to this executor are consumed forever.");
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn clone_box(&self) -> Executor {
+        Box::new(Self)
+    }
+}
+
+impl Clone for Executor {
+    fn clone(&self) -> Self {
+        self.clone_box()
     }
 }
 
@@ -260,6 +136,20 @@ impl ExecutionState {
 
         state
     }
+}
+
+pub fn create_executor(
+    id: ExecutorRefId,
+    executor_type: ExecutorType,
+    args: FunctionArguments,
+) -> PolicyCarryingResult<Executor> {
+    let mut boxed = policy_ffi::create_executor::<Executor>(id, executor_type, args)?;
+
+    // This operation forces a 'move' of the memory content pointee by this `boxed` pointer. This guarantees that the
+    // ownership is transferred from the external library and that the memory content is correctly copied. Doing so
+    // allows the boxed object to be either `Clone` or not since `Box` is `Default`.
+    let inner = std::mem::take(boxed.as_mut());
+    Ok(inner)
 }
 
 /// Given a vector of [`PhysicalExpr`]s, evaluates all of them on a given [`DataFrame`] and

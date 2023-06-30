@@ -426,7 +426,12 @@ where
                     None => return self.full_null(1),
                 }
             }
-            // TODO: Implement!
+
+            // The case for sum is more complicated:
+            //
+            //  * We need to get the initial value.
+            //  * We need to lift the summed type because the result may overflow we use old data type.
+            //  * We need to implement generic summation algorithm.
             GroupByMethod::Sum => {
                 match self
                     .inner
