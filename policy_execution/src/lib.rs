@@ -3,6 +3,7 @@
 pub mod executor;
 pub mod lazy;
 pub mod plan;
+pub mod udf;
 
 #[cfg(test)]
 mod test {

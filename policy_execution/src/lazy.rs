@@ -13,12 +13,34 @@ use crate::{
 #[derive(Clone)]
 #[must_use = "LazyFrame must be consumed"]
 pub struct LazyFrame {
-    /// In case we need this.
+    /// The executor ID for loading the library.
     pub(crate) executor_ref_id: ExecutorRefId,
     /// The logical plan.
     pub(crate) plan: LogicalPlan,
     /// The optimization flag.
     pub(crate) opt_flag: OptFlag,
+}
+
+/// Utility struct for lazy groupby operation.
+#[derive(Clone)]
+#[must_use = "LazyGroupBy must be consumed"]
+pub struct LazyGroupBy {
+    /// The executor ID for loading the library.
+    pub(crate) executor_ref_id: ExecutorRefId,
+    /// The logical plan.
+    pub(crate) plan: LogicalPlan,
+    /// The optimization flag.
+    pub(crate) opt_flag: OptFlag,
+    /// The `group_by` keys.
+    pub(crate) keys: Vec<Expr>,
+    /// Whether we need to maintain order during evaluation.
+    pub(crate) maintain_order: bool,
+}
+
+impl Debug for LazyFrame {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:#?} with {:?}", &self.plan, &self.opt_flag)
+    }
 }
 
 impl LazyFrame {
@@ -38,15 +60,6 @@ impl LazyFrame {
     pub fn explain(&self) -> String {
         format!("{:?}", self.plan)
     }
-}
-
-impl Debug for LazyFrame {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:#?} with {:?}", &self.plan, &self.opt_flag)
-    }
-}
-
-impl LazyFrame {
     /// Returns the schema of the current lazy frame.
     #[inline]
     pub fn schema(&self) -> PolicyCarryingResult<SchemaRef> {
@@ -82,6 +95,17 @@ impl LazyFrame {
             executor_ref_id: self.executor_ref_id,
             plan,
             opt_flag: self.opt_flag,
+        }
+    }
+
+    /// Performs a `groupby` operations that paritions the original dataframe.
+    pub fn groupby<T: AsRef<[Expr]>>(self, groupby: T) -> LazyGroupBy {
+        LazyGroupBy {
+            executor_ref_id: self.executor_ref_id,
+            plan: self.plan,
+            opt_flag: self.opt_flag,
+            keys: groupby.as_ref().to_vec(),
+            maintain_order: false,
         }
     }
 
@@ -121,5 +145,20 @@ impl LazyFrame {
         let df = executor.execute(&state)?;
 
         execution_epilogue(df, &state)
+    }
+}
+
+impl LazyGroupBy {
+    /// Group by and aggregate.
+    pub fn agg<T: AsRef<[Expr]>>(self, expr: T) -> LazyFrame {
+        let plan = PlanBuilder::from(self.plan)
+            .groupby(self.keys, expr, self.maintain_order)
+            .finish();
+
+        LazyFrame {
+            executor_ref_id: self.executor_ref_id,
+            plan,
+            opt_flag: self.opt_flag,
+        }
     }
 }

@@ -33,26 +33,6 @@ pub use macros::*;
 #[cfg(feature = "prettyprint")]
 pub mod pretty;
 
-/// A user defiend function that can be applied on a mutable array of [`FieldDataRef`].
-pub trait UserDefinedFunction: Send + Sync {
-    fn call(&self, input: &mut [FieldDataRef]) -> PolicyCarryingResult<Option<FieldDataRef>>;
-}
-
-impl Debug for dyn UserDefinedFunction {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "UDF")
-    }
-}
-
-impl<F> UserDefinedFunction for F
-where
-    F: Fn(&mut [FieldDataRef]) -> PolicyCarryingResult<Option<FieldDataRef>> + Send + Sync,
-{
-    fn call(&self, input: &mut [FieldDataRef]) -> PolicyCarryingResult<Option<FieldDataRef>> {
-        self(input)
-    }
-}
-
 /// The concrete struct that represents the policy-carrying data. This struct is used when we want to generate policy
 /// compliant APIs for a user-defined data schema. For example, say we have the following annotated struct that stands
 /// for the patient diagnosis data from a hospital:

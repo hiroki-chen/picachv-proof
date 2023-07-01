@@ -6,8 +6,8 @@ use policy_core::{
     expr::GroupByMethod,
     types::{Float64Type, Int8Type},
 };
-use policy_execution::lazy::LazyFrame;
-use policy_ffi::{call_function, load_executor_lib};
+use policy_execution::{executor::get_apply_udf, lazy::LazyFrame};
+use policy_ffi::load_executor_lib;
 
 fn main() {
     let schema = {
@@ -33,16 +33,18 @@ fn main() {
     };
 
     let v = vec![0i8, 1i8];
-    call_function(
+    let args = get_apply_udf(
         schema.executor_ref_id.unwrap(),
         GroupByMethod::Sum,
-        args! {
-            "input": v.as_ptr() as usize,
-            "input_len": v.len(),
-            "input_data_type": serde_json::to_string(&policy_core::types::DataType::Int8).unwrap(),
-        },
+        // args! {
+        //     "input": v.as_ptr() as usize,
+        //     "input_len": v.len(),
+        //     "input_data_type": serde_json::to_string(&policy_core::types::DataType::Int8).unwrap(),
+        // },
     )
     .unwrap();
+
+    println!("{:?}", args(&mut vec![]));
 
     let df = LazyFrame::new_from_schema(schema.clone())
         .select(cols!("column_1", "column_2"))

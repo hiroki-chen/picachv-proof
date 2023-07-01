@@ -8,7 +8,7 @@ use std::{
 use lazy_static::{__Deref, lazy_static};
 use libloading::{os::unix::Symbol, Library};
 use policy_core::{
-    error::{PolicyCarryingError, PolicyCarryingResult},
+    error::{PolicyCarryingError, PolicyCarryingResult, StatusCode},
     expr::GroupByMethod,
     get_lock,
     types::{ExecutorRefId, ExecutorType, FunctionArguments},
@@ -19,10 +19,50 @@ lazy_static! {
     pub static ref EXECUTOR_ID: AtomicUsize = AtomicUsize::new(0);
 }
 
-/// The signature of the function symbol.
-type Function = fn(args: *const u8, args_len: usize) -> i64;
-type ExecutorCreator =
-    fn(executor_type: usize, args: *const u8, args_len: usize, p_executor: *mut usize) -> i64;
+/// The signature of the function symbol used by load and unload.
+///
+/// # Arguments
+///
+/// - `args`: The pointer to the argument buffer. A serialized [`FunctionArguments`].
+/// - `args_len`: The length of the buffer.
+type LibFunction = fn(args: *const u8, args_len: usize) -> StatusCode;
+
+/// The signature of the user defined functions that may apply to the arrays.
+///
+/// # Arguments
+///
+/// - `input`: The pointer to the input buffer. A serialized [`FunctionArguments`].
+/// - `input_len`: The length of the input buffer.
+/// - `output`: The caller-allocated output buffer. A serialized [`FunctionArguments`].
+/// - `output_len`: The pointer to the output buffer length. Modified by the callee.
+///
+/// # Output
+/// The output of the user defined function is designed to be as general as possible by using [`FunctionArguments`].
+/// It contains the following fields:
+///
+/// - `output`: The pointer to the [`Box`]-ed trait object.
+type UserDefinedFunction =
+    fn(input: *const u8, input_len: usize, output: *mut u8, output_len: *mut usize) -> StatusCode;
+
+/// The signature of the function that creates new executors.
+///
+/// # Arguments
+///
+/// - `executor_type`: An `usize` represented [`ExecutorType`] which specifies the type of the executor
+///                    that the caller wants to create.
+/// - `args`: The pointer to the argument buffer. A serialized [`FunctionArguments`].
+/// - `args_len`: The length of the argument buffer.
+/// - `p_executor`: The pointer to the created executor. Note that this is a pointer to a smart pointer
+///                 [`Box<dyn T>`] where `T` may be [`Sized`], i.e., `p_executor` is `*mut *mut Box<T>`.
+///                 Wrapping the executor in a nested pointer is to ensure that fat pointers can be passed
+///                 via FFI interfaces. Recall the memory layout of a trait object: it contains a pointer
+///                 to the concrete type and a pointer to the vtable for dynamic dispatch.
+type ExecutorCreator = fn(
+    executor_type: usize,
+    args: *const u8,
+    args_len: usize,
+    p_executor: *mut usize,
+) -> StatusCode;
 
 /// Loads the executors from the shared library and returns the id to these executors.
 pub fn load_executor_lib(
@@ -79,7 +119,7 @@ pub fn create_executor<U: Sized>(
     EXECUTOR_LIB.create_executor(&id, executor_type, args)
 }
 
-/// Tries to call the corresponding function from the loaded module by a given id set `id` and a name `name`.
+/// Tries to get the corresponding function from the loaded module by a given id set `id` and a type.
 ///
 /// # Examples
 ///
@@ -88,14 +128,13 @@ pub fn create_executor<U: Sized>(
 /// use policy_ffi::create_function;
 ///
 /// let v = vec![];
-/// let mut output = 0usize;
+/// let mut output = vec![0u8; 4096];
 /// let mut output_len = 0usize;
-/// let f = call_function(ExecutorRefId(0), "sum", args!{
-///     "arr": v.as_ptr(),
-///     "len": v.len(),
-///     "out": &mut output as *mut usize as usize,
-///     "out_len": &mut output_len as *mut usize as usize,
-///     
+/// let f = get_udf(ExecutorRefId(0), "sum", args!{
+///     "input": v.as_ptr(),
+///     "input_len": v.len(),
+///     "output": output.as_mut_ptr
+///     "output_len": &mut output_len,
 /// }).expect("Symbol not found!");
 ///
 /// // Call `f` as you want.
@@ -108,20 +147,10 @@ pub fn create_executor<U: Sized>(
 /// The size of function pointers are always guaranteed to be `std::mem::size_of::<usize>()` on any platforms.
 /// The only thing we need to care about is the correctness of the function *signature*. It is the caller's
 /// responsibility to ensure that intended function's prototype matches the that in the library.
+///
 /// ```
-pub fn call_function(
-    id: ExecutorRefId,
-    ty: GroupByMethod,
-    args: FunctionArguments,
-) -> PolicyCarryingResult<()> {
-    let f = EXECUTOR_LIB.create_function(&id, ty)?;
-    let args = serde_json::to_string(&args)
-        .map_err(|e| PolicyCarryingError::SerializeError(e.to_string()))?;
-
-    match f(args.as_ptr(), args.len()) {
-        0 => Ok(()),
-        ret => Err(PolicyCarryingError::CommandFailed(ret)),
-    }
+pub fn get_udf(id: ExecutorRefId, ty: GroupByMethod) -> PolicyCarryingResult<UserDefinedFunction> {
+    EXECUTOR_LIB.get_udf(&id, ty)
 }
 
 /// The library manager for bookkeeping the loaded shared libraries.
@@ -156,13 +185,13 @@ where
     ) -> PolicyCarryingResult<()> {
         let lib =
             unsafe { Library::new(path).map_err(|e| PolicyCarryingError::FsError(e.to_string()))? };
-        let f = unsafe { lib.get::<Function>(b"on_load") }
+        let f = unsafe { lib.get::<LibFunction>(b"on_load") }
             .map_err(|e| PolicyCarryingError::SymbolNotFound(e.to_string()))?;
         let args = serde_json::to_string(&args)
             .map_err(|e| PolicyCarryingError::SerializeError(e.to_string()))?;
 
         let ret = f(args.as_ptr(), args.len());
-        if ret != 0 {
+        if ret != StatusCode::Ok {
             return Err(PolicyCarryingError::InvalidInput);
         }
 
@@ -184,15 +213,15 @@ where
         match lock.get_mut(&id) {
             Some(lib) => {
                 if Arc::strong_count(lib) == 0 {
-                    let f = unsafe { lib.get::<Function>(b"on_unload") }.map_err(|_| {
+                    let f = unsafe { lib.get::<LibFunction>(b"on_unload") }.map_err(|_| {
                         PolicyCarryingError::SymbolNotFound("`on_unload` not found".into())
                     })?;
                     let args = serde_json::to_string(&args)
                         .map_err(|e| PolicyCarryingError::SerializeError(e.to_string()))?;
 
                     let ret = f(args.as_ptr(), args.len());
-                    if ret != 0 {
-                        return Err(PolicyCarryingError::CommandFailed(ret));
+                    if ret != StatusCode::Ok {
+                        return Err(PolicyCarryingError::CommandFailed(ret.into()));
                     }
 
                     lock.remove(&id);
@@ -206,14 +235,14 @@ where
         }
     }
 
-    /// Returns a function pointer to the library.
-    pub fn create_function(&self, id: &T, ty: GroupByMethod) -> PolicyCarryingResult<Function> {
+    /// Returns a user defined function pointer to the library.
+    pub fn get_udf(&self, id: &T, ty: GroupByMethod) -> PolicyCarryingResult<UserDefinedFunction> {
         match ty {
-            GroupByMethod::Min => self.get_symbol::<Function>(id, "agg_min"),
-            GroupByMethod::Max => self.get_symbol::<Function>(id, "agg_max"),
-            GroupByMethod::Sum => self.get_symbol::<Function>(id, "agg_sum"),
-            GroupByMethod::Mean => self.get_symbol::<Function>(id, "agg_mean"),
-            _ => todo!(),
+            GroupByMethod::Min => self.get_symbol::<UserDefinedFunction>(id, "agg_min"),
+            GroupByMethod::Max => self.get_symbol::<UserDefinedFunction>(id, "agg_max"),
+            GroupByMethod::Sum => self.get_symbol::<UserDefinedFunction>(id, "agg_sum"),
+            GroupByMethod::Mean => self.get_symbol::<UserDefinedFunction>(id, "agg_mean"),
+            _ => Err(PolicyCarryingError::OperationNotSupported),
         }
         .map(|symbol| symbol.deref().clone())
     }
@@ -236,8 +265,8 @@ where
             args.len(),
             &mut executor,
         ) {
-            0 => Ok(unsafe { Box::from_raw(executor as *mut U) }),
-            ret => Err(PolicyCarryingError::CommandFailed(ret)),
+            StatusCode::Ok => Ok(unsafe { Box::from_raw(executor as *mut U) }),
+            ret => Err(PolicyCarryingError::CommandFailed(ret.into())),
         }
     }
 

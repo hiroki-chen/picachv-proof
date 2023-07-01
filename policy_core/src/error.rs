@@ -1,9 +1,11 @@
 use std::fmt::{Debug, Display, Formatter};
 
+use num_enum::{FromPrimitive, IntoPrimitive};
+
 pub type PolicyCarryingResult<T> = std::result::Result<T, PolicyCarryingError>;
 
 /// Enums for the errors that would occur in the implementation of policy carrying data.
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub enum PolicyCarryingError {
     /// Already loaded.
     AlreadyLoaded,
@@ -36,9 +38,28 @@ pub enum PolicyCarryingError {
     /// Parse failed.
     ParseError(String, String),
     /// Sub-command failed.
-    CommandFailed(i64),
+    CommandFailed(StatusCode),
     /// Unknown error.
+    #[default]
     Unknown,
+}
+
+/// Status code returned from the external functions.
+#[derive(Clone, Copy, Debug, PartialEq, IntoPrimitive, FromPrimitive)]
+#[repr(i64)]
+pub enum StatusCode {
+    Ok = 0,
+    Unsupported = 1,
+    SerializeError = 2,
+    NotLoaded = 3,
+    #[default]
+    Unknown = 0x100,
+}
+
+impl From<i32> for StatusCode {
+    fn from(value: i32) -> Self {
+        (value as i64).into()
+    }
 }
 
 impl Debug for PolicyCarryingError {
@@ -68,7 +89,7 @@ impl Display for PolicyCarryingError {
             }
             Self::ParseError(file, info) => write!(f, "Cannot parse {}, {}", file, info),
             Self::CommandFailed(code) => {
-                write!(f, "Command exited with non-zero exit code {}", code)
+                write!(f, "Command exited with non-zero exit code {:?}", code)
             }
             Self::Unknown => write!(
                 f,

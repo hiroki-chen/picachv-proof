@@ -39,12 +39,7 @@ pub type BooleanFieldData = FieldDataArray<BooleanType>;
 macro_rules! index_primitive {
     ($ty:expr, $concrete_type:ident, $idx:expr, $obj:ident) => {
         Arc::new(
-            $obj.try_cast::<$concrete_type>()
-                .ok_or(PolicyCarryingError::TypeMismatch(format!(
-                    "cannot convert to {:?} because self is {}",
-                    $ty,
-                    $obj.data_type(),
-                )))?
+            $obj.try_cast::<$concrete_type>()?
                 .index_data($idx)
                 .cloned()
                 .ok_or(PolicyCarryingError::OutOfBound(format!(
@@ -139,28 +134,32 @@ impl dyn FieldData + '_ {
     /// however, want to get the concrete type to perform some necessary operations such
     /// as indexing. Without casting, there is no safe way to fulfill them.
     #[inline]
-    pub fn try_cast<T>(&self) -> Option<&FieldDataArray<T>>
+    pub fn try_cast<T>(&self) -> PolicyCarryingResult<&FieldDataArray<T>>
     where
         T: PrimitiveDataType + Debug + Send + Sync + Clone + 'static,
     {
-        self.as_any_ref().downcast_ref::<FieldDataArray<T>>()
+        let ty = self.data_type();
+
+        self.as_any_ref()
+            .downcast_ref::<FieldDataArray<T>>()
+            .ok_or(PolicyCarryingError::TypeMismatch(format!("type is {ty:?}")))
     }
 
     /// A similar operation as [`try_cast`] but uses a mutable borrow to `self` instead.
     #[inline]
-    pub fn try_cast_mut<T>(&mut self) -> Option<&mut FieldDataArray<T>>
+    pub fn try_cast_mut<T>(&mut self) -> PolicyCarryingResult<&mut FieldDataArray<T>>
     where
         T: PrimitiveDataType + Debug + Send + Sync + Clone + 'static,
     {
-        self.as_mut_ref().downcast_mut::<FieldDataArray<T>>()
+        let ty = self.data_type();
+
+        self.as_mut_ref()
+            .downcast_mut::<FieldDataArray<T>>()
+            .ok_or(PolicyCarryingError::TypeMismatch(format!("type is {ty:?}")))
     }
 
     pub fn as_boolean(&self) -> PolicyCarryingResult<&FieldDataArray<BooleanType>> {
         self.try_cast::<BooleanType>()
-            .ok_or(PolicyCarryingError::TypeMismatch(format!(
-                "type is {}, got boolean",
-                self.data_type(),
-            )))
     }
 
     /// This is a helper function that allows us to index the [`FieldData`] by a series of
@@ -794,7 +793,7 @@ mod test {
 
         // Compare at the trait level.
         let arr = int8_data_lhs.try_cast::<Int8Type>();
-        assert!(arr.is_some());
+        assert!(arr.is_ok());
 
         let arr = arr.unwrap();
         println!("{:?}", arr.slice(0..arr.len()));

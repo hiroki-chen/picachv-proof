@@ -2,12 +2,11 @@
 name = "executor_user"
 version = "0.1.0"
 edition = "2021"
-
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-policy_core = { path = "../../policy_core" }
 policy_carrying_data = { path = "../../policy_carrying_data" }
+policy_core = { path = "../../policy_core" }
 policy_execution = { path = "../../policy_execution" }
 policy_ffi = { path = "../../policy_ffi" }
 serde_json = "1.0.99"

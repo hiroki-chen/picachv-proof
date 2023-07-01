@@ -1,10 +1,45 @@
 use std::{fmt::Debug, ops::Add};
 
-use policy_carrying_data::field::FieldDataArray;
+use policy_carrying_data::field::{FieldData, FieldDataArray};
 use policy_core::{
     error::{PolicyCarryingError, PolicyCarryingResult},
-    types::PrimitiveDataType,
+    types::*,
 };
+
+/// By default we use `f64` to prevent overflow.
+pub fn pcd_sum_trait(input: &dyn FieldData) -> PolicyCarryingResult<Box<dyn PrimitiveDataType>> {
+    let res = match input.data_type() {
+        DataType::UInt8 => pcd_sum(input.try_cast::<UInt8Type>()?, 0.0, None),
+        DataType::UInt16 => pcd_sum(input.try_cast::<UInt16Type>()?, 0.0, None),
+        DataType::UInt32 => pcd_sum(input.try_cast::<UInt32Type>()?, 0.0, None),
+        DataType::UInt64 => pcd_sum(input.try_cast::<UInt64Type>()?, 0.0, None),
+        DataType::Int8 => pcd_sum(input.try_cast::<Int8Type>()?, 0.0, None),
+        DataType::Int16 => pcd_sum(input.try_cast::<Int16Type>()?, 0.0, None),
+        DataType::Int32 => pcd_sum(input.try_cast::<Int32Type>()?, 0.0, None),
+        DataType::Int64 => pcd_sum(input.try_cast::<Int64Type>()?, 0.0, None),
+        DataType::Float32 => pcd_sum(input.try_cast::<Float32Type>()?, 0.0, None),
+        DataType::Float64 => pcd_sum(input.try_cast::<Float64Type>()?, 0.0, None),
+        _ => return Err(PolicyCarryingError::OperationNotSupported),
+    }?;
+
+    Ok(Box::new(Float64Type::new(res)))
+}
+
+pub fn pcd_max_trait(input: &dyn FieldData) -> PolicyCarryingResult<Box<dyn PrimitiveDataType>> {
+    match input.data_type() {
+        DataType::UInt8 => Ok(Box::new(pcd_max(input.try_cast::<UInt8Type>()?)?)),
+        DataType::UInt16 => Ok(Box::new(pcd_max(input.try_cast::<UInt16Type>()?)?)),
+        DataType::UInt32 => Ok(Box::new(pcd_max(input.try_cast::<UInt32Type>()?)?)),
+        DataType::UInt64 => Ok(Box::new(pcd_max(input.try_cast::<UInt64Type>()?)?)),
+        DataType::Int8 => Ok(Box::new(pcd_max(input.try_cast::<Int8Type>()?)?)),
+        DataType::Int16 => Ok(Box::new(pcd_max(input.try_cast::<Int16Type>()?)?)),
+        DataType::Int32 => Ok(Box::new(pcd_max(input.try_cast::<Int32Type>()?)?)),
+        DataType::Int64 => Ok(Box::new(pcd_max(input.try_cast::<Int64Type>()?)?)),
+        DataType::Float32 => Ok(Box::new(pcd_max(input.try_cast::<Float32Type>()?)?)),
+        DataType::Float64 => Ok(Box::new(pcd_max(input.try_cast::<Float64Type>()?)?)),
+        _ => Err(PolicyCarryingError::OperationNotSupported),
+    }
+}
 
 /// An identity function transformation.
 pub fn pcd_identity<T>(input: FieldDataArray<T>) -> PolicyCarryingResult<FieldDataArray<T>>

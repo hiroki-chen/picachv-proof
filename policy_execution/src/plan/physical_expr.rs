@@ -8,7 +8,7 @@ use std::{
 use policy_carrying_data::{
     field::{new_empty, new_null, Field, FieldDataArray, FieldDataRef, FieldRef},
     schema::SchemaRef,
-    Comparator, DataFrame, UserDefinedFunction,
+    Comparator, DataFrame,
 };
 use policy_core::{
     error::{PolicyCarryingError, PolicyCarryingResult},
@@ -22,6 +22,7 @@ use policy_core::{
 use crate::{
     executor::{ExecutionState, ExprArena},
     plan::expr_to_aexpr,
+    udf::UserDefinedFunction,
 };
 
 use super::{aexpr_to_expr, ApplyOption};
@@ -387,19 +388,19 @@ pub(crate) fn apply_binary_operator(
         // Logical connectors: evaluate lhs and rhs and do logical evaluation on the both sides (should be applied
         // directly on boolean data field).
         BinaryOp::And => match (lhs.try_cast::<BooleanType>(), rhs.try_cast::<BooleanType>()) {
-            (Some(lhs), Some(rhs)) => Ok(Arc::new(lhs.bitand(rhs)?)),
+            (Ok(lhs), Ok(rhs)) => Ok(Arc::new(lhs.bitand(rhs)?)),
             (_, _) => Err(PolicyCarryingError::ImpossibleOperation(
                 "cannot evaluate `&` on non-boolean arrays.".into(),
             )),
         },
         BinaryOp::Or => match (lhs.try_cast::<BooleanType>(), rhs.try_cast::<BooleanType>()) {
-            (Some(lhs), Some(rhs)) => Ok(Arc::new(lhs.bitor(rhs)?)),
+            (Ok(lhs), Ok(rhs)) => Ok(Arc::new(lhs.bitor(rhs)?)),
             (_, _) => Err(PolicyCarryingError::ImpossibleOperation(
                 "cannot evaluate `|` on non-boolean arrays.".into(),
             )),
         },
         BinaryOp::Xor => match (lhs.try_cast::<BooleanType>(), rhs.try_cast::<BooleanType>()) {
-            (Some(lhs), Some(rhs)) => Ok(Arc::new(lhs.bitxor(rhs)?)),
+            (Ok(lhs), Ok(rhs)) => Ok(Arc::new(lhs.bitxor(rhs)?)),
             (_, _) => Err(PolicyCarryingError::ImpossibleOperation(
                 "cannot evaluate `^` on non-boolean arrays.".into(),
             )),
@@ -476,6 +477,8 @@ pub(crate) fn make_physical_expr_aaggexpr(
     // Discern `in_aggregation`.
     in_aggregation: bool,
 ) -> PolicyCarryingResult<PhysicalExprRef> {
+    log::debug!("{parent:?}, {aexpr:?}, {schema:?}, {state:?}, {in_aggregation}");
+
     let input = make_physical_expr(
         aexpr.get_input().clone(),
         expr_arena,
@@ -486,6 +489,7 @@ pub(crate) fn make_physical_expr_aaggexpr(
 
     match in_aggregation {
         // We are not in an aggregation context, so we need to manually create the function that applies to the final result.
+        // This typically occurs in a select/projection context.
         false => {
             // TODO: These functions should be loaded from the external library because we are doing
             // aggregation, and the policy makers may want to apply some privacy schemes when performing

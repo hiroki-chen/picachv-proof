@@ -18,7 +18,7 @@ By default, the data analysis library will try to load the module and find two s
 extern "C" fn on_load(args: *const u8, args_len: usize) -> i32;
 ```
 
-This function can be regarded as a prelogue function. Any preparation tasks are fulfilled by this function.  Typically, we will want to register data or users when library is initially loaded.
+This function can be regarded as a prelogue function. Any preparation tasks are fulfilled by this function. Typically, we will want to register data or users when library is initially loaded.
 
 Yet there is another function called `create_executor` whose prototype is
 
@@ -48,3 +48,7 @@ This function creates new executors on demand of the data analysis framework whe
 ## Examples
 
 The `examples` folder contains the sample usage of compiling the executors into a standalong shared library, which can be later loaded by the program. The `executor_lib` implements the minimal set of executors that can be dynamically loaded to the data analysis framework, and `executor_user` is the application that performs the data analysis job.
+
+## Thoughts
+
+Another design option is to include opague structs in the shared library that exposes only pointers to the caller. All the operations must be performed via the opague handle. This method, however, requires intensive serialization/deserialization of the Rust structs, if they are not `[repr(C)]`. For example, the type-erased field arrays `Vec<Arc<dyn FieldData>>`, but doing so indeed allows for backward compatibility.

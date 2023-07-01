@@ -7,7 +7,7 @@ use std::{
 };
 
 use bitflags::bitflags;
-use policy_carrying_data::{schema::SchemaRef, DataFrame, UserDefinedFunction};
+use policy_carrying_data::{schema::SchemaRef, DataFrame};
 use policy_core::{
     args,
     error::{PolicyCarryingError, PolicyCarryingResult},
@@ -22,6 +22,7 @@ use crate::{
         LP_ARENA_SIZE,
     },
     plan::physical_expr::make_physical_expr,
+    udf::UserDefinedFunction,
 };
 
 pub mod physical_expr;
@@ -331,12 +332,22 @@ impl From<DataFrame> for PlanBuilder {
 
 impl PlanBuilder {
     /// Finishes the build and returns the inner struct.
-    pub fn finish(self) -> LogicalPlan {
+    pub(crate) fn finish(self) -> LogicalPlan {
         self.plan
     }
 
+    /// Performs aggregation and groupby.
+    pub(crate) fn groupby<T: AsRef<[Expr]>>(
+        self,
+        keys: Vec<Expr>,
+        expr: T,
+        maintain_order: bool,
+    ) -> Self {
+        todo!()
+    }
+
     /// Performs projection.
-    pub fn projection(self, expressions: Vec<Expr>) -> Self {
+    pub(crate) fn projection(self, expressions: Vec<Expr>) -> Self {
         let schema = delayed_err!(self.plan.schema(), self.plan);
         let expr = delayed_err!(
             rewrite_projection(
@@ -358,7 +369,7 @@ impl PlanBuilder {
     }
 
     /// Performs filtering.
-    pub fn filter(self, expression: Expr) -> Self {
+    pub(crate) fn filter(self, expression: Expr) -> Self {
         // Check if the expression that should be normalized.
         let predicate = if expression
             .into_iter()

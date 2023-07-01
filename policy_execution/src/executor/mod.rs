@@ -11,7 +11,7 @@ use bitflags::bitflags;
 use policy_carrying_data::{field::FieldDataRef, schema::SchemaRef, DataFrame};
 use policy_core::{
     error::{PolicyCarryingError, PolicyCarryingResult},
-    expr::AExpr,
+    expr::{AExpr, GroupByMethod},
     get_lock,
     types::{ExecutorRefId, ExecutorType, FunctionArguments},
 };
@@ -49,7 +49,7 @@ macro_rules! trace {
 }
 
 bitflags! {
-    #[derive(Default)]
+    #[derive(Default, Debug)]
     pub struct ExecutionFlag: u8 {
         const TRACE = 1 << 0;
         const HAS_WINDOW = 1 << 1;
@@ -95,7 +95,7 @@ impl Default for Executor {
 
 /// State/ cache that is maintained during the Execution of the physical plan. This struct
 /// is also responsible for the management of the policy-related data structure (albeit WIP).
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ExecutionState {
     /// The cache of the current schema.
     pub schema_cache: Arc<RwLock<Option<SchemaRef>>>,
@@ -138,6 +138,24 @@ impl ExecutionState {
     }
 }
 
+/// Returns a [`Box`]-ed function pointer that wrapps around the real function provided by the external library.
+///
+/// # Note
+///
+/// This function should not be called from within an aggregation context (usually combined with `group_by`). If
+/// there is a need to apply functions on groups (a.k.a., the real `aggregation` method),
+pub fn get_apply_udf(
+    id: ExecutorRefId,
+    ty: GroupByMethod,
+) -> PolicyCarryingResult<
+    impl Fn(&mut [FieldDataRef]) -> PolicyCarryingResult<Option<FieldDataRef>> + Send + Sync,
+> {
+    let external_udf = policy_ffi::get_udf(id, ty)?;
+
+    // Construct a function closure from `func`.
+    Ok(|fields: &mut [FieldDataRef]| Ok(None))
+}
+
 pub fn create_executor(
     id: ExecutorRefId,
     executor_type: ExecutorType,
@@ -169,13 +187,12 @@ pub fn evaluate_physical_expr_vec(
         .collect::<PolicyCarryingResult<Vec<_>>>()?;
     state.clear_expr();
 
-    expand_projection_literal(state, selected_columns, df.columns().is_empty())
+    expand_projection_literal(selected_columns, df.columns().is_empty())
 }
 
 /// Sometimes the projected columns do not represent anything and are just a bunch of literals.
 /// We need to expand literals to fill the shape of the dataframe.
 pub fn expand_projection_literal(
-    state: &ExecutionState,
     mut selected_columns: Vec<FieldDataRef>,
     empty: bool,
 ) -> PolicyCarryingResult<DataFrame> {
@@ -237,7 +254,7 @@ pub fn expand_projection_literal(
 
 /// This function is called at the epilogue of the [`lazy::LazyFrame::collect()`].
 pub fn execution_epilogue(
-    mut df: DataFrame,
+    df: DataFrame,
     state: &ExecutionState,
 ) -> PolicyCarryingResult<DataFrame> {
     let lock = get_lock!(state.execution_flag, read);

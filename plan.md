@@ -79,6 +79,7 @@ Although we cannot determine the concrete appearance of the policy now, we may f
 - [ ] Implement aggregation and DP on it.
   - [x] Implement aggregation expression generation.
   - [x] Implement the executor for aggretation.
+  - [ ] Find a good way to integrate DP into aggregation.
   
   Although aggregation is partly done, there are several points we need to take care about:
     * How to make sure aggregations won't overflow: e.g., doing sum on `Vec<i8>`.
