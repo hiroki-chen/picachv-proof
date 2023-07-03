@@ -1,4 +1,3 @@
-//! Play with differential privacy.
 use std::{
     fmt::Debug,
     ops::{Add, Range},
@@ -12,8 +11,7 @@ use policy_core::{
     policy::DpParam,
     types::PrimitiveDataType,
 };
-
-use crate::func::pcd_sum;
+use policy_function::pcd_sum;
 
 /// This function computes the optimal upper bound for queries like summation using the
 /// Sparse Vector Technique (SVT). It returns an index!
@@ -170,7 +168,7 @@ impl DpManager {
     }
 
     #[inline]
-    pub fn dp_param(&self) -> DpParam {
+    pub fn dp_budget(&self) -> DpParam {
         self.dp_budget
     }
 
@@ -210,5 +208,28 @@ impl DpManager {
         // Queries with unbounded sensitivity cannot be directly answered with differential privacy
         // using the Laplace mechanism.
         todo!()
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use policy_carrying_data::field::Int64FieldData;
+
+    use super::*;
+
+    #[test]
+    fn test_svt_correct() {
+        let df = csv::Reader::from_path("../../test_data/adult_with_pii.csv")
+            .unwrap()
+            .records()
+            .into_iter()
+            .map(|r| r.unwrap().get(4).unwrap().parse::<i64>().unwrap())
+            .collect::<Vec<_>>();
+        let df = Int64FieldData::from(df);
+
+        // Should be larger than 85.
+        let idx = sum_upper_bound(0..150, &df, 1.0);
+
+        assert!(idx.is_ok_and(|inner| inner >= 85));
     }
 }

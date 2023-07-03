@@ -289,7 +289,7 @@ extern "C" fn agg_sum(
 
     let input = array_from_raw!(input, input_len, input_data_type);
     // Do whatever you like.
-    let res = policy_function::func::pcd_sum_trait(input.as_ref()).unwrap();
+    let res = policy_function::pcd_sum_trait(input.as_ref()).unwrap();
     let args = serde_json::to_string(&args! {
         // Leak the box.
         "output": Box::into_raw(Box::new(res)) as usize,

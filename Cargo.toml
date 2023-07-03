@@ -9,5 +9,6 @@ members = [
   "policy_algebra",
   "policy_ffi",
   "policy_utils",
+  "policy_privacy",
   "examples/*",
 ]
