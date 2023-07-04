@@ -3,13 +3,14 @@ use std::sync::Arc;
 use policy_carrying_data::define_schema;
 use policy_core::{
     args, col, cols,
-    expr::GroupByMethod,
     types::{Float64Type, Int8Type},
 };
-use policy_execution::{executor::get_apply_udf, lazy::LazyFrame};
+use policy_execution::lazy::LazyFrame;
 use policy_ffi::load_executor_lib;
 
 fn main() {
+    simple_logger::SimpleLogger::new().init().unwrap();
+
     let schema = {
         let mut schema = define_schema! {
             "column_1" => DataType::Int8,
@@ -23,6 +24,9 @@ fn main() {
             args! {
                 "df_path": "../../test_data/simple_csv.csv",
                 "schema": serde_json::to_string(schema.as_ref()).unwrap(),
+                "dp_param.0": 1.0,
+                "dp_param.1": 0.0,
+                "id": 0,
             },
         )
         .unwrap();
@@ -31,20 +35,6 @@ fn main() {
         schema_ref.executor_ref_id = Some(id);
         schema
     };
-
-    let v = vec![0i8, 1i8];
-    let args = get_apply_udf(
-        schema.executor_ref_id.unwrap(),
-        GroupByMethod::Sum,
-        // args! {
-        //     "input": v.as_ptr() as usize,
-        //     "input_len": v.len(),
-        //     "input_data_type": serde_json::to_string(&policy_core::types::DataType::Int8).unwrap(),
-        // },
-    )
-    .unwrap();
-
-    println!("{:?}", args(&mut vec![]));
 
     let df = LazyFrame::new_from_schema(schema.clone())
         .select(cols!("column_1", "column_2"))
@@ -56,7 +46,6 @@ fn main() {
         .sum();
 
     println!("{}", df.explain());
-
     let df = df.collect().unwrap();
     println!("{df:?}");
 }

@@ -1,4 +1,7 @@
-use policy_core::{error::PolicyCarryingResult, expr::Node};
+use policy_core::{
+    error::PolicyCarryingResult,
+    expr::{AExpr, Node},
+};
 
 /// An arena for allocating arbitrary elements but does no drop itself unless all element are dropped.
 ///
@@ -11,6 +14,27 @@ pub struct Arena<T> {
 impl<T> Default for Arena<T> {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+pub struct AExprIter<'a> {
+    stack: Vec<Node>,
+    arena: Option<&'a Arena<AExpr>>,
+}
+
+impl<'a> Iterator for AExprIter<'a> {
+    type Item = (Node, &'a AExpr);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.stack.pop().map(|node| {
+            // take the arena because the bchk doesn't allow a mutable borrow to the field.
+            let arena = self.arena.unwrap();
+            let current_expr = arena.get(node);
+            current_expr.nodes(&mut self.stack);
+
+            self.arena = Some(arena);
+            (node, current_expr)
+        })
     }
 }
 
@@ -90,5 +114,16 @@ impl<T: Default> Arena<T> {
         let val = self.take(idx);
         self.replace(idx, f(val)?);
         Ok(())
+    }
+}
+
+impl<'a> Arena<AExpr> {
+    pub fn iter(&'a self, root: Node) -> AExprIter<'a> {
+        let mut stack = Vec::with_capacity(4);
+        stack.push(root);
+        AExprIter {
+            stack,
+            arena: Some(self),
+        }
     }
 }

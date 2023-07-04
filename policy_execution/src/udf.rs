@@ -2,11 +2,10 @@ use std::fmt::{Debug, Formatter};
 
 use policy_carrying_data::field::FieldDataRef;
 use policy_core::error::PolicyCarryingResult;
-
-pub type UdfType =
-    dyn Fn(&mut [FieldDataRef]) -> PolicyCarryingResult<Option<FieldDataRef>> + Send + Sync;
+use serde::{Deserialize, Serialize};
 
 /// A user defiend function that can be applied on a mutable array of [`FieldDataRef`].
+#[typetag::serde(tag = "udf")]
 pub trait UserDefinedFunction: Send + Sync {
     fn call(&self, input: &mut [FieldDataRef]) -> PolicyCarryingResult<Option<FieldDataRef>>;
 }
@@ -17,11 +16,15 @@ impl Debug for dyn UserDefinedFunction {
     }
 }
 
-impl<F> UserDefinedFunction for F
-where
-    F: Fn(&mut [FieldDataRef]) -> PolicyCarryingResult<Option<FieldDataRef>> + Send + Sync,
-{
-    fn call(&self, input: &mut [FieldDataRef]) -> PolicyCarryingResult<Option<FieldDataRef>> {
-        self(input)
+#[derive(Serialize, Deserialize, Clone)]
+pub struct UdfWrapper {
+    /// Call the udf later to allow de-/serialization.
+    pub udf: String,
+}
+
+#[typetag::serde]
+impl UserDefinedFunction for UdfWrapper {
+    fn call(&self, _input: &mut [FieldDataRef]) -> PolicyCarryingResult<Option<FieldDataRef>> {
+        todo!()
     }
 }

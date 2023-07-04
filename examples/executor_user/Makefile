@@ -1,16 +1,8 @@
 MODULE_PATH		:= $(CURDIR)/../executor_lib
-NIGHTLY			?= 0
-DEBUG			?= 1
-CARGO_BUILD_FLAGS	= build
-CARGO_RUN_FLAGS		= run
 
-ifeq ($(NIGHTLY), 1)
-	CARGO_BUILD_FLAGS	= +nightly build
-	CARGO_RUN_FLAGS		= +nightly run
-else
-	CARGO_BUILD_FLAGS	= build
-	CARGO_RUN_FLAGS		= run
-endif
+DEBUG			?= 1
+CARGO_BUILD_FLAGS	= +nightly build
+CARGO_RUN_FLAGS		= +nightly run
 
 ifeq ($(DEBUG), 0)
 	CARGO_BUILD_FLAGS	+= -r

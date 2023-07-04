@@ -15,13 +15,14 @@ use policy_core::{
     policy::Policy,
     types::{ExecutorRefId, ExecutorType, JoinType},
 };
+use serde::{Deserialize, Serialize};
 
 use crate::{
     executor::{
         create_executor, ExecutionState, Executor, ExprArena, LogicalPlanArena, EXPR_ARENA_SIZE,
         LP_ARENA_SIZE,
     },
-    plan::physical_expr::make_physical_expr,
+    plan::physical_expr::{expr_to_name, expressions_to_schema, make_physical_expr},
     udf::UserDefinedFunction,
 };
 
@@ -182,6 +183,13 @@ impl LogicalPlan {
             Self::StagedError { input, err } => {
                 write!(f, "{err:?}\n{input:?}")
             }
+            Self::Aggregation {
+                input, keys, aggs, ..
+            } => {
+                write!(f, "{:indent$}AGGREGATE", "")?;
+                write!(f, "\n{:indent$}\t{aggs:?} GROUP BY {keys:?} FROM", "")?;
+                write!(f, "\n{:indent$}\t{input:?}", "")
+            }
             _ => write!(f, "unsupported operation"),
         }
     }
@@ -213,7 +221,7 @@ pub enum ALogicalPlan {
         schema: SchemaRef,
         apply: Option<Arc<dyn UserDefinedFunction>>,
         maintain_order: bool,
-        // options: GroupbyOptions,
+        // slice: Option<(i64, usize)>,
     },
     Join {
         input_left: Node,
@@ -228,7 +236,7 @@ pub enum ALogicalPlan {
     Nonsense(Node),
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Serialize, Deserialize)]
 pub enum ApplyOption {
     /// Collect groups to a list and apply the function over the groups.
     /// This can be important in aggregation context.
@@ -343,7 +351,56 @@ impl PlanBuilder {
         expr: T,
         maintain_order: bool,
     ) -> Self {
-        todo!()
+        let schema = delayed_err!(self.plan.schema(), self.plan);
+        // Group by what.
+        let keys = delayed_err!(rewrite_projection(keys, schema.clone(), &[]), self.plan);
+        let aggs = delayed_err!(
+            rewrite_projection(expr.as_ref().to_vec(), schema.clone(), keys.as_ref()),
+            self.plan
+        );
+
+        log::debug!("{schema:?}, {keys:?}, {aggs:?}");
+
+        let mut output_schema = delayed_err!(
+            expressions_to_schema(keys.as_ref(), &schema, false),
+            self.plan
+        );
+
+        let other_schema = delayed_err!(
+            expressions_to_schema(aggs.as_ref(), &schema, true),
+            self.plan
+        );
+
+        log::debug!("{output_schema:?} merge {other_schema:?}");
+        output_schema.merge(other_schema);
+        log::debug!("{output_schema:?}");
+
+        // There contains some duplicate column names.
+        if output_schema.columns().len() <= keys.len() + aggs.len() {
+            let mut names = HashSet::new();
+            for expr in aggs.iter().chain(keys.iter()) {
+                let name = delayed_err!(expr_to_name(expr), self.plan);
+
+                if !names.insert(name.clone()) {
+                    return LogicalPlan::StagedError {
+                        input: Box::new(self.plan),
+                        err: PolicyCarryingError::DuplicateColumn(name),
+                    }
+                    .into();
+                }
+            }
+        }
+
+        LogicalPlan::Aggregation {
+            input: Box::new(self.plan),
+            schema: Arc::new(output_schema),
+            keys: Arc::new(keys),
+            aggs,
+            apply: None,
+            maintain_order,
+            policy: None,
+        }
+        .into()
     }
 
     /// Performs projection.
@@ -712,24 +769,30 @@ pub(crate) fn make_physical_plan(
     Ok((ExecutionState::with_executors(executor_ref_id), executor))
 }
 
-/// A recursive function that handles the conversion from [`ALogicalPlan`] to the [`PhysicalExecutor`] AST.
+/// A recursive function that handles the conversion from [`ALogicalPlan`] to the [`Executor`] AST.
 fn do_make_physical_plan(
     root: Node,
     lp_arena: &mut LogicalPlanArena,
     expr_arena: &mut ExprArena,
     executor_ref_id: ExecutorRefId,
 ) -> PolicyCarryingResult<Executor> {
-    match lp_arena.take(root) {
+    let node = lp_arena.take(root);
+
+    log::debug!("visiting node {node:?}");
+
+    match node {
         ALogicalPlan::Selection { input, predicate } => {
             let input = do_make_physical_plan(input, lp_arena, expr_arena, executor_ref_id)?;
             let state = ExecutionState::with_executors(executor_ref_id);
             let predicate = make_physical_expr(predicate, expr_arena, None, &state, false)?;
 
+            log::debug!("creating executor: Filter");
+
             create_executor(
                 executor_ref_id,
-                ExecutorType::Filter,
                 args! {
-                    "predicate": Box::into_raw(Box::new(predicate)) as *mut _ as usize,
+                    "executor_type": serde_json::to_string(&ExecutorType::Filter).unwrap(),
+                    "predicate": serde_json::to_string(&predicate).unwrap(),
                     "input": Box::into_raw(Box::new(input))as *mut _ as usize,
                 },
             )
@@ -752,15 +815,16 @@ fn do_make_physical_plan(
                 None => None,
             };
 
+            log::debug!("creating executor: DataFrameScan");
             create_executor(
                 executor_ref_id,
-                ExecutorType::DataframeScan,
                 args! {
+                    "executor_type": serde_json::to_string(&ExecutorType::DataframeScan).unwrap(),
                     "df_path": "../../test_data/simple_csv.csv",
                     "schema": serde_json::to_string(&schema).unwrap(),
                     "projection": projection.map(|proj| proj.deref().clone()),
                     "predicate_has_windows": false,
-                    "selection": selection.map(|sel| &sel as *const _ as usize),
+                    "selection": selection.map(|sel| serde_json::to_string(&sel).unwrap()),
                 },
             )
         }
@@ -774,18 +838,15 @@ fn do_make_physical_plan(
                     make_physical_expr(expr, expr_arena, Some(schema.clone()), &state, false)
                 })
                 .collect::<PolicyCarryingResult<Vec<_>>>()?;
-            let expr = expr
-                .into_iter()
-                .map(|expr| Box::into_raw(Box::new(expr)) as *mut _ as usize)
-                .collect::<Vec<_>>();
+
+            log::debug!("creating executor: Projection");
 
             create_executor(
                 executor_ref_id,
-                ExecutorType::Projection,
                 args! {
+                    "executor_type": serde_json::to_string(&ExecutorType::Projection).unwrap(),
                     "input": Box::into_raw(Box::new(input)) as *mut _ as usize,
-                    "expr": expr.as_ptr() as usize,
-                    "expr_len": expr.len(),
+                    "expr": serde_json::to_string(&expr).unwrap(),
                     "input_schema": serde_json::to_string(&schema).unwrap(),
                 },
             )
@@ -797,8 +858,67 @@ fn do_make_physical_plan(
             schema,
             apply,
             maintain_order,
-        } => todo!(),
+        } => {
+            if let Some(ref apply) = apply {
+                unimplemented!("`groupby` with {apply:?} is not supported at this time.");
+            }
 
+            let input_schema = lp_arena.get(input).schema(lp_arena);
+            let state = ExecutionState::with_executors(executor_ref_id);
+            let phys_aggs = aggs
+                .iter()
+                .map(|expr| {
+                    make_physical_expr(*expr, expr_arena, Some(input_schema.clone()), &state, true)
+                })
+                .collect::<PolicyCarryingResult<Vec<_>>>()?;
+            // groupby.
+            let phys_keys = keys
+                .iter()
+                .map(|expr| {
+                    make_physical_expr(*expr, expr_arena, Some(input_schema.clone()), &state, true)
+                })
+                .collect::<PolicyCarryingResult<Vec<_>>>()?;
+
+            log::debug!("{schema:?}, {phys_aggs:#?}, {phys_keys:?}");
+
+            if partitionable(keys.as_ref(), aggs.as_ref(), expr_arena) {
+                log::debug!("partitionable!");
+
+                let input = do_make_physical_plan(input, lp_arena, expr_arena, executor_ref_id)?;
+                let keys = keys
+                    .iter()
+                    .map(|node| aexpr_to_expr(*node, expr_arena))
+                    .collect::<Vec<_>>();
+                let aggs = aggs
+                    .iter()
+                    .map(|node| aexpr_to_expr(*node, expr_arena))
+                    .collect::<Vec<_>>();
+
+                log::debug!("creating executor: PartitionGroupBy");
+
+                create_executor(
+                    executor_ref_id,
+                    args! {
+                        "executor_type": serde_json::to_string(&ExecutorType::PartitionGroupBy).unwrap(),
+                        "input": Box::into_raw(Box::new(input)) as *mut _ as usize,
+                        "phys_keys": serde_json::to_string(&phys_keys).unwrap(),
+                        "phys_aggs": serde_json::to_string(&phys_aggs).unwrap(),
+                        "maintain_order": maintain_order,
+                        "slice": serde_json::to_string(&None::<(i64, usize)>).unwrap(),
+                        "input_schema": serde_json::to_string(&input_schema).unwrap(),
+                        "output_schema": serde_json::to_string(&schema).unwrap(),
+                        // "from_partitioned_ds": false,
+                        "keys": serde_json::to_string(&keys).unwrap(),
+                        "aggs": serde_json::to_string(&aggs).unwrap(),
+                    },
+                )
+            } else {
+                log::debug!("not partitionable!");
+                todo!()
+            }
+        }
+
+        #[allow(unused)]
         ALogicalPlan::Join {
             input_left,
             input_right,
@@ -848,4 +968,78 @@ pub(crate) fn aexpr_to_expr(aexpr: Node, expr_arena: &ExprArena) -> Expr {
         },
         AExpr::Wildcard => Expr::Wildcard,
     }
+}
+
+/// This function checks:
+///      1. complex expressions in the groupby itself are also not partitionable
+///          in this case anything more than `col("foo")`.
+///      2. (not checked) a custom function cannot be partitioned.
+///      3. we don't bother with more than 2 keys, as the cardinality likely explodes
+///         by the combinations.
+///
+/// Taken from polars.
+pub(crate) fn partitionable(keys: &[Node], aggs: &[Node], expr_arena: &ExprArena) -> bool {
+    let mut partitionable = true;
+
+    if !keys.is_empty() && keys.len() < 3 {
+        // complex expressions in the groupby itself are also not partitionable
+        // in this case anything more than col("foo")
+        for key in keys {
+            if expr_arena.iter(*key).count() > 1 {
+                partitionable = false;
+                break;
+            }
+        }
+
+        if partitionable {
+            for agg in aggs {
+                let aexpr = expr_arena.get(*agg);
+                let depth = (expr_arena).iter(*agg).count();
+
+                if depth == 1 {
+                    partitionable = false;
+                    break;
+                }
+
+                // it should end with an aggregation
+                if let AExpr::Alias(_, _) = aexpr {
+                    // col().agg().alias() is allowed: count of 3
+                    // col().alias() is not allowed: count of 2
+                    // count().alias() is allowed: count of 2
+                    if depth <= 2 {
+                        partitionable = false;
+                        break;
+                    }
+                }
+
+                let has_aggregation = |node: Node| {
+                    expr_arena
+                        .iter(node)
+                        .any(|(_, ae)| matches!(ae, AExpr::Agg(_)))
+                };
+
+                // check if the aggregation type is partitionable
+                // only simple aggregation like col().sum
+                // that can be divided in to the aggregation of their partitions are allowed
+                if !((expr_arena).iter(*agg).all(|(_, ae)| match ae {
+                    AExpr::Agg(agg_e) => matches!(
+                        agg_e,
+                        AAggExpr::Min { .. } | AAggExpr::Max { .. } | AAggExpr::Sum(_)
+                    ),
+                    AExpr::Column(_) | AExpr::Literal(_) | AExpr::Alias(_, _) => true,
+                    AExpr::BinaryOp { left, right, .. } => {
+                        !has_aggregation(*left) && !has_aggregation(*right)
+                    }
+                    _ => false,
+                })) && matches!(aexpr, AExpr::Alias(_, _) | AExpr::Agg(_))
+                {
+                    partitionable = false;
+                    break;
+                }
+            }
+        }
+    } else {
+        partitionable = keys.is_empty();
+    }
+    partitionable
 }

@@ -1,6 +1,9 @@
 //! The lazy data frame module.
 
-use std::fmt::{Debug, Formatter};
+use std::{
+    fmt::{Debug, Formatter},
+    ops::Deref,
+};
 
 use policy_carrying_data::{schema::SchemaRef, DataFrame};
 use policy_core::{col, error::PolicyCarryingResult, expr::Expr, types::ExecutorRefId};
@@ -109,24 +112,56 @@ impl LazyFrame {
         }
     }
 
+    // +======================================================================================================+
+    // | To unify the behavior of aggregation (and thus the executors) that may come without the `groupby`,   |
+    // | we force to add an explicit `groupby NULL` clause into the expression. In other words, the following |
+    // |     SELECT SUM(bar), SUM(baz), ... FROM foo;                                                         |
+    // | is equivalent to                                                                                     |
+    // |     SELECT SUM(bar), SUM(baz), ... FROM foo GROUP BY NULL;                                           |
+    // +======================================================================================================+
+
+    /// Sums up the lazy frame with a wildcard.
+    #[deprecated = "aggregation must use new method that applies a `groupby`"]
+    pub fn _sum(self) -> Self {
+        self.select(vec![col!("*").sum()])
+    }
+
     /// Sums up the lazy frame with a wildcard.
     pub fn sum(self) -> Self {
-        self.select(vec![col!("*").sum()])
+        self.groupby([]).agg([col!("*").sum()])
+    }
+
+    /// Gets the maximum value.
+    #[deprecated = "aggregation must use new method that applies a `groupby`"]
+    pub fn _max(self) -> Self {
+        self.select(vec![col!("*").max()])
     }
 
     /// Gets the maximum value.
     pub fn max(self) -> Self {
-        self.select(vec![col!("*").max()])
+        self.groupby([]).agg([col!("*").max()])
+    }
+
+    /// Gets the minimum value.
+    #[deprecated = "aggregation must use new method that applies a `groupby`"]
+    pub fn _min(self) -> Self {
+        self.select(vec![col!("*").min()])
     }
 
     /// Gets the minimum value.
     pub fn min(self) -> Self {
-        self.select(vec![col!("*").min()])
+        self.groupby([]).agg([col!("*").min()])
+    }
+
+    /// Gets the mean value.
+    #[deprecated = "aggregation must use new method that applies a `groupby`"]
+    pub fn _mean(self) -> Self {
+        self.select(vec![col!("*").mean()])
     }
 
     /// Gets the mean value.
     pub fn mean(self) -> Self {
-        self.select(vec![col!("*").mean()])
+        self.groupby([]).agg([col!("*").mean()])
     }
 
     /// Executes the query plan, checking the policy if the query can be executed or should be

@@ -126,36 +126,38 @@ pub trait FieldData: Debug + Send + Sync {
 
 impl dyn FieldData + '_ {
     /// Try to downcast the trait object to its concrete type by interpreting this as a
-    /// [`std::any::Any`]. If the conversion fails (i.e., the concrete type is not the
-    /// one that the underlying data takes), we would return a [`None`].
+    /// [`std::any::Any`]. This method must not be a trait method as introductin the gene-
+    /// ric type `T` would make the trait object-unsfe, and thus a lot components would
+    /// break. We may still, however, want to get the concrete type to perform some nece-
+    /// ssary operations such as indexing. Without casting, there is no safe way to fulfill
+    /// them elegantly.
     ///
-    /// This method must not be a trait method as introductin the generic type `T` would
-    /// make the trait object-unsfe, and thus a lot components would break. We may still,
-    /// however, want to get the concrete type to perform some necessary operations such
-    /// as indexing. Without casting, there is no safe way to fulfill them.
-    #[inline]
+    /// # Safety
+    ///
+    /// Should be 'safe' as long as the caller always check the concrete type by Calling
+    /// `data_type()` on it. Bypassing the [`std::any::TypeId`] check gives a way to cast
+    /// between trait objects from different builds.
     pub fn try_cast<T>(&self) -> PolicyCarryingResult<&FieldDataArray<T>>
     where
         T: PrimitiveDataType + Debug + Send + Sync + Clone + 'static,
     {
-        let ty = self.data_type();
-
-        self.as_any_ref()
-            .downcast_ref::<FieldDataArray<T>>()
-            .ok_or(PolicyCarryingError::TypeMismatch(format!("type is {ty:?}")))
+        unsafe {
+            Ok(self
+                .as_any_ref()
+                .downcast_ref_unchecked::<FieldDataArray<T>>())
+        }
     }
 
     /// A similar operation as [`try_cast`] but uses a mutable borrow to `self` instead.
-    #[inline]
     pub fn try_cast_mut<T>(&mut self) -> PolicyCarryingResult<&mut FieldDataArray<T>>
     where
         T: PrimitiveDataType + Debug + Send + Sync + Clone + 'static,
     {
-        let ty = self.data_type();
-
-        self.as_mut_ref()
-            .downcast_mut::<FieldDataArray<T>>()
-            .ok_or(PolicyCarryingError::TypeMismatch(format!("type is {ty:?}")))
+        unsafe {
+            Ok(self
+                .as_mut_ref()
+                .downcast_mut_unchecked::<FieldDataArray<T>>())
+        }
     }
 
     pub fn as_boolean(&self) -> PolicyCarryingResult<&FieldDataArray<BooleanType>> {

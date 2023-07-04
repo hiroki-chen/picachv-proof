@@ -11,6 +11,8 @@ pub enum PolicyCarryingError {
     AlreadyLoaded,
     /// Invalid input.
     InvalidInput,
+    /// Duplicate column names.
+    DuplicateColumn(String),
     /// Cannot ser / deserialize.
     SerializeError(String),
     /// An operation is impossible or the operands are in-compatible.
@@ -52,6 +54,7 @@ pub enum StatusCode {
     Unsupported = 1,
     SerializeError = 2,
     NotLoaded = 3,
+    Already = 4,
     #[default]
     Unknown = 0x100,
 }
@@ -73,6 +76,7 @@ impl Display for PolicyCarryingError {
         match self {
             Self::AlreadyLoaded => write!(f, "already loaded"),
             Self::ImpossibleOperation(info) => write!(f, "This operation is impossible: {}", info),
+            Self::DuplicateColumn(name) => write!(f, "Duplicate column name found: {}", name),
             Self::SchemaMismatch(info) => write!(f, "Schema mismatch: {}", info),
             Self::InconsistentPolicy(info) => write!(f, "Inconsistent policies: {}", info),
             Self::InvalidInput => write!(f, "invalid input"),

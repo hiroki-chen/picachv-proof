@@ -7,7 +7,7 @@ use std::{
 
 use policy_carrying_data::{
     field::{new_empty, new_null, Field, FieldDataArray, FieldDataRef, FieldRef},
-    schema::SchemaRef,
+    schema::{Schema, SchemaRef},
     Comparator, DataFrame,
 };
 use policy_core::{
@@ -18,6 +18,7 @@ use policy_core::{
         PrimitiveDataType, UInt16Type, UInt32Type, UInt64Type, UInt8Type,
     },
 };
+use serde::{Deserialize, Serialize};
 
 use crate::{
     executor::{ExecutionState, ExprArena},
@@ -30,6 +31,7 @@ use super::{aexpr_to_expr, ApplyOption};
 pub type PhysicalExprRef = Arc<dyn PhysicalExpr>;
 
 /// A physical expression trait.
+#[typetag::serde(tag = "physical_expr")]
 pub trait PhysicalExpr: Send + Sync + Debug {
     /// Downcasts to any.
     fn as_any_ref(&self) -> &dyn Any;
@@ -59,42 +61,42 @@ pub trait PhysicalExpr: Send + Sync + Debug {
     fn children(&self) -> Vec<PhysicalExprRef>;
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct LiteralExpr {
     pub(crate) literal: Box<dyn PrimitiveDataType>,
-    expr: Expr,
+    pub(crate) expr: Expr,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct BinaryOpExpr {
     pub(crate) left: PhysicalExprRef,
     pub(crate) op: BinaryOp,
     pub(crate) right: PhysicalExprRef,
-    expr: Expr,
+    pub(crate) expr: Expr,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct FilterExpr {
     pub(crate) input: PhysicalExprRef,
     pub(crate) by: PhysicalExprRef,
-    expr: Expr,
+    pub(crate) expr: Expr,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct ColumnExpr {
     pub(crate) name: String,
-    expr: Expr,
-    schema: Option<SchemaRef>,
+    pub(crate) expr: Expr,
+    pub(crate) schema: Option<SchemaRef>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct AggregateExpr {
     pub(crate) input: PhysicalExprRef,
     pub(crate) agg_type: GroupByMethod,
-    field: Option<Field>,
+    pub(crate) field: Option<Field>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct ApplyExpr {
     pub(crate) inputs: Vec<PhysicalExprRef>,
     pub(crate) function: Arc<dyn UserDefinedFunction>,
@@ -105,6 +107,7 @@ pub struct ApplyExpr {
     pub(crate) input_schema: Option<SchemaRef>,
 }
 
+#[typetag::serde]
 impl PhysicalExpr for FilterExpr {
     fn as_any_ref(&self) -> &dyn Any {
         self
@@ -130,6 +133,7 @@ impl PhysicalExpr for FilterExpr {
     }
 }
 
+#[typetag::serde]
 impl PhysicalExpr for BinaryOpExpr {
     fn as_any_ref(&self) -> &dyn Any {
         self
@@ -173,6 +177,7 @@ impl PhysicalExpr for BinaryOpExpr {
     }
 }
 
+#[typetag::serde]
 impl PhysicalExpr for LiteralExpr {
     fn as_any_ref(&self) -> &dyn Any {
         self
@@ -250,6 +255,7 @@ impl PhysicalExpr for LiteralExpr {
     }
 }
 
+#[typetag::serde]
 impl PhysicalExpr for ColumnExpr {
     fn as_any_ref(&self) -> &dyn Any {
         self
@@ -295,6 +301,7 @@ impl PhysicalExpr for ColumnExpr {
     }
 }
 
+#[typetag::serde]
 impl PhysicalExpr for AggregateExpr {
     fn as_any_ref(&self) -> &dyn Any {
         self
@@ -318,6 +325,7 @@ impl PhysicalExpr for AggregateExpr {
     }
 }
 
+#[typetag::serde]
 impl PhysicalExpr for ApplyExpr {
     fn as_any_ref(&self) -> &dyn Any {
         self
@@ -490,53 +498,24 @@ pub(crate) fn make_physical_expr_aaggexpr(
     match in_aggregation {
         // We are not in an aggregation context, so we need to manually create the function that applies to the final result.
         // This typically occurs in a select/projection context.
+        // FIXME: To unify the behavior of queries w or w/o `groupby` clause, we force the latter to `groupby None`.
         false => {
-            // TODO: These functions should be loaded from the external library because we are doing
-            // aggregation, and the policy makers may want to apply some privacy schemes when performing
-            // this task. We must build a function atop the original one.
             let function: Arc<dyn UserDefinedFunction> = match aexpr {
                 AAggExpr::Max { propagate_nans, .. } => {
-                    let f = move |input: &mut [FieldDataRef]| {
-                        let first = replace_with_empty(&mut input[0]);
-
-                        if propagate_nans && first.data_type().is_float() {
-                            unimplemented!("cannot propapate nans for float")
-                        }
-
-                        // FIXME: Should add policy at the level because function `function` will fold
-                        // the whole array into an one-element array.
-                        Ok(Some(first.aggregate(GroupByMethod::Max)))
-                    };
-
-                    Arc::new(f)
+                    todo!()
                 }
                 AAggExpr::Min { propagate_nans, .. } => {
-                    let f = move |input: &mut [FieldDataRef]| {
-                        let first = replace_with_empty(&mut input[0]);
-
-                        if propagate_nans && first.data_type().is_float() {
-                            unimplemented!("cannot propapate nans for float")
-                        }
-
-                        Ok(Some(first.aggregate(GroupByMethod::Min)))
-                    };
-
-                    Arc::new(f)
+                    todo!()
                 }
 
                 AAggExpr::Sum(_) => {
-                    let f = move |input: &mut [FieldDataRef]| {
-                        let first = replace_with_empty(&mut input[0]);
-
-                        Ok(Some(first.aggregate(GroupByMethod::Sum)))
-                    };
-
-                    Arc::new(f)
+                    todo!()
                 }
 
                 _ => unimplemented!(),
             };
 
+            #[allow(unreachable_code)]
             Ok(Arc::new(ApplyExpr {
                 function,
                 input_schema: schema.clone(),
@@ -653,9 +632,20 @@ pub(crate) fn aexpr_to_field(
         AExpr::Filter { input, .. } => {
             aexpr_to_field(expr_arena.get(*input), expr_arena, schema, in_aggregation)
         }
-        AExpr::Agg(agg) => {
-            todo!()
-        }
+        AExpr::Agg(agg) => match agg {
+            AAggExpr::Max { input, .. } => {
+                aexpr_to_field(expr_arena.get(*input), expr_arena, schema, in_aggregation)
+            }
+            AAggExpr::Min { input, .. } => {
+                aexpr_to_field(expr_arena.get(*input), expr_arena, schema, in_aggregation)
+            }
+            AAggExpr::Mean(input) => {
+                aexpr_to_field(expr_arena.get(*input), expr_arena, schema, in_aggregation)
+            }
+            AAggExpr::Sum(input) => {
+                aexpr_to_field(expr_arena.get(*input), expr_arena, schema, in_aggregation)
+            }
+        },
 
         // Cannot extract field information from this type because it should be expaned at higher level!
         _ => Err(PolicyCarryingError::InvalidInput),
@@ -684,6 +674,7 @@ pub(crate) fn expr_to_field(
     expr_to_field_impl(&mut expr_arena, expr, schema, in_aggregation)
 }
 
+#[allow(unused)]
 fn replace_with_empty(dst: &mut FieldDataRef) -> FieldDataRef {
     let field = Field::new(
         dst.name().into(),
@@ -694,4 +685,31 @@ fn replace_with_empty(dst: &mut FieldDataRef) -> FieldDataRef {
     let src = Arc::from(new_empty(field.into()));
 
     std::mem::replace(dst, src)
+}
+
+/// Take a list of expressions and a schema and determine the output schema.
+pub(crate) fn expressions_to_schema(
+    expr: &[Expr],
+    schema: &SchemaRef,
+    in_aggregation: bool,
+) -> PolicyCarryingResult<Schema> {
+    let fields = expr
+        .iter()
+        .map(|expr| expr_to_field(expr, schema, in_aggregation))
+        .collect::<PolicyCarryingResult<Vec<_>>>()?;
+
+    Ok(Schema::new(fields, Default::default(), None))
+}
+
+/// Extracts the column name from the given expression.
+pub(crate) fn expr_to_name(expr: &Expr) -> PolicyCarryingResult<String> {
+    for e in expr.into_iter() {
+        match e {
+            Expr::Column(name) | Expr::Alias { name, .. } => return Ok(name.clone()),
+            Expr::Wildcard => return Err(PolicyCarryingError::InvalidInput),
+            _ => continue,
+        }
+    }
+
+    Err(PolicyCarryingError::InvalidInput)
 }

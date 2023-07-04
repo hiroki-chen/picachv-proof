@@ -11,7 +11,7 @@ use policy_core::{
     error::{PolicyCarryingError, PolicyCarryingResult, StatusCode},
     expr::GroupByMethod,
     get_lock,
-    types::{ExecutorRefId, ExecutorType, FunctionArguments},
+    types::{ExecutorRefId, FunctionArguments},
 };
 
 lazy_static! {
@@ -48,8 +48,6 @@ type UserDefinedFunction =
 ///
 /// # Arguments
 ///
-/// - `executor_type`: An `usize` represented [`ExecutorType`] which specifies the type of the executor
-///                    that the caller wants to create.
 /// - `args`: The pointer to the argument buffer. A serialized [`FunctionArguments`].
 /// - `args_len`: The length of the argument buffer.
 /// - `p_executor`: The pointer to the created executor. Note that this is a pointer to a smart pointer
@@ -57,12 +55,7 @@ type UserDefinedFunction =
 ///                 Wrapping the executor in a nested pointer is to ensure that fat pointers can be passed
 ///                 via FFI interfaces. Recall the memory layout of a trait object: it contains a pointer
 ///                 to the concrete type and a pointer to the vtable for dynamic dispatch.
-type ExecutorCreator = fn(
-    executor_type: usize,
-    args: *const u8,
-    args_len: usize,
-    p_executor: *mut usize,
-) -> StatusCode;
+type ExecutorCreator = fn(args: *const u8, args_len: usize, p_executor: *mut usize) -> StatusCode;
 
 /// Loads the executors from the shared library and returns the id to these executors.
 pub fn load_executor_lib(
@@ -113,10 +106,9 @@ pub fn load_executor_lib(
 /// or at runtime).
 pub fn create_executor<U: Sized>(
     id: ExecutorRefId,
-    executor_type: ExecutorType,
     args: FunctionArguments,
 ) -> PolicyCarryingResult<Box<U>> {
-    EXECUTOR_LIB.create_executor(&id, executor_type, args)
+    EXECUTOR_LIB.create_executor(&id, args)
 }
 
 /// Tries to get the corresponding function from the loaded module by a given id set `id` and a type.
@@ -251,7 +243,6 @@ where
     pub fn create_executor<U: Sized>(
         &self,
         id: &T,
-        executor_type: ExecutorType,
         args: FunctionArguments,
     ) -> PolicyCarryingResult<Box<U>> {
         let f = self.get_symbol::<ExecutorCreator>(id, "create_executor")?;
@@ -259,12 +250,7 @@ where
         let args = serde_json::to_string(&args)
             .map_err(|e| PolicyCarryingError::SerializeError(e.to_string()))?;
 
-        match f(
-            executor_type as usize,
-            args.as_ptr(),
-            args.len(),
-            &mut executor,
-        ) {
+        match f(args.as_ptr(), args.len(), &mut executor) {
             StatusCode::Ok => Ok(unsafe { Box::from_raw(executor as *mut U) }),
             ret => Err(PolicyCarryingError::CommandFailed(ret.into())),
         }

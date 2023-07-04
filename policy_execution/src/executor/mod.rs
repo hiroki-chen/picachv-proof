@@ -13,15 +13,18 @@ use policy_core::{
     error::{PolicyCarryingError, PolicyCarryingResult},
     expr::{AExpr, GroupByMethod},
     get_lock,
-    types::{ExecutorRefId, ExecutorType, FunctionArguments},
+    types::{ExecutorRefId, FunctionArguments},
 };
 
 use crate::plan::{physical_expr::PhysicalExpr, ALogicalPlan};
 
 use self::arena::Arena;
 
-pub mod arena;
+pub(crate) mod arena;
+
+pub mod apply;
 pub mod filter;
+pub mod groupby_partitioned;
 pub mod projection;
 pub mod scan;
 
@@ -158,10 +161,9 @@ pub fn get_apply_udf(
 
 pub fn create_executor(
     id: ExecutorRefId,
-    executor_type: ExecutorType,
     args: FunctionArguments,
 ) -> PolicyCarryingResult<Executor> {
-    let mut boxed = policy_ffi::create_executor::<Executor>(id, executor_type, args)?;
+    let mut boxed = policy_ffi::create_executor::<Executor>(id, args)?;
 
     // This operation forces a 'move' of the memory content pointee by this `boxed` pointer. This guarantees that the
     // ownership is transferred from the external library and that the memory content is correctly copied. Doing so

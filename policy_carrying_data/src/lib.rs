@@ -1,6 +1,7 @@
 #![cfg_attr(not(test), deny(unused_must_use))]
 #![cfg_attr(test, allow(unused))]
-#![forbid(unsafe_code)]
+
+#![feature(downcast_unchecked)]
 
 use std::{
     fmt::{Debug, Display, Formatter},

@@ -7,33 +7,46 @@ pub mod udf;
 
 #[cfg(test)]
 mod test {
-    use policy_carrying_data::{define_schema, pcd};
-    use policy_core::{col, cols, types::Float64Type};
+    use std::sync::Arc;
 
-    use crate::lazy::LazyFrame;
+    use policy_core::{
+        expr::{BinaryOp, Expr},
+        types::Int8Type,
+    };
+
+    use crate::plan::physical_expr::*;
 
     #[test]
-    fn test_simple_query() {
-        let schema = define_schema! {
-            0,
-            "column_1" => DataType::Int8,
-            "column_2" =>  DataType::Float64,
-        };
+    fn test_physical_expr_serde() {
+        let phys_expr: Arc<dyn PhysicalExpr> = Arc::new(FilterExpr {
+            input: Arc::new(ColumnExpr {
+                name: "foo".into(),
+                expr: Expr::Column("foo".into()),
+                schema: None,
+            }),
+            by: Arc::new(BinaryOpExpr {
+                left: Arc::new(ColumnExpr {
+                    name: "foo".into(),
+                    expr: Expr::Column("foo".into()),
+                    schema: None,
+                }),
+                op: BinaryOp::Ge,
+                right: Arc::new(LiteralExpr {
+                    literal: Box::new(Int8Type::new(0)),
+                    expr: Expr::Literal(Box::new(Int8Type::new(0))),
+                }),
+                expr: Expr::Wildcard,
+            }),
+            expr: Expr::Wildcard,
+        });
 
-        let lf = LazyFrame::new_from_schema(schema);
-        let pcd = lf
-            .select(cols!("column_2"))
-            .filter(
-                col!("column_2")
-                    .lt(Float64Type::new(200.0))
-                    .and(col!("column_2").eq(Float64Type::new(22.3))),
-            )
-            .collect();
+        let s = serde_json::to_string(&phys_expr).unwrap();
+        assert_eq!(
+            r#"{"physical_expr":"FilterExpr","input":{"physical_expr":"ColumnExpr","name":"foo","expr":{"Column":"foo"},"schema":null},"by":{"physical_expr":"BinaryOpExpr","left":{"physical_expr":"ColumnExpr","name":"foo","expr":{"Column":"foo"},"schema":null},"op":"Ge","right":{"physical_expr":"LiteralExpr","literal":{"primitive_data_type":"Int8Type","value":[0,"Int8"]},"expr":{"Literal":{"primitive_data_type":"Int8Type","value":[0,"Int8"]}}},"expr":"Wildcard"},"expr":"Wildcard"}"#,
+            &s
+        );
 
-        let pcd2 = pcd! {
-            "column_2" => DataType::Float64: [22.3, 22.3, 22.3, 22.3],
-        };
-
-        assert!(pcd.is_ok_and(|inner| inner == pcd2));
+        let der = serde_json::from_str::<Arc<dyn PhysicalExpr>>(&s);
+        assert!(der.is_ok());
     }
 }

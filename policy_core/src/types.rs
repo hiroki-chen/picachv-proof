@@ -4,6 +4,7 @@ use std::{
     fmt::{Debug, Display, Formatter},
 };
 
+use num_enum::{FromPrimitive, IntoPrimitive};
 use serde::{Deserialize, Serialize};
 
 use crate::error::{PolicyCarryingError, PolicyCarryingResult};
@@ -27,7 +28,19 @@ impl Display for ExecutorRefId {
 /// structs that may contain [`DataType`]s, but we do not seek to support such complex types because we only focus on
 /// primitive types (note that [`String`] or [`std::str`] are also primitive types in data analytics).
 #[derive(
-    Clone, Copy, Debug, Hash, PartialOrd, PartialEq, Eq, Ord, Default, Serialize, Deserialize,
+    Clone,
+    Copy,
+    Debug,
+    Hash,
+    PartialOrd,
+    PartialEq,
+    Eq,
+    Ord,
+    Default,
+    Serialize,
+    Deserialize,
+    FromPrimitive,
+    IntoPrimitive,
 )]
 #[repr(usize)]
 pub enum DataType {
@@ -60,7 +73,9 @@ pub enum DataType {
     Utf8Str,
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[derive(
+    Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Default, FromPrimitive, IntoPrimitive,
+)]
 #[repr(usize)]
 pub enum JoinType {
     Left,
@@ -70,7 +85,9 @@ pub enum JoinType {
     Natural,
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[derive(
+    Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Default, Serialize, Deserialize,
+)]
 #[repr(usize)]
 pub enum ExecutorType {
     DataframeScan,
@@ -78,6 +95,7 @@ pub enum ExecutorType {
     Projection,
     Apply,
     Aggregation,
+    PartitionGroupBy,
     #[default]
     Invalid,
 }
@@ -181,6 +199,7 @@ impl DataType {
 
 /// This trait is a workaround for getting the concrete type of a primitive type that we store
 /// as a trait object `dyn PritimiveDataType`.
+#[typetag::serde(tag = "primitive_data_type")]
 pub trait PrimitiveDataType: Debug + Sync + Send + ToString + 'static {
     fn data_type(&self) -> DataType;
 
@@ -235,6 +254,7 @@ macro_rules! declare_type {
             }
         }
 
+        #[typetag::serde]
         impl $crate::types::PrimitiveDataType for $name {
             fn data_type(&self) -> $crate::types::DataType {
                 self.1
@@ -389,5 +409,23 @@ mod test {
         assert!(&int8_data1 != &int8_data2);
         assert!(&int8_data3 != &int8_data4);
         assert!(&int8_data1 == &int8_data3);
+    }
+
+    #[test]
+    fn type_serde() {
+        let int8_data: Box<dyn PrimitiveDataType> = Box::new(Int8Type::new(0));
+        let str_data: Box<dyn PrimitiveDataType> = Box::new(Utf8StrType::new("0".into()));
+
+        let serialized_int8 = serde_json::to_string(&int8_data).unwrap();
+        let serialized_str = serde_json::to_string(&str_data).unwrap();
+
+        assert_eq!(
+            r#"{"primitive_data_type":"Int8Type","value":[0,"Int8"]}"#,
+            &serialized_int8
+        );
+        assert_eq!(
+            r#"{"primitive_data_type":"Utf8StrType","value":["0","Utf8Str"]}"#,
+            &serialized_str
+        );
     }
 }

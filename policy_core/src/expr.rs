@@ -1,5 +1,7 @@
 use std::fmt::{Debug, Display, Formatter};
 
+use serde::{Deserialize, Serialize};
+
 use crate::{error::PolicyCarryingResult, types::PrimitiveDataType};
 
 /// Represents the index of the element it points to in the arena.
@@ -13,7 +15,7 @@ impl Default for Node {
 }
 
 /// The aggregation type.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum Aggregation {
     Min(Box<Expr>),
     Max(Box<Expr>),
@@ -21,7 +23,7 @@ pub enum Aggregation {
     Mean(Box<Expr>),
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, Serialize, Deserialize)]
 pub enum GroupByMethod {
     Min,
     Max,
@@ -72,7 +74,7 @@ impl Aggregation {
 }
 
 /// An expression type.
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub enum Expr {
     /// Aggregation.
     Agg(Aggregation),
@@ -145,7 +147,7 @@ impl Display for Expr {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum BinaryOp {
     Lt,
     Gt,
@@ -415,6 +417,29 @@ impl AExpr {
     pub fn is_leaf(&self) -> bool {
         matches!(self, AExpr::Column(_) | AExpr::Literal(_))
     }
+
+    pub fn nodes<'a>(&'a self, container: &mut Vec<Node>) {
+        let mut push = |e: &'a Node| container.push(*e);
+
+        match self {
+            Self::Wildcard | Self::Column(_) | Self::Literal(_) => return,
+            Self::BinaryOp { left, right, .. } => {
+                push(right);
+                push(left);
+            }
+            Self::Filter { input, by } => {
+                push(by);
+                push(input);
+            }
+            Self::Alias(from, ..) => push(from),
+            Self::Agg(agg) => match agg {
+                AAggExpr::Max { input, .. }
+                | AAggExpr::Min { input, .. }
+                | AAggExpr::Mean(input)
+                | AAggExpr::Sum(input) => push(input),
+            },
+        }
+    }
 }
 
 #[cfg(test)]
@@ -428,6 +453,10 @@ mod test {
             .and(col!("some_column2").lt(Int8Type::new(123))))
         .or(col!("some_column3").lt(Int8Type::new(111)));
 
-        println!("{:#?}", expr);
+        let expr = format!("{:#?}", expr);
+        assert_eq!(
+            r#"(((some_column > 100: Int8) && (some_column2 < 123: Int8)) || (some_column3 < 111: Int8))"#,
+            &expr
+        );
     }
 }

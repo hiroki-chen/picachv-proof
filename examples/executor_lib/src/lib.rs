@@ -5,71 +5,26 @@ use std::{
     sync::{Arc, OnceLock},
 };
 
-use policy_carrying_data::{field::*, DataFrame};
+use policy_carrying_data::DataFrame;
 use policy_core::{
-    args,
     error::{PolicyCarryingError, PolicyCarryingResult, StatusCode},
     types::*,
 };
 use policy_execution::{
     executor::{
-        evaluate_physical_expr_vec, filter::FilterExec, projection::ProjectionExec,
-        scan::DataFrameExec, ExecutionState, Executor, PhysicalExecutor,
+        evaluate_physical_expr_vec, filter::FilterExec, groupby_partitioned::PartitionGroupByExec,
+        projection::ProjectionExec, scan::DataFrameExec, ExecutionState, Executor,
+        PhysicalExecutor,
     },
     trace,
 };
-
-macro_rules! array_from_raw {
-    ($ptr:expr, $len:expr, $ty:path) => {
-        unsafe {
-            let arr: Box<dyn FieldData> = match $ty {
-                DataType::Int8 => Box::new(FieldDataArray::from(
-                    std::slice::from_raw_parts($ptr as *const i8, $len).to_vec(),
-                )),
-                DataType::Int16 => Box::new(FieldDataArray::from(
-                    std::slice::from_raw_parts($ptr as *const i16, $len).to_vec(),
-                )),
-                DataType::Int32 => Box::new(FieldDataArray::from(
-                    std::slice::from_raw_parts($ptr as *const i32, $len).to_vec(),
-                )),
-                DataType::Int64 => Box::new(FieldDataArray::from(
-                    std::slice::from_raw_parts($ptr as *const i64, $len).to_vec(),
-                )),
-                DataType::UInt8 => Box::new(FieldDataArray::from(
-                    std::slice::from_raw_parts($ptr as *const u8, $len).to_vec(),
-                )),
-                DataType::UInt16 => Box::new(FieldDataArray::from(
-                    std::slice::from_raw_parts($ptr as *const u16, $len).to_vec(),
-                )),
-                DataType::UInt32 => Box::new(FieldDataArray::from(
-                    std::slice::from_raw_parts($ptr as *const u32, $len).to_vec(),
-                )),
-                DataType::UInt64 => Box::new(FieldDataArray::from(
-                    std::slice::from_raw_parts($ptr as *const u64, $len).to_vec(),
-                )),
-                DataType::Float32 => Box::new(FieldDataArray::from(
-                    std::slice::from_raw_parts($ptr as *const f32, $len).to_vec(),
-                )),
-                DataType::Float64 => Box::new(FieldDataArray::from(
-                    std::slice::from_raw_parts($ptr as *const f64, $len).to_vec(),
-                )),
-                DataType::Boolean => Box::new(FieldDataArray::from(
-                    std::slice::from_raw_parts($ptr as *const bool, $len).to_vec(),
-                )),
-                DataType::Utf8Str => Box::new(FieldDataArray::from(
-                    std::slice::from_raw_parts($ptr as *const String, $len).to_vec(),
-                )),
-                _ => panic!(),
-            };
-
-            arr
-        }
-    };
-}
+use policy_privacy::PrivacyMananger;
 
 // TODO: A demo. In productive platforms, this data should be fetched from the persistent layer and should be
 // stored in encrypted form to ensure optimal security.
 static DATA: OnceLock<Arc<DataFrame>> = OnceLock::new();
+/// A privacy manager.
+static PRIVACY_MANAGER: OnceLock<Arc<PrivacyMananger>> = OnceLock::new();
 
 /// From this timepoint, we can load the data into the memory!
 #[no_mangle]
@@ -83,14 +38,28 @@ extern "C" fn on_load(args: *const u8, args_len: usize) -> StatusCode {
         Ok(args) => args,
         Err(_) => return StatusCode::SerializeError,
     };
+    let (id, dp_param) = match (
+        args.get_and_apply("id", |val: usize| val),
+        args.get_and_apply("dp_param.0", |val: f64| val),
+        args.get_and_apply("dp_param.1", |val: f64| val),
+    ) {
+        (Ok(id), Ok(eps), Ok(delta)) => (id, (eps, delta)),
+        _ => return StatusCode::SerializeError,
+    };
 
     let df = match DataFrame::try_from(args) {
         Ok(df) => Arc::new(df),
-        // TODO: convert Result to error code.
         Err(_) => return StatusCode::Unsupported,
     };
 
-    let _ = DATA.set(df);
+    if let Err(_) = DATA.set(df) {
+        return StatusCode::Unknown;
+    }
+
+    let pm = PRIVACY_MANAGER.get_or_init(|| Arc::new(PrivacyMananger::new()));
+    if let Err(_) = pm.set_dp_manager(id, dp_param) {
+        return StatusCode::Already;
+    }
 
     StatusCode::Ok
 }
@@ -102,7 +71,6 @@ extern "C" fn on_unload(_args: *const u8, _args_len: usize) -> StatusCode {
 
 #[no_mangle]
 extern "C" fn create_executor(
-    executor_type: u64,
     args: *const u8,
     args_len: usize,
     p_executor: *mut usize,
@@ -117,7 +85,13 @@ extern "C" fn create_executor(
         Err(_) => return StatusCode::SerializeError,
     };
 
-    let executor_type = unsafe { std::mem::transmute::<u64, ExecutorType>(executor_type) };
+    let executor_type = match args.get_and_apply("executor_type", |ty: String| {
+        serde_json::from_str::<ExecutorType>(&ty)
+    }) {
+        Ok(Ok(ty)) => ty,
+        _ => return StatusCode::SerializeError,
+    };
+
     let executor: Executor = match executor_type {
         ExecutorType::DataframeScan => match DataFrameExec::try_from(args) {
             Ok(mut exec) => match DATA.get() {
@@ -137,6 +111,11 @@ extern "C" fn create_executor(
             Ok(exec) => Box::new(MyFilterExec(exec)),
             Err(_) => return StatusCode::SerializeError,
         },
+        ExecutorType::PartitionGroupBy => match PartitionGroupByExec::try_from(args) {
+            Ok(exec) => Box::new(MyPartitionGroupByExec(exec)),
+            Err(_) => return StatusCode::SerializeError,
+        },
+
         // Not implemented.
         _ => return StatusCode::Unsupported,
     };
@@ -157,6 +136,8 @@ pub struct MyDataFrameScanExec(DataFrameExec);
 pub struct MyProjectionExec(ProjectionExec);
 #[derive(Clone)]
 pub struct MyFilterExec(FilterExec);
+#[derive(Clone)]
+pub struct MyPartitionGroupByExec(PartitionGroupByExec);
 
 impl Debug for MyDataFrameScanExec {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -176,9 +157,15 @@ impl Debug for MyFilterExec {
     }
 }
 
+impl Debug for MyPartitionGroupByExec {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "MyPartitionGroupByExec")
+    }
+}
+
 impl PhysicalExecutor for MyDataFrameScanExec {
     fn execute(&mut self, state: &ExecutionState) -> PolicyCarryingResult<DataFrame> {
-        trace!(state, "MyDataFrameScanExec");
+        trace!(state, format!("{self:?}"));
 
         // Check if the dataframe is being used or referenced by other executors.
         // If there is no other pointers, we can modify the dataframe in-place. Otherwise, we need
@@ -219,7 +206,7 @@ impl PhysicalExecutor for MyDataFrameScanExec {
 
 impl PhysicalExecutor for MyProjectionExec {
     fn execute(&mut self, state: &ExecutionState) -> PolicyCarryingResult<DataFrame> {
-        trace!(state, "MyProjectionExec");
+        trace!(state, format!("{self:?}"));
 
         let df = self.0.input.execute(state)?;
         evaluate_physical_expr_vec(&df, self.0.expr.as_ref(), state)
@@ -236,7 +223,7 @@ impl PhysicalExecutor for MyProjectionExec {
 
 impl PhysicalExecutor for MyFilterExec {
     fn execute(&mut self, state: &ExecutionState) -> PolicyCarryingResult<DataFrame> {
-        trace!(state, "MyFilterExec");
+        trace!(state, format!("{self:?}"));
 
         let df = self.0.input.execute(state)?;
         let filtered = self.0.predicate.evaluate(&df, state)?;
@@ -254,52 +241,20 @@ impl PhysicalExecutor for MyFilterExec {
     }
 }
 
-// ============= Functions should be automatically generated by the policy generator ============= //
-#[no_mangle]
-extern "C" fn agg_sum(
-    args: *const u8,
-    args_len: usize,
-    output: *mut u8,
-    output_len: *mut usize,
-) -> StatusCode {
-    // Deserialize the arguments.
-    let args = unsafe {
-        let args = std::slice::from_raw_parts(args, args_len);
-        std::str::from_utf8_unchecked(args)
-    };
-    let args = match serde_json::from_str::<FunctionArguments>(args) {
-        Ok(args) => args,
-        Err(_) => return StatusCode::SerializeError,
-    };
+impl PhysicalExecutor for MyPartitionGroupByExec {
+    fn execute(&mut self, state: &ExecutionState) -> PolicyCarryingResult<DataFrame> {
+        trace!(state, format!("{self:?}"));
 
-    let input_data_type = match args.get_and_apply("input_data_type", |input: String| {
-        serde_json::from_str::<DataType>(input.as_str()).unwrap()
-    }) {
-        Ok(input) => input,
-        Err(_) => return StatusCode::SerializeError,
-    };
-    let input = match args.get_and_apply("input", |input: usize| input) {
-        Ok(input) => input,
-        Err(_) => return StatusCode::SerializeError,
-    };
-    let input_len = match args.get_and_apply("input_len", |input: usize| input) {
-        Ok(input) => input,
-        Err(_) => return StatusCode::SerializeError,
-    };
-
-    let input = array_from_raw!(input, input_len, input_data_type);
-    // Do whatever you like.
-    let res = policy_function::pcd_sum_trait(input.as_ref()).unwrap();
-    let args = serde_json::to_string(&args! {
-        // Leak the box.
-        "output": Box::into_raw(Box::new(res)) as usize,
-    })
-    .unwrap();
-
-    unsafe {
-        std::ptr::copy_nonoverlapping(args.as_ptr(), output, args.len());
-        *output_len = args.len();
+        // Test.
+        let df = DATA.get().cloned().unwrap_or_default().deref().clone();
+        Ok(df)
     }
 
-    StatusCode::Ok
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn clone_box(&self) -> Executor {
+        Box::new(self.clone())
+    }
 }
