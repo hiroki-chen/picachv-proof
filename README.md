@@ -17,4 +17,5 @@ The layout of the project:
 
 ## Known Issues
 
-* `opendp` cannot work with FFI modules when `use-openssl` feature is enabled because `openssl-sys` will try to link against some `extern "C"` interfaces, causing conflicts with our implementation. Solution: add `default-features = false` in `Cargo.toml`.
+* rustc will generate different `TypeId`s for generics when crates are not compiled in a bundle, even if the generics have the same type. Thus, `std::any::Any` cannot be downcast in safe Rust. The workaround is simple but a little bit of hacky: we bypass the security check and switch to nightly Rust to enable the feature `downcast_unchecked`.
+* <s>`opendp` causes type mismatch.</s> No. This issue is caused by type confusion when building crates in a separate way, not its dependencies.
