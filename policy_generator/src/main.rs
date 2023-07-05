@@ -8,7 +8,7 @@ use std::{
 
 use clap::Parser;
 use policy_core::{
-    error::{PolicyCarryingError, PolicyCarryingResult},
+    error::{PolicyCarryingError, PolicyCarryingResult, StatusCode},
     policy_parser,
 };
 
@@ -93,9 +93,7 @@ fn entry(args: Args) -> PolicyCarryingResult<()> {
         if !output.status.success() {
             log::error!("cargo:\n{}", std::str::from_utf8(&output.stderr).unwrap());
 
-            return Err(PolicyCarryingError::CommandFailed(
-                output.status.code().unwrap_or_default().into(),
-            ));
+            return Err(StatusCode::from(output.status.code().unwrap_or_default()).into());
         }
 
         format!("{}/src/lib.rs", args.output)

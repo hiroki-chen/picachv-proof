@@ -52,3 +52,8 @@ The `examples` folder contains the sample usage of compiling the executors into 
 ## Thoughts
 
 Another design option is to include opague structs in the shared library that exposes only pointers to the caller. All the operations must be performed via the opague handle. This method, however, requires intensive serialization/deserialization of the Rust structs, if they are not `[repr(C)]`. For example, the type-erased field arrays `Vec<Arc<dyn FieldData>>`, but doing so indeed allows for backward compatibility.
+
+## Links
+
+* <https://adventures.michaelfbryan.com/posts/plugins-in-rust/>
+* <https://nullderef.com/blog/plugin-tech/>

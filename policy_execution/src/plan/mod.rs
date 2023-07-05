@@ -13,7 +13,7 @@ use policy_core::{
     error::{PolicyCarryingError, PolicyCarryingResult},
     expr::{AAggExpr, AExpr, Aggregation, Expr, Node},
     policy::Policy,
-    types::{ExecutorRefId, ExecutorType, JoinType},
+    types::{ExecutorRefId, ExecutorType, JoinType, OpaquePtr},
 };
 use serde::{Deserialize, Serialize};
 
@@ -28,7 +28,7 @@ use crate::{
 
 pub mod physical_expr;
 
-pub type PhysicalPlan = (ExecutionState, Executor);
+pub type PhysicalPlan = (ExecutionState, OpaquePtr);
 
 bitflags! {
     #[derive(Copy, Clone, Debug)]
@@ -769,13 +769,14 @@ pub(crate) fn make_physical_plan(
     Ok((ExecutionState::with_executors(executor_ref_id), executor))
 }
 
-/// A recursive function that handles the conversion from [`ALogicalPlan`] to the [`Executor`] AST.
+/// A recursive function that handles the conversion from [`ALogicalPlan`] to the [`OpaquePtr`]
+/// which points to a valid [``].
 fn do_make_physical_plan(
     root: Node,
     lp_arena: &mut LogicalPlanArena,
     expr_arena: &mut ExprArena,
     executor_ref_id: ExecutorRefId,
-) -> PolicyCarryingResult<Executor> {
+) -> PolicyCarryingResult<OpaquePtr> {
     let node = lp_arena.take(root);
 
     log::debug!("visiting node {node:?}");
@@ -792,8 +793,8 @@ fn do_make_physical_plan(
                 executor_ref_id,
                 args! {
                     "executor_type": serde_json::to_string(&ExecutorType::Filter).unwrap(),
+                    "input": input as usize,
                     "predicate": serde_json::to_string(&predicate).unwrap(),
-                    "input": Box::into_raw(Box::new(input))as *mut _ as usize,
                 },
             )
         }
@@ -845,7 +846,7 @@ fn do_make_physical_plan(
                 executor_ref_id,
                 args! {
                     "executor_type": serde_json::to_string(&ExecutorType::Projection).unwrap(),
-                    "input": Box::into_raw(Box::new(input)) as *mut _ as usize,
+                    "input": input as usize,
                     "expr": serde_json::to_string(&expr).unwrap(),
                     "input_schema": serde_json::to_string(&schema).unwrap(),
                 },
@@ -900,7 +901,7 @@ fn do_make_physical_plan(
                     executor_ref_id,
                     args! {
                         "executor_type": serde_json::to_string(&ExecutorType::PartitionGroupBy).unwrap(),
-                        "input": Box::into_raw(Box::new(input)) as *mut _ as usize,
+                        "input": input as usize,
                         "phys_keys": serde_json::to_string(&phys_keys).unwrap(),
                         "phys_aggs": serde_json::to_string(&phys_aggs).unwrap(),
                         "maintain_order": maintain_order,

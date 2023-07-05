@@ -39,8 +39,8 @@ pub enum PolicyCarryingError {
     OperationNotAllowed(String),
     /// Parse failed.
     ParseError(String, String),
-    /// Sub-command failed.
-    CommandFailed(StatusCode),
+    /// Version error.
+    VersionMismatch(String),
     /// Unknown error.
     #[default]
     Unknown,
@@ -55,6 +55,21 @@ pub enum StatusCode {
     SerializeError = 2,
     NotLoaded = 3,
     Already = 4,
+    ColumnNotFound = 5,
+    DuplicateColumn = 6,
+    FsError = 7,
+    ImpossibleOperation = 8,
+    InvalidInput = 9,
+    InconsistentPolicy = 10,
+    OperationNotAllowed = 11,
+    OperationNotSupported = 12,
+    OutOfBound = 13,
+    ParseError = 14,
+    PrivacyError = 15,
+    SchemaMismatch = 16,
+    SymbolNotFound = 17,
+    TypeMismatch = 18,
+    VersionMismatch = 19,
     #[default]
     Unknown = 0x100,
 }
@@ -62,6 +77,53 @@ pub enum StatusCode {
 impl From<i32> for StatusCode {
     fn from(value: i32) -> Self {
         (value as i64).into()
+    }
+}
+
+impl From<PolicyCarryingError> for StatusCode {
+    fn from(value: PolicyCarryingError) -> Self {
+        match value {
+            PolicyCarryingError::AlreadyLoaded => StatusCode::Already,
+            PolicyCarryingError::ColumnNotFound(_) => StatusCode::ColumnNotFound,
+            PolicyCarryingError::DuplicateColumn(_) => StatusCode::DuplicateColumn,
+            PolicyCarryingError::FsError(_) => StatusCode::FsError,
+            PolicyCarryingError::ImpossibleOperation(_) => StatusCode::ImpossibleOperation,
+            PolicyCarryingError::InvalidInput => StatusCode::InvalidInput,
+            PolicyCarryingError::InconsistentPolicy(_) => StatusCode::InconsistentPolicy,
+            PolicyCarryingError::OperationNotAllowed(_) => StatusCode::OperationNotAllowed,
+            PolicyCarryingError::OperationNotSupported => StatusCode::OperationNotSupported,
+            PolicyCarryingError::OutOfBound(_) => StatusCode::OutOfBound,
+            PolicyCarryingError::ParseError(_, _) => StatusCode::ParseError,
+            PolicyCarryingError::PrivacyError(_) => StatusCode::PrivacyError,
+            PolicyCarryingError::SchemaMismatch(_) => StatusCode::SchemaMismatch,
+            PolicyCarryingError::SerializeError(_) => StatusCode::SerializeError,
+            PolicyCarryingError::SymbolNotFound(_) => StatusCode::SymbolNotFound,
+            PolicyCarryingError::TypeMismatch(_) => StatusCode::TypeMismatch,
+            PolicyCarryingError::VersionMismatch(_) => StatusCode::VersionMismatch,
+            _ => StatusCode::Unknown,
+        }
+    }
+}
+
+impl From<StatusCode> for PolicyCarryingError {
+    fn from(value: StatusCode) -> Self {
+        match value {
+            StatusCode::Already => PolicyCarryingError::AlreadyLoaded,
+            StatusCode::ColumnNotFound => PolicyCarryingError::ColumnNotFound("".into()),
+            StatusCode::DuplicateColumn => PolicyCarryingError::DuplicateColumn("".into()),
+            StatusCode::FsError => PolicyCarryingError::FsError("".into()),
+            StatusCode::ImpossibleOperation => PolicyCarryingError::ImpossibleOperation("".into()),
+            StatusCode::OperationNotAllowed => PolicyCarryingError::OperationNotAllowed("".into()),
+            StatusCode::OperationNotSupported => PolicyCarryingError::OperationNotSupported,
+            StatusCode::OutOfBound => PolicyCarryingError::OutOfBound("".into()),
+            StatusCode::ParseError => PolicyCarryingError::ParseError("".into(), "".into()),
+            StatusCode::PrivacyError => PolicyCarryingError::PrivacyError("".into()),
+            StatusCode::SchemaMismatch => PolicyCarryingError::SchemaMismatch("".into()),
+            StatusCode::SerializeError => PolicyCarryingError::SerializeError("".into()),
+            StatusCode::TypeMismatch => PolicyCarryingError::TypeMismatch("".into()),
+            StatusCode::VersionMismatch => PolicyCarryingError::VersionMismatch("".into()),
+            _ => PolicyCarryingError::Unknown,
+        }
     }
 }
 
@@ -80,6 +142,7 @@ impl Display for PolicyCarryingError {
             Self::SchemaMismatch(info) => write!(f, "Schema mismatch: {}", info),
             Self::InconsistentPolicy(info) => write!(f, "Inconsistent policies: {}", info),
             Self::InvalidInput => write!(f, "invalid input"),
+            Self::VersionMismatch(ver) => write!(f, "This version {} is not supported", ver),
             Self::TypeMismatch(info) => write!(f, "Type mismatch: {}", info),
             Self::ColumnNotFound(info) => write!(f, "Missing column {}", info),
             Self::SerializeError(info) => write!(f, "Ser- / deserialization error: {}", info),
@@ -92,9 +155,6 @@ impl Display for PolicyCarryingError {
                 write!(f, "Privacy scheme encountered a fatal error: {}", info)
             }
             Self::ParseError(file, info) => write!(f, "Cannot parse {}, {}", file, info),
-            Self::CommandFailed(code) => {
-                write!(f, "Command exited with non-zero exit code {:?}", code)
-            }
             Self::Unknown => write!(
                 f,
                 "Unknown error. This may be due to some implementation bugs"

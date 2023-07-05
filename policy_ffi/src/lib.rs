@@ -1,5 +1,6 @@
 use std::{
     collections::{hash_map::Entry, HashMap},
+    ffi::{c_char, CStr},
     fmt::Debug,
     hash::Hash,
     sync::{atomic::AtomicUsize, atomic::Ordering, Arc, RwLock},
@@ -11,8 +12,10 @@ use policy_core::{
     error::{PolicyCarryingError, PolicyCarryingResult, StatusCode},
     expr::GroupByMethod,
     get_lock,
-    types::{ExecutorRefId, FunctionArguments},
+    types::{ExecutorRefId, FunctionArguments, OpaquePtr},
 };
+
+static RUSTC_VERSION: &str = env!("RUSTC_VERSION");
 
 lazy_static! {
     pub static ref EXECUTOR_LIB: LibraryManager<ExecutorRefId> = LibraryManager::new();
@@ -26,6 +29,15 @@ lazy_static! {
 /// - `args`: The pointer to the argument buffer. A serialized [`FunctionArguments`].
 /// - `args_len`: The length of the buffer.
 type LibFunction = fn(args: *const u8, args_len: usize) -> StatusCode;
+
+/// The signature of the function symbol that exports the rustc version used to build
+/// the library.
+///
+/// # Arguments
+///
+/// - `buf`: The caller allocated buffer for holding the string.
+/// - `len`: The length of bytes copied to the buffer.
+type Version = fn(buf: *const u8, len: *mut usize);
 
 /// The signature of the user defined functions that may apply to the arrays.
 ///
@@ -44,6 +56,15 @@ type LibFunction = fn(args: *const u8, args_len: usize) -> StatusCode;
 type UserDefinedFunction =
     fn(input: *const u8, input_len: usize, output: *mut u8, output_len: *mut usize) -> StatusCode;
 
+/// The signature of the function that executes the physical plan via an opaque handle.
+///
+/// # Arguments
+///
+/// - `executor`: The opaque pointer to the executor which might be a boxed pointer.
+/// - `df`: The output buffer for holding the data frame.
+/// - `df_len`: The length of the output buffer len.
+type ExecutorFunction = fn(executor: OpaquePtr, df: *mut u8, df_len: *mut usize) -> StatusCode;
+
 /// The signature of the function that creates new executors.
 ///
 /// # Arguments
@@ -55,7 +76,9 @@ type UserDefinedFunction =
 ///                 Wrapping the executor in a nested pointer is to ensure that fat pointers can be passed
 ///                 via FFI interfaces. Recall the memory layout of a trait object: it contains a pointer
 ///                 to the concrete type and a pointer to the vtable for dynamic dispatch.
-type ExecutorCreator = fn(args: *const u8, args_len: usize, p_executor: *mut usize) -> StatusCode;
+///                 This pointer is *opaque*.
+type ExecutorCreator =
+    fn(args: *const u8, args_len: usize, p_executor: *mut OpaquePtr) -> StatusCode;
 
 /// Loads the executors from the shared library and returns the id to these executors.
 pub fn load_executor_lib(
@@ -69,7 +92,8 @@ pub fn load_executor_lib(
 }
 
 /// Tries to create a new executor from the loaded module with a given id indicating the executor set,
-/// executor type, and the function arguments passed to the executor instance.
+/// executor type, and the function arguments passed to the executor instance. This function returns an
+/// opaque pointer to the executor allocated in the external library.
 ///
 /// # Examples
 ///
@@ -84,9 +108,10 @@ pub fn load_executor_lib(
 /// }
 ///
 /// let executor =
-///     create_executor::<Box<dyn Foo>>(ExecutorRefId(0), ExecutorType::Filter, args!()).unwrap();
+///     create_executor(ExecutorRefId(0), ExecutorType::Filter, args!()).unwrap();
 ///
-/// executor.foo();
+/// /* Do something with the opaque pointer `executor` */
+///
 /// ```
 ///
 /// # FFI Safety
@@ -104,10 +129,10 @@ pub fn load_executor_lib(
 /// caller specifies `U` (which only accepts types whose sizes are determined at compilation time) as some
 /// smart pointers that can carry a fat pointer, this function is safe (i.e., exhibits no undefined behavi-
 /// or at runtime).
-pub fn create_executor<U: Sized>(
+pub fn create_executor(
     id: ExecutorRefId,
     args: FunctionArguments,
-) -> PolicyCarryingResult<Box<U>> {
+) -> PolicyCarryingResult<OpaquePtr> {
     EXECUTOR_LIB.create_executor(&id, args)
 }
 
@@ -145,18 +170,19 @@ pub fn get_udf(id: ExecutorRefId, ty: GroupByMethod) -> PolicyCarryingResult<Use
     EXECUTOR_LIB.get_udf(&id, ty)
 }
 
+/// Tries to get the function symbol for executing the physical plan.
+pub fn get_execution(id: ExecutorRefId) -> PolicyCarryingResult<ExecutorFunction> {
+    EXECUTOR_LIB
+        .get_symbol::<ExecutorFunction>(&id, "execute")
+        .map(|symbol| symbol.deref().clone())
+}
+
 /// The library manager for bookkeeping the loaded shared libraries.
-pub struct LibraryManager<T>
-where
-    T: Sized,
-{
+pub struct LibraryManager<T: Sized> {
     libs: Arc<RwLock<HashMap<T, Arc<Library>>>>,
 }
 
-impl<T> LibraryManager<T>
-where
-    T: Sized,
-{
+impl<T: Sized> LibraryManager<T> {
     pub fn new() -> Self {
         Self {
             libs: Arc::new(RwLock::new(HashMap::new())),
@@ -177,6 +203,23 @@ where
     ) -> PolicyCarryingResult<()> {
         let lib =
             unsafe { Library::new(path).map_err(|e| PolicyCarryingError::FsError(e.to_string()))? };
+
+        // Check version
+        let mut version = vec![0; 0x200];
+        let version = unsafe {
+            let mut len = 0usize;
+            lib.get::<Version>(b"rustc_version")
+                .map_err(|e| PolicyCarryingError::SymbolNotFound(e.to_string()))?(
+                version.as_mut_ptr(),
+                &mut len,
+            );
+
+            std::str::from_utf8_unchecked(&version[..len])
+        };
+        if version != RUSTC_VERSION {
+            return Err(PolicyCarryingError::VersionMismatch(version.to_string()));
+        }
+
         let f = unsafe { lib.get::<LibFunction>(b"on_load") }
             .map_err(|e| PolicyCarryingError::SymbolNotFound(e.to_string()))?;
         let args = serde_json::to_string(&args)
@@ -213,7 +256,7 @@ where
 
                     let ret = f(args.as_ptr(), args.len());
                     if ret != StatusCode::Ok {
-                        return Err(PolicyCarryingError::CommandFailed(ret.into()));
+                        return Err(ret.into());
                     }
 
                     lock.remove(&id);
@@ -240,19 +283,19 @@ where
     }
 
     /// Creates a new executor from the library.
-    pub fn create_executor<U: Sized>(
+    pub fn create_executor(
         &self,
         id: &T,
         args: FunctionArguments,
-    ) -> PolicyCarryingResult<Box<U>> {
+    ) -> PolicyCarryingResult<OpaquePtr> {
         let f = self.get_symbol::<ExecutorCreator>(id, "create_executor")?;
-        let mut executor = 0usize;
+        let mut executor = std::ptr::null_mut();
         let args = serde_json::to_string(&args)
             .map_err(|e| PolicyCarryingError::SerializeError(e.to_string()))?;
 
         match f(args.as_ptr(), args.len(), &mut executor) {
-            StatusCode::Ok => Ok(unsafe { Box::from_raw(executor as *mut U) }),
-            ret => Err(PolicyCarryingError::CommandFailed(ret.into())),
+            StatusCode::Ok => Ok(executor),
+            ret => Err(ret.into()),
         }
     }
 

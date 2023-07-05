@@ -9,7 +9,7 @@ use policy_carrying_data::{schema::SchemaRef, DataFrame};
 use policy_core::{col, error::PolicyCarryingResult, expr::Expr, types::ExecutorRefId};
 
 use crate::{
-    executor::execution_epilogue,
+    executor::{self, execution_epilogue},
     plan::{make_physical_plan, LogicalPlan, OptFlag, PlanBuilder},
 };
 
@@ -175,9 +175,8 @@ impl LazyFrame {
     #[must_use = "unused dafaframe must be used"]
     pub fn collect(self) -> PolicyCarryingResult<DataFrame> {
         // Generate a phyiscal plan.
-        let (state, mut executor) =
-            make_physical_plan(self.plan, self.opt_flag, self.executor_ref_id)?;
-        let df = executor.execute(&state)?;
+        let (state, executor) = make_physical_plan(self.plan, self.opt_flag, self.executor_ref_id)?;
+        let df = executor::execute(self.executor_ref_id, executor)?;
 
         execution_epilogue(df, &state)
     }

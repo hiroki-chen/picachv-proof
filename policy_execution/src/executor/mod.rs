@@ -10,10 +10,10 @@ use bitflags::bitflags;
 
 use policy_carrying_data::{field::FieldDataRef, schema::SchemaRef, DataFrame};
 use policy_core::{
-    error::{PolicyCarryingError, PolicyCarryingResult},
+    error::{PolicyCarryingError, PolicyCarryingResult, StatusCode},
     expr::{AExpr, GroupByMethod},
     get_lock,
-    types::{ExecutorRefId, FunctionArguments},
+    types::{ExecutorRefId, FunctionArguments, OpaquePtr},
 };
 
 use crate::plan::{physical_expr::PhysicalExpr, ALogicalPlan};
@@ -159,17 +159,25 @@ pub fn get_apply_udf(
     Ok(|fields: &mut [FieldDataRef]| Ok(None))
 }
 
+/// Creates an executor in the external library and returns an opaque handle to that object.
 pub fn create_executor(
     id: ExecutorRefId,
     args: FunctionArguments,
-) -> PolicyCarryingResult<Executor> {
-    let mut boxed = policy_ffi::create_executor::<Executor>(id, args)?;
+) -> PolicyCarryingResult<OpaquePtr> {
+    policy_ffi::create_executor(id, args)
+}
 
-    // This operation forces a 'move' of the memory content pointee by this `boxed` pointer. This guarantees that the
-    // ownership is transferred from the external library and that the memory content is correctly copied. Doing so
-    // allows the boxed object to be either `Clone` or not since `Box` is `Default`.
-    let inner = std::mem::take(boxed.as_mut());
-    Ok(inner)
+pub fn execute(id: ExecutorRefId, executor: OpaquePtr) -> PolicyCarryingResult<DataFrame> {
+    let mut buf = vec![0; 1 << 16];
+    let mut buf_len = 0usize;
+
+    let func = policy_ffi::get_execution(id)?;
+    match func(executor, buf.as_mut_ptr(), &mut buf_len) {
+        StatusCode::Ok => {
+            DataFrame::from_json(unsafe { std::str::from_utf8_unchecked(&buf[..buf_len]) })
+        }
+        _ => Err(PolicyCarryingError::Unknown),
+    }
 }
 
 /// Given a vector of [`PhysicalExpr`]s, evaluates all of them on a given [`DataFrame`] and

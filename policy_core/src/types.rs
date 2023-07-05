@@ -1,6 +1,7 @@
 use std::{
     any::{Any, TypeId},
     cmp::Ordering,
+    ffi::c_void,
     fmt::{Debug, Display, Formatter},
 };
 
@@ -8,6 +9,8 @@ use num_enum::{FromPrimitive, IntoPrimitive};
 use serde::{Deserialize, Serialize};
 
 use crate::error::{PolicyCarryingError, PolicyCarryingResult};
+
+pub type OpaquePtr = *mut c_void;
 
 /// A wrapper ID for bookkeeping the executor sets.
 #[derive(
