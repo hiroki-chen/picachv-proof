@@ -1,6 +1,5 @@
 use std::{
     collections::{hash_map::Entry, HashMap},
-    ffi::{c_char, CStr},
     fmt::Debug,
     hash::Hash,
     sync::{atomic::AtomicUsize, atomic::Ordering, Arc, RwLock},

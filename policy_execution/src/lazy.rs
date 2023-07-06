@@ -1,9 +1,6 @@
 //! The lazy data frame module.
 
-use std::{
-    fmt::{Debug, Formatter},
-    ops::Deref,
-};
+use std::fmt::{Debug, Formatter};
 
 use policy_carrying_data::{schema::SchemaRef, DataFrame};
 use policy_core::{col, error::PolicyCarryingResult, expr::Expr, types::ExecutorRefId};

@@ -18,6 +18,8 @@ use policy_core::{
 use roaring::RoaringTreemap as Bitmap;
 use serde::{Deserialize, Serialize};
 
+use crate::{arithmetic::erased_sum, group::GroupsProxy};
+
 pub type FieldRef = Arc<Field>;
 pub type FieldDataRef = Arc<dyn FieldData>;
 pub type FieldMetadata = HashMap<String, String>;
@@ -70,14 +72,25 @@ impl Display for Field {
     }
 }
 
+pub trait Aggregate {
+    fn aggregate(
+        &self,
+        how: GroupByMethod,
+        groups: &GroupsProxy,
+    ) -> PolicyCarryingResult<FieldDataRef>;
+}
+
 /// This trait allows us to store various types of columns into one concrete array without all the boilerplate related
 /// to the type conversion. Note however, that in our implementation, this trait is only implemented for the type
 /// [`FieldDataArray<T>`], and we will frequently case between trait objects.
-pub trait FieldData: Debug + Send + Sync {
+pub trait FieldData: Aggregate + Debug + Send + Sync {
     fn data_type(&self) -> DataType;
 
     /// Returns the length of the data.
     fn len(&self) -> usize;
+
+    /// Reshapes according to dimension.
+    fn reshape(&self, dims: (i64, i64)) -> PolicyCarryingResult<FieldDataRef>;
 
     /// Allows convenient downcast conversion if we want to get the concrete type of the trait object.
     fn as_any_ref(&self) -> &dyn Any;
@@ -96,14 +109,17 @@ pub trait FieldData: Debug + Send + Sync {
     /// Creates a new field data array with a given index.
     fn new_from_index(&self, idx: usize, len: usize) -> FieldDataRef;
 
+    /// Gets the element with erased type.
+    fn index(&self, idx: usize) -> Box<dyn PrimitiveDataType>;
+
     /// Slices the field data array.
     fn slice(&self, range: Range<usize>) -> FieldDataRef;
 
     /// Gets the field.
     fn field(&self) -> FieldRef;
 
-    /// Applies the aggregation.
-    fn aggregate(&self, op: GroupByMethod) -> FieldDataRef;
+    /// Pushes an erased type.
+    fn push_erased(&mut self, val: Box<dyn PrimitiveDataType>);
 
     /// To json.
     fn to_json(&self) -> String;
@@ -366,6 +382,41 @@ pub trait ArrayAccess {
     fn index_data(&self, idx: usize) -> Option<&Self::Item>;
 }
 
+impl<T> Aggregate for FieldDataArray<T>
+where
+    T: PrimitiveDataType
+        + Serialize
+        + Debug
+        + Default
+        + Send
+        + Sync
+        + Clone
+        + PartialEq
+        + PartialOrd
+        + 'static,
+{
+    fn aggregate(
+        &self,
+        how: GroupByMethod,
+        groups: &GroupsProxy,
+    ) -> PolicyCarryingResult<FieldDataRef> {
+        if let GroupsProxy::Slice(_) = groups {
+            return Err(PolicyCarryingError::OperationNotSupported);
+        }
+
+        match how {
+            GroupByMethod::Sum => {
+                // Always returns f64.
+                let sum = erased_sum(self)?.try_coerce(self.data_type());
+                let mut data = new_empty(self.field.clone());
+                data.push_erased(sum);
+                Ok(data.into())
+            }
+            _ => Err(PolicyCarryingError::OperationNotSupported),
+        }
+    }
+}
+
 impl<T> FieldData for FieldDataArray<T>
 where
     T: PrimitiveDataType
@@ -403,52 +454,9 @@ where
         Arc::new(Self::new_null(self.field.clone(), len))
     }
 
-    fn aggregate(&self, op: GroupByMethod) -> FieldDataRef {
-        let val = match op {
-            GroupByMethod::Max => {
-                match self
-                    .inner
-                    .iter()
-                    .max_by(|&lhs, &rhs| lhs.partial_cmp(rhs).unwrap())
-                    .cloned()
-                {
-                    Some(val) => val,
-                    None => return self.full_null(1),
-                }
-            }
-            GroupByMethod::Min => {
-                match self
-                    .inner
-                    .iter()
-                    .min_by(|&lhs, &rhs| lhs.partial_cmp(rhs).unwrap())
-                    .cloned()
-                {
-                    Some(val) => val,
-                    None => return self.full_null(1),
-                }
-            }
-
-            // The case for sum is more complicated:
-            //
-            //  * We need to get the initial value.
-            //  * We need to lift the summed type because the result may overflow we use old data type.
-            //  * We need to implement generic summation algorithm.
-            GroupByMethod::Sum => {
-                match self
-                    .inner
-                    .iter()
-                    .min_by(|&lhs, &rhs| lhs.partial_cmp(rhs).unwrap())
-                    .cloned()
-                {
-                    Some(val) => val,
-                    None => return self.full_null(1),
-                }
-            }
-
-            _ => unimplemented!("aggreate type not supported"),
-        };
-
-        Arc::new(Self::new_with_duplicate(val, 1, self.name().into()))
+    fn push_erased(&mut self, val: Box<dyn PrimitiveDataType>) {
+        let val = val.as_any_ref().downcast_ref::<T>().cloned().unwrap();
+        self.inner.push(val)
     }
 
     fn new_from_index(&self, idx: usize, len: usize) -> FieldDataRef {
@@ -460,6 +468,10 @@ where
             inner: vec![self.inner[idx].clone(); len],
             bitmap,
         })
+    }
+
+    fn index(&self, idx: usize) -> Box<dyn PrimitiveDataType> {
+        Box::new(self.inner[idx].clone())
     }
 
     fn to_json(&self) -> String {
@@ -475,6 +487,10 @@ where
             inner: self.inner[range].to_vec(),
             bitmap,
         })
+    }
+
+    fn reshape(&self, dims: (i64, i64)) -> PolicyCarryingResult<FieldDataRef> {
+        todo!()
     }
 
     fn rename(&mut self, name: &str) -> PolicyCarryingResult<()> {

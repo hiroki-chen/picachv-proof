@@ -1,5 +1,6 @@
 use std::{
     any::Any,
+    borrow::Cow,
     fmt::Debug,
     ops::{BitAnd, BitOr, BitXor, Deref},
     sync::Arc,
@@ -7,6 +8,7 @@ use std::{
 
 use policy_carrying_data::{
     field::{new_empty, new_null, Field, FieldDataArray, FieldDataRef, FieldRef},
+    group::GroupsProxy,
     schema::{Schema, SchemaRef},
     Comparator, DataFrame,
 };
@@ -18,17 +20,39 @@ use policy_core::{
         PrimitiveDataType, UInt16Type, UInt32Type, UInt64Type, UInt8Type,
     },
 };
+use policy_function::pcd_sum_trait;
 use serde::{Deserialize, Serialize};
 
 use crate::{
     executor::{ExecutionState, ExprArena},
-    plan::expr_to_aexpr,
+    plan::{context::AggState, expr_to_aexpr},
     udf::UserDefinedFunction,
 };
 
-use super::{aexpr_to_expr, ApplyOption};
+use super::{aexpr_to_expr, context::AggregationContext, ApplyOption};
 
 pub type PhysicalExprRef = Arc<dyn PhysicalExpr>;
+
+macro_rules! check_null_prop {
+    ($ac:ident, $name:expr, $groups:expr) => {
+        match &$ac.state {
+            AggState::AggregatedFlat(_) => {
+                if $ac.null_propagated {
+                    let mut agg_s = $ac.aggregated();
+                    let s = Arc::get_mut(&mut agg_s).unwrap();
+                    s.rename($name.as_str())?;
+                    return Ok(AggregationContext::new(agg_s, Cow::Borrowed($groups), true));
+                } else {
+                    return Err(PolicyCarryingError::ImpossibleOperation(
+                        "cannog aggregate on an aggregated column".into(),
+                    ));
+                }
+            }
+            // Skipped.
+            _ => (),
+        }
+    };
+}
 
 /// A physical expression trait.
 #[typetag::serde(tag = "physical_expr")]
@@ -49,11 +73,12 @@ pub trait PhysicalExpr: Send + Sync + Debug {
     }
 
     /// Evaluate on groups due to `group_by()`; aggregations can be applied on both groups and a single column.
-    fn evalute_group(
+    fn evaluate_groups<'a>(
         &self,
         _df: &DataFrame,
+        _groups: &'a GroupsProxy,
         _state: &ExecutionState,
-    ) -> PolicyCarryingResult<FieldDataRef> {
+    ) -> PolicyCarryingResult<AggregationContext<'a>> {
         Err(PolicyCarryingError::OperationNotSupported)
     }
 
@@ -296,6 +321,18 @@ impl PhysicalExpr for ColumnExpr {
         }
     }
 
+    fn evaluate_groups<'a>(
+        &self,
+        df: &DataFrame,
+        groups: &'a GroupsProxy,
+        state: &ExecutionState,
+    ) -> PolicyCarryingResult<AggregationContext<'a>> {
+        println!("performing evaluate_groups for `ColumnExpr`");
+
+        let s = self.evaluate(df, state)?;
+        Ok(AggregationContext::new(s, Cow::Borrowed(groups), false))
+    }
+
     fn expr(&self) -> Option<&Expr> {
         Some(&self.expr)
     }
@@ -311,13 +348,34 @@ impl PhysicalExpr for AggregateExpr {
         vec![self.input.clone()]
     }
 
-    #[allow(unused)]
-    fn evalute_group(
+    fn evaluate_groups<'a>(
         &self,
         df: &DataFrame,
+        groups: &'a GroupsProxy,
         state: &ExecutionState,
-    ) -> PolicyCarryingResult<FieldDataRef> {
-        todo!()
+    ) -> PolicyCarryingResult<AggregationContext<'a>> {
+        println!("performing evaluate_groups for `AggregateExpr`");
+
+        let mut ac = self.input.evaluate_groups(df, groups, state)?;
+        let name = ac.data().name().to_string();
+        println!("{ac:?}");
+
+        if matches!(ac.state, AggState::Literal(_)) {
+            Err(PolicyCarryingError::ImpossibleOperation(
+                "cannot aggregate literal types".into(),
+            ))
+        } else {
+            check_null_prop!(ac, name, groups);
+            let (d, groups_cur) = ac.get_final_aggregation();
+
+            // Apply type erased sum.
+            let mut aggregated = d.aggregate(GroupByMethod::Sum, &groups_cur)?;
+            let agg = Arc::get_mut(&mut aggregated).unwrap();
+            println!("{agg:?}");
+            agg.rename(name.as_str())?;
+
+            Ok(AggregationContext::new(aggregated, Cow::Borrowed(groups), true))
+        }
     }
 
     fn expr(&self) -> Option<&Expr> {
@@ -354,11 +412,12 @@ impl PhysicalExpr for ApplyExpr {
         }))
     }
 
-    fn evalute_group(
+    fn evaluate_groups<'a>(
         &self,
-        _df: &DataFrame,
-        _state: &ExecutionState,
-    ) -> PolicyCarryingResult<FieldDataRef> {
+        df: &DataFrame,
+        groups: &'a GroupsProxy,
+        state: &ExecutionState,
+    ) -> PolicyCarryingResult<AggregationContext<'a>> {
         todo!()
     }
 
@@ -485,7 +544,7 @@ pub(crate) fn make_physical_expr_aaggexpr(
     // Discern `in_aggregation`.
     in_aggregation: bool,
 ) -> PolicyCarryingResult<PhysicalExprRef> {
-    log::debug!("{parent:?}, {aexpr:?}, {schema:?}, {state:?}, {in_aggregation}");
+    println!("{parent:?}, {aexpr:?}, {schema:?}, {state:?}, {in_aggregation}");
 
     let input = make_physical_expr(
         aexpr.get_input().clone(),

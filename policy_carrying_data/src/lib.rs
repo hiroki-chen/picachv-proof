@@ -27,6 +27,7 @@ pub mod schema;
 mod arithmetic;
 mod comparator;
 mod macros;
+pub mod group;
 
 pub use comparator::Comparator;
 pub use macros::*;

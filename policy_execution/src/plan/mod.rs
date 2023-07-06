@@ -27,6 +27,7 @@ use crate::{
 };
 
 pub mod physical_expr;
+pub mod context;
 
 pub type PhysicalPlan = (ExecutionState, OpaquePtr);
 

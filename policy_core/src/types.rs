@@ -200,10 +200,16 @@ impl DataType {
     }
 }
 
+pub trait TypeCoerce {
+    fn try_coerce(&self, to: DataType) -> Box<dyn PrimitiveDataType> {
+        unimplemented!("cannot coerce to {to:?}")
+    }
+}
+
 /// This trait is a workaround for getting the concrete type of a primitive type that we store
 /// as a trait object `dyn PritimiveDataType`.
 #[typetag::serde(tag = "primitive_data_type")]
-pub trait PrimitiveDataType: Debug + Sync + Send + ToString + 'static {
+pub trait PrimitiveDataType: TypeCoerce + Debug + Sync + Send + ToString + 'static {
     fn data_type(&self) -> DataType;
 
     fn as_any_ref(&self) -> &dyn Any;
@@ -250,6 +256,25 @@ macro_rules! declare_type {
         #[derive(Clone, PartialEq, PartialOrd, Serialize, Deserialize)]
         #[repr(C, align(8))]
         pub struct $name(pub $primitive, pub $crate::types::DataType);
+
+        impl TypeCoerce for $name {
+            fn try_coerce(&self, to: DataType) -> Box<dyn PrimitiveDataType> {
+                match to {
+                    DataType::Int8 => Box::new(Int8Type::from(self.0.clone())),
+                    DataType::Int16 => Box::new(Int16Type::from(self.0.clone())),
+                    DataType::Int32 => Box::new(Int32Type::from(self.0.clone())),
+                    DataType::Int64 => Box::new(Int64Type::from(self.0.clone())),
+                    DataType::UInt8 => Box::new(UInt8Type::from(self.0.clone())),
+                    DataType::UInt16 => Box::new(UInt16Type::from(self.0.clone())),
+                    DataType::UInt32 => Box::new(UInt32Type::from(self.0.clone())),
+                    DataType::UInt64 => Box::new(UInt64Type::from(self.0.clone())),
+                    DataType::Float32 => Box::new(Float32Type::from(self.0.clone())),
+                    DataType::Float64 => Box::new(Float64Type::from(self.0.clone())),
+                    // Ignored.
+                    _ => self.clone_box(),
+                }
+            }
+        }
 
         impl Default for $name {
             fn default() -> Self {
@@ -315,13 +340,85 @@ macro_rules! declare_type {
     };
 }
 
-macro_rules! declare_numeric_type {
+macro_rules! from_primitive {
     ($name:ident) => {
+        impl From<u8> for $name {
+            fn from(value: u8) -> Self {
+                Self::new(value as _)
+            }
+        }
+        impl From<u16> for $name {
+            fn from(value: u16) -> Self {
+                Self::new(value as _)
+            }
+        }
+        impl From<u32> for $name {
+            fn from(value: u32) -> Self {
+                Self::new(value as _)
+            }
+        }
+        impl From<u64> for $name {
+            fn from(value: u64) -> Self {
+                Self::new(value as _)
+            }
+        }
+        impl From<i8> for $name {
+            fn from(value: i8) -> Self {
+                Self::new(value as _)
+            }
+        }
+        impl From<i16> for $name {
+            fn from(value: i16) -> Self {
+                Self::new(value as _)
+            }
+        }
+        impl From<i32> for $name {
+            fn from(value: i32) -> Self {
+                Self::new(value as _)
+            }
+        }
+        impl From<i64> for $name {
+            fn from(value: i64) -> Self {
+                Self::new(value as _)
+            }
+        }
+        impl From<f32> for $name {
+            fn from(value: f32) -> Self {
+                Self::new(value as _)
+            }
+        }
+        impl From<f64> for $name {
+            fn from(value: f64) -> Self {
+                Self::new(value as _)
+            }
+        }
+        impl From<isize> for $name {
+            fn from(value: isize) -> Self {
+                Self::new(value as _)
+            }
+        }
         impl From<usize> for $name {
             fn from(value: usize) -> Self {
                 Self::new(value as _)
             }
         }
+        impl From<String> for $name {
+            fn from(value: String) -> Self {
+                let value = value.parse().unwrap_or_default();
+                Self::new(value)
+            }
+        }
+        impl From<bool> for $name {
+            fn from(value: bool) -> Self {
+                Self::new(if value { 1 } else { 0 } as _)
+            }
+        }
+    };
+}
+
+macro_rules! declare_numeric_type {
+    ($name:ident) => {
+        from_primitive!($name);
 
         impl std::ops::Add<$name> for $name {
             type Output = $name;

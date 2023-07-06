@@ -4,6 +4,7 @@ use std::{
 };
 
 use policy_core::{
+    error::{PolicyCarryingError, PolicyCarryingResult},
     types::PrimitiveDataType,
     types::{
         DataType, Float32Type, Float64Type, Int16Type, Int32Type, Int64Type, Int8Type, UInt16Type,
@@ -113,3 +114,64 @@ impl_operator!(Add, add);
 impl_operator!(Sub, sub);
 impl_operator!(Mul, mul);
 impl_operator!(Div, div);
+
+/// By default we use `f64` to prevent overflow.
+pub fn erased_sum(input: &dyn FieldData) -> PolicyCarryingResult<Box<dyn PrimitiveDataType>> {
+    let res = match input.data_type() {
+        DataType::UInt8 => sum_impl(input.try_cast::<UInt8Type>()?, 0.0, None),
+        DataType::UInt16 => sum_impl(input.try_cast::<UInt16Type>()?, 0.0, None),
+        DataType::UInt32 => sum_impl(input.try_cast::<UInt32Type>()?, 0.0, None),
+        DataType::UInt64 => sum_impl(input.try_cast::<UInt64Type>()?, 0.0, None),
+        DataType::Int8 => sum_impl(input.try_cast::<Int8Type>()?, 0.0, None),
+        DataType::Int16 => sum_impl(input.try_cast::<Int16Type>()?, 0.0, None),
+        DataType::Int32 => sum_impl(input.try_cast::<Int32Type>()?, 0.0, None),
+        DataType::Int64 => sum_impl(input.try_cast::<Int64Type>()?, 0.0, None),
+        DataType::Float32 => sum_impl(input.try_cast::<Float32Type>()?, 0.0, None),
+        DataType::Float64 => sum_impl(input.try_cast::<Float64Type>()?, 0.0, None),
+        _ => return Err(PolicyCarryingError::OperationNotSupported),
+    }?;
+
+    Ok(Box::new(Float64Type::new(res)))
+}
+
+/// Sums up the value.
+pub fn sum_impl<R, T>(
+    input: &FieldDataArray<T>,
+    init: R,
+    upper: Option<T>,
+) -> PolicyCarryingResult<R>
+where
+    T: PrimitiveDataType
+        + Add<R, Output = R>
+        + PartialOrd
+        + Debug
+        + Default
+        + Send
+        + Sync
+        + Clone
+        + 'static,
+{
+    // Can we really add on utf8 strings?
+    if !(input.data_type().is_numeric() || input.data_type().is_utf8()) {
+        Err(PolicyCarryingError::ImpossibleOperation(
+            "Cannot add on non-numeric types".into(),
+        ))
+    } else {
+        // A bad thing is, we cannot directly call `sum()` on iterator on a generic type `T`,
+        // but we may call the `fold()` method to aggregate all the elements together.
+        Ok(input.iter().fold(init, |acc, e| {
+            let cur = match upper {
+                Some(ref upper) => {
+                    if upper >= e {
+                        e.clone()
+                    } else {
+                        upper.clone()
+                    }
+                }
+                None => e.clone(),
+            };
+
+            cur + acc
+        }))
+    }
+}

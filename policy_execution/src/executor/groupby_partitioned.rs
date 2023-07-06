@@ -1,10 +1,17 @@
-use policy_carrying_data::schema::SchemaRef;
-use policy_core::{error::PolicyCarryingError, expr::Expr, types::FunctionArguments};
+use std::sync::Arc;
+
+use policy_carrying_data::{field::FieldDataRef, schema::SchemaRef, DataFrame};
+use policy_core::{
+    error::{PolicyCarryingError, PolicyCarryingResult},
+    expr::Expr,
+    get_lock,
+    types::FunctionArguments,
+};
 use policy_utils::move_box_ptr;
 
-use crate::plan::physical_expr::PhysicalExprRef;
+use crate::{plan::physical_expr::PhysicalExprRef, udf::UserDefinedFunction};
 
-use super::Executor;
+use super::{ExecutionState, Executor};
 
 #[derive(Clone)]
 pub struct PartitionGroupByExec {
@@ -70,4 +77,83 @@ impl TryFrom<FunctionArguments> for PartitionGroupByExec {
             aggs,
         })
     }
+}
+
+impl PartitionGroupByExec {
+    /// Computes the aggregation keys from the physical expressions.
+    pub fn keys(
+        &self,
+        df: &DataFrame,
+        state: &ExecutionState,
+    ) -> PolicyCarryingResult<Vec<FieldDataRef>> {
+        self.phys_keys
+            .iter()
+            .map(|key| key.evaluate(df, state))
+            .collect()
+    }
+
+    /// Tries to partition the original dataframe into multiple ones.
+    pub fn partition_dataframe(
+        &self,
+        df: &mut DataFrame,
+        maintain_order: bool,
+        state: &ExecutionState,
+    ) -> PolicyCarryingResult<Vec<DataFrame>> {
+        let keys = self.keys(df, state)?;
+        let gb = df.groupby_with_keys(keys, maintain_order)?;
+
+        println!("groupby helper => {gb:?}");
+
+        todo!()
+    }
+
+    /// The internal implementation of the execution on which the privacy scheme can be further applied.
+    pub fn execute_impl(
+        &self,
+        state: &ExecutionState,
+        mut original_df: DataFrame,
+    ) -> PolicyCarryingResult<DataFrame> {
+        let keys = self.keys(&original_df, state)?;
+        groupby_helper(
+            original_df,
+            keys,
+            &self.phys_aggs,
+            None,
+            state,
+            self.maintain_order,
+            None,
+        )
+    }
+}
+
+/// The default hash aggregation algorithm.
+pub(crate) fn groupby_helper(
+    mut df: DataFrame,
+    keys: Vec<FieldDataRef>,
+    aggs: &[PhysicalExprRef],
+    apply: Option<Arc<dyn UserDefinedFunction>>,
+    state: &ExecutionState,
+    maintain_order: bool,
+    slice: Option<(usize, usize)>,
+) -> PolicyCarryingResult<DataFrame> {
+    let gb = df.groupby_with_keys(keys, maintain_order)?;
+
+    if let Some(_) = apply {
+        return Err(PolicyCarryingError::OperationNotSupported);
+    }
+
+    get_lock!(state.expr_cache, lock).clear();
+    let mut columns = gb.keys_sliced(slice);
+    let aggs = aggs
+        .into_iter()
+        .map(|expr| {
+            let agg = expr.evaluate_groups(&df, &gb.proxy, state)?.finalize();
+            Ok(agg)
+        })
+        .collect::<PolicyCarryingResult<Vec<_>>>()?;
+
+    get_lock!(state.expr_cache, lock).clear();
+
+    columns.extend_from_slice(aggs.as_slice());
+    Ok(DataFrame::new_with_cols(columns))
 }

@@ -274,8 +274,11 @@ impl PhysicalExecutor for MyPartitionGroupByExec {
     fn execute(&mut self, state: &ExecutionState) -> PolicyCarryingResult<DataFrame> {
         trace!(state, format!("{self:?}"));
 
-        // Test.
-        let df = DATA.get().cloned().unwrap_or_default().deref().clone();
+        let original_df = self.0.input.execute(state)?;
+        let df = self.0.execute_impl(state, original_df)?;
+
+        // Apply any schemes here.
+
         Ok(df)
     }
 

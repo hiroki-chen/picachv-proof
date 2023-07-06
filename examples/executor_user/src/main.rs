@@ -31,7 +31,7 @@ fn main() {
         )
         .unwrap();
 
-        let mut schema_ref = Arc::get_mut(&mut schema).unwrap();
+        let schema_ref = Arc::get_mut(&mut schema).unwrap();
         schema_ref.executor_ref_id = Some(id);
         schema
     };
