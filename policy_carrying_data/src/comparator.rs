@@ -5,6 +5,7 @@ use std::{
 
 use policy_core::{
     error::{PolicyCarryingError, PolicyCarryingResult},
+    pcd_ensures,
     types::*,
 };
 
@@ -90,10 +91,11 @@ where
 
             (lhs_len, rhs_len) => {
                 if lhs_len != rhs_len {
-                    return Err(PolicyCarryingError::ImpossibleOperation(format!(
-                        "lengths mismatch: lhs = {}, rhs = {}",
-                        lhs_len, rhs_len
-                    )));
+                    pcd_ensures!(
+                        lhs_len == rhs_len,
+                        ImpossibleOperation: "lengths mismatch: lhs = {}, rhs = {}",
+                        lhs_len, rhs_len,
+                    );
                 }
 
                 let boolean = self

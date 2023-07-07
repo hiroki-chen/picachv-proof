@@ -1,5 +1,6 @@
 #![cfg_attr(test, allow(unused))]
 
+pub mod context;
 pub mod executor;
 pub mod lazy;
 pub mod plan;

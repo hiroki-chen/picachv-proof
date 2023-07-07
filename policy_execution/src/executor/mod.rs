@@ -12,7 +12,7 @@ use policy_carrying_data::{field::FieldDataRef, schema::SchemaRef, DataFrame};
 use policy_core::{
     error::{PolicyCarryingError, PolicyCarryingResult, StatusCode},
     expr::{AExpr, GroupByMethod},
-    get_lock,
+    get_lock, pcd_ensures,
     types::{ExecutorRefId, FunctionArguments, OpaquePtr},
 };
 
@@ -214,12 +214,7 @@ pub fn expand_projection_literal(
         let len = column.len();
         df_height = len.max(df_height);
 
-        // Duplicate!
-        if !hashset.insert(column.name()) {
-            return Err(PolicyCarryingError::ImpossibleOperation(
-                "duplicate column name".into(),
-            ));
-        }
+        pcd_ensures!(hashset.insert(column.name()), ImpossibleOperation: "duplicate column name: {}", column.name());
 
         // Length mismatch.
         if !len == selected_columns[0].len() {

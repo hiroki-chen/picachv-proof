@@ -1,6 +1,6 @@
 use std::{collections::HashMap, sync::Arc};
 
-use policy_core::types::{DataType, ExecutorRefId};
+use policy_core::types::DataType;
 use serde::{Deserialize, Serialize};
 
 use crate::field::{new_empty, Field, FieldData, FieldRef};
@@ -66,16 +66,6 @@ impl SchemaBuilder {
         Arc::new(Schema {
             fields: self.fields,
             metadata: Default::default(),
-            executor_ref_id: None,
-        })
-    }
-
-    #[inline]
-    pub fn finish_with_executor(self, id: usize) -> Arc<Schema> {
-        Arc::new(Schema {
-            fields: self.fields,
-            metadata: Default::default(),
-            executor_ref_id: Some(ExecutorRefId(id)),
         })
     }
 }
@@ -89,8 +79,6 @@ pub struct Schema {
     /// The matadata of the schema.
     #[allow(unused)]
     pub(crate) metadata: SchemaMetadata,
-    /// The api reference id.
-    pub executor_ref_id: Option<ExecutorRefId>,
 }
 
 impl Default for Schema {
@@ -98,7 +86,6 @@ impl Default for Schema {
         Self {
             metadata: Default::default(),
             fields: Vec::new(),
-            executor_ref_id: None,
         }
     }
 }
@@ -135,12 +122,8 @@ impl PartialEq for Schema {
 
 impl Schema {
     /// Constructs a new schema from an array of field descriptions.
-    pub fn new(fields: Vec<FieldRef>, metadata: SchemaMetadata, id: Option<usize>) -> Self {
-        Self {
-            fields,
-            metadata,
-            executor_ref_id: id.map(|id| ExecutorRefId(id)),
-        }
+    pub fn new(fields: Vec<FieldRef>, metadata: SchemaMetadata) -> Self {
+        Self { fields, metadata }
     }
 
     /// Merges two different schemas.

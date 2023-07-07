@@ -20,16 +20,16 @@ use policy_core::{
         PrimitiveDataType, UInt16Type, UInt32Type, UInt64Type, UInt8Type,
     },
 };
-use policy_function::pcd_sum_trait;
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    context::{AggState, AggregationContext},
     executor::{ExecutionState, ExprArena},
-    plan::{context::AggState, expr_to_aexpr},
+    plan::expr_to_aexpr,
     udf::UserDefinedFunction,
 };
 
-use super::{aexpr_to_expr, context::AggregationContext, ApplyOption};
+use super::{aexpr_to_expr, ApplyOption};
 
 pub type PhysicalExprRef = Arc<dyn PhysicalExpr>;
 
@@ -374,7 +374,11 @@ impl PhysicalExpr for AggregateExpr {
             println!("{agg:?}");
             agg.rename(name.as_str())?;
 
-            Ok(AggregationContext::new(aggregated, Cow::Borrowed(groups), true))
+            Ok(AggregationContext::new(
+                aggregated,
+                Cow::Borrowed(groups),
+                true,
+            ))
         }
     }
 
@@ -414,9 +418,9 @@ impl PhysicalExpr for ApplyExpr {
 
     fn evaluate_groups<'a>(
         &self,
-        df: &DataFrame,
-        groups: &'a GroupsProxy,
-        state: &ExecutionState,
+        _df: &DataFrame,
+        _groups: &'a GroupsProxy,
+        _state: &ExecutionState,
     ) -> PolicyCarryingResult<AggregationContext<'a>> {
         todo!()
     }
@@ -558,34 +562,7 @@ pub(crate) fn make_physical_expr_aaggexpr(
         // We are not in an aggregation context, so we need to manually create the function that applies to the final result.
         // This typically occurs in a select/projection context.
         // FIXME: To unify the behavior of queries w or w/o `groupby` clause, we force the latter to `groupby None`.
-        false => {
-            let function: Arc<dyn UserDefinedFunction> = match aexpr {
-                AAggExpr::Max { propagate_nans, .. } => {
-                    todo!()
-                }
-                AAggExpr::Min { propagate_nans, .. } => {
-                    todo!()
-                }
-
-                AAggExpr::Sum(_) => {
-                    todo!()
-                }
-
-                _ => unimplemented!(),
-            };
-
-            #[allow(unreachable_code)]
-            Ok(Arc::new(ApplyExpr {
-                function,
-                input_schema: schema.clone(),
-                allow_rename: false,
-                pass_name_to_apply: false,
-                expr: aexpr_to_expr(parent, expr_arena),
-                inputs: vec![input],
-                collect_groups: ApplyOption::ApplyFlat,
-            }))
-        }
-
+        false => todo!(),
         // We are already in an aggregation context.
         true => Ok(Arc::new(AggregateExpr {
             input,
@@ -757,7 +734,7 @@ pub(crate) fn expressions_to_schema(
         .map(|expr| expr_to_field(expr, schema, in_aggregation))
         .collect::<PolicyCarryingResult<Vec<_>>>()?;
 
-    Ok(Schema::new(fields, Default::default(), None))
+    Ok(Schema::new(fields, Default::default()))
 }
 
 /// Extracts the column name from the given expression.

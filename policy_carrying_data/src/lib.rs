@@ -1,6 +1,5 @@
 #![cfg_attr(not(test), deny(unused_must_use))]
 #![cfg_attr(test, allow(unused))]
-
 #![feature(downcast_unchecked)]
 
 use std::{
@@ -26,8 +25,8 @@ pub mod schema;
 
 mod arithmetic;
 mod comparator;
-mod macros;
 pub mod group;
+mod macros;
 
 pub use comparator::Comparator;
 pub use macros::*;
@@ -243,7 +242,6 @@ impl DataFrame {
         Arc::new(Schema {
             fields: self.columns.iter().map(|c| c.field()).collect(),
             metadata: Default::default(),
-            executor_ref_id: None,
         })
     }
 
@@ -373,7 +371,7 @@ impl TryFrom<FunctionArguments> for DataFrame {
     type Error = PolicyCarryingError;
 
     fn try_from(args: FunctionArguments) -> Result<Self, Self::Error> {
-        let df_path = args.get_and_apply("df_path", |path: String| path)?;
+        let df_path = args.get_and_apply("path", |path: String| path)?;
         let schema = args
             .get_and_apply("schema", |schema: String| {
                 serde_json::from_str::<Schema>(&schema)
@@ -395,7 +393,7 @@ mod test {
         let schema = SchemaBuilder::new()
             .add_field_raw("column_1", DataType::Int64, false)
             .add_field_raw("column_2", DataType::Float64, false)
-            .finish_with_executor(0);
+            .finish();
 
         let pcd = DataFrame::load_csv("../test_data/simple_csv.csv", Some(schema.clone()));
 

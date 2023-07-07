@@ -111,7 +111,7 @@ impl PartitionGroupByExec {
     pub fn execute_impl(
         &self,
         state: &ExecutionState,
-        mut original_df: DataFrame,
+        original_df: DataFrame,
     ) -> PolicyCarryingResult<DataFrame> {
         let keys = self.keys(&original_df, state)?;
         groupby_helper(
@@ -128,7 +128,7 @@ impl PartitionGroupByExec {
 
 /// The default hash aggregation algorithm.
 pub(crate) fn groupby_helper(
-    mut df: DataFrame,
+    df: DataFrame,
     keys: Vec<FieldDataRef>,
     aggs: &[PhysicalExprRef],
     apply: Option<Arc<dyn UserDefinedFunction>>,

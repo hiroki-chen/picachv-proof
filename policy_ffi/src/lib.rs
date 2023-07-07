@@ -21,7 +21,9 @@ lazy_static! {
     pub static ref EXECUTOR_ID: AtomicUsize = AtomicUsize::new(0);
 }
 
-/// The signature of the function symbol used by load and unload.
+// TODO: Unify the signature of the functions.
+
+/// The signature of a generic function symbol.
 ///
 /// # Arguments
 ///
@@ -135,6 +137,18 @@ pub fn create_executor(
     EXECUTOR_LIB.create_executor(&id, args)
 }
 
+/// Tries to load the data from somewhere to the executor module.
+pub fn load_data(id: ExecutorRefId, args: FunctionArguments) -> PolicyCarryingResult<()> {
+    let f = EXECUTOR_LIB.get_symbol::<LibFunction>(&id, "load_data")?;
+
+    let args = serde_json::to_string(&args)
+        .map_err(|e| PolicyCarryingError::SerializeError(e.to_string()))?;
+    match f(args.as_ptr(), args.len()) {
+        StatusCode::Ok => Ok(()),
+        err => Err(err.into()),
+    }
+}
+
 /// Tries to get the corresponding function from the loaded module by a given id set `id` and a type.
 ///
 /// # Examples
@@ -170,6 +184,14 @@ pub fn get_udf(id: ExecutorRefId, ty: GroupByMethod) -> PolicyCarryingResult<Use
 }
 
 /// Tries to get the function symbol for executing the physical plan.
+///
+/// The reason why we returns a function to the caller rather than simply executing the physical plan on
+/// behalf of the caller is that we want this `policy_ffi` module to be as much implementation-agnostic
+/// as possible. It is caller's responsibility to implement the execution logic.
+///
+/// # FFI Safety
+///
+/// See [`get_udf`].
 pub fn get_execution(id: ExecutorRefId) -> PolicyCarryingResult<ExecutorFunction> {
     EXECUTOR_LIB
         .get_symbol::<ExecutorFunction>(&id, "execute")

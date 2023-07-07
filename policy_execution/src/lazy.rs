@@ -37,6 +37,12 @@ pub struct LazyGroupBy {
     pub(crate) maintain_order: bool,
 }
 
+/// A trait for converting an object into a lazily evaluated data frame.
+pub trait IntoLazy {
+    /// Converts the target into [`LazyFrame`]. This does not take the ownership.
+    fn lazy(&self) -> LazyFrame;
+}
+
 impl Debug for LazyFrame {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{:#?} with {:?}", &self.plan, &self.opt_flag)
@@ -44,19 +50,6 @@ impl Debug for LazyFrame {
 }
 
 impl LazyFrame {
-    pub fn new_from_schema(value: SchemaRef) -> Self {
-        Self {
-            executor_ref_id: value.executor_ref_id.expect("must set `executor_ref_id`"),
-            opt_flag: OptFlag::all(),
-            plan: LogicalPlan::DataFrameScan {
-                schema: value.clone(),
-                output_schema: None,
-                projection: None,
-                selection: None,
-            },
-        }
-    }
-
     pub fn explain(&self) -> String {
         format!("{:?}", self.plan)
     }

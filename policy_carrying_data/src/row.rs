@@ -2,6 +2,7 @@ use std::{fmt::Debug, ops::Index, sync::Arc};
 
 use policy_core::{
     error::{PolicyCarryingError, PolicyCarryingResult},
+    pcd_ensures,
     types::PrimitiveDataType,
 };
 
@@ -20,15 +21,12 @@ impl DataFrame {
 
         // Check if length is correct.
         let lengths = self.columns.iter().map(|v| v.len()).collect::<Vec<_>>();
-        if !lengths.len() > 1 && lengths.iter().any(|&v| v != lengths[0]) {
-            return Err(PolicyCarryingError::ImpossibleOperation(
-                "not all columns have the same length".into(),
-            ));
-        }
+        pcd_ensures!(
+            lengths.len() <= 1 || lengths.iter().all(|&v| v == lengths[0]),
+            ImpossibleOperation: "not all columns have the same length",
+        );
 
         // Cast all columns to their concrete `FieldDataArray<T>` types.
-        // FieldDataRef: FieldDataRef -> &dyn Any -> arr: FieldDataArray<T> -> arr[idx] ->
-        // &dyn Any -> data: XXXType -> Arc<dyn Primitive>.
         // FIXME: Handle null case? Currently we do not support nullable values.
         let row_count = lengths[0];
         let mut rows = RowSet::new(self.columns.iter().map(|e| e.field()).collect());

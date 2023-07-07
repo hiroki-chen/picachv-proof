@@ -8,6 +8,7 @@ use std::{
 use policy_carrying_data::DataFrame;
 use policy_core::{
     error::{PolicyCarryingError, PolicyCarryingResult, StatusCode},
+    pcd_ffi_try,
     types::*,
 };
 use policy_execution::{
@@ -19,6 +20,7 @@ use policy_execution::{
     trace,
 };
 use policy_privacy::PrivacyMananger;
+use policy_utils::args_from_raw;
 
 // A demo. In productive platforms, this data should be fetched from the persistent layer and should be
 // stored in encrypted form to ensure optimal security.
@@ -38,40 +40,20 @@ extern "C" fn rustc_version(buf: *mut u8, len: *mut usize) {
     }
 }
 
-/// From this timepoint, we can load the data into the memory!
+/// Some prelimiary tasks to be done.
 #[no_mangle]
-extern "C" fn on_load(args: *const u8, args_len: usize) -> StatusCode {
-    // Deserialize the arguments.
-    let args = unsafe {
-        let args = std::slice::from_raw_parts(args, args_len);
-        std::str::from_utf8_unchecked(args)
-    };
-    let args = match serde_json::from_str::<FunctionArguments>(args) {
-        Ok(args) => args,
-        Err(_) => return StatusCode::SerializeError,
-    };
-    let (id, dp_param) = match (
-        args.get_and_apply("id", |val: usize| val),
-        args.get_and_apply("dp_param.0", |val: f64| val),
-        args.get_and_apply("dp_param.1", |val: f64| val),
-    ) {
-        (Ok(id), Ok(eps), Ok(delta)) => (id, (eps, delta)),
-        _ => return StatusCode::SerializeError,
-    };
+extern "C" fn on_load(_args: *const u8, _args_len: usize) -> StatusCode {
+    StatusCode::Ok
+}
 
-    let df = match DataFrame::try_from(args) {
-        Ok(df) => Arc::new(df),
-        Err(err) => return err.into(),
-    };
+#[no_mangle]
+extern "C" fn load_data(args: *const u8, args_len: usize) -> StatusCode {
+    let args = pcd_ffi_try!(args_from_raw(args, args_len));
 
-    if let Err(_) = DATA.set(df) {
-        return StatusCode::Unknown;
-    }
-
-    let pm = PRIVACY_MANAGER.get_or_init(|| Arc::new(PrivacyMananger::new()));
-    if let Err(err) = pm.set_dp_manager(id, dp_param) {
-        return err.into();
-    }
+    let df = pcd_ffi_try!(DataFrame::try_from(args));
+    pcd_ffi_try!(DATA
+        .set(df.into())
+        .map_err(|_| PolicyCarryingError::Unknown));
 
     StatusCode::Ok
 }
@@ -87,46 +69,34 @@ extern "C" fn create_executor(
     args_len: usize,
     p_executor: *mut OpaquePtr,
 ) -> StatusCode {
-    // Deserialize the arguments.
-    let args = unsafe {
-        let args = std::slice::from_raw_parts(args, args_len);
-        std::str::from_utf8_unchecked(args)
-    };
-    let args = match serde_json::from_str::<FunctionArguments>(args) {
-        Ok(args) => args,
-        Err(_) => return StatusCode::SerializeError,
-    };
+    let args = pcd_ffi_try!(args_from_raw(args, args_len));
 
-    let executor_type = match args.get_and_apply("executor_type", |ty: String| {
-        serde_json::from_str::<ExecutorType>(&ty)
-    }) {
-        Ok(Ok(ty)) => ty,
-        _ => return StatusCode::SerializeError,
-    };
+    let executor_type = pcd_ffi_try!(pcd_ffi_try!(args.get_and_apply(
+        "executor_type",
+        |ty: String| {
+            serde_json::from_str::<ExecutorType>(&ty)
+                .map_err(|e| PolicyCarryingError::SerializeError(e.to_string()))
+        }
+    )));
 
     let executor: Executor = match executor_type {
-        ExecutorType::DataframeScan => match DataFrameExec::try_from(args) {
-            Ok(mut exec) => match DATA.get() {
+        ExecutorType::DataframeScan => {
+            let mut exec = pcd_ffi_try!(DataFrameExec::try_from(args));
+            match DATA.get() {
                 Some(df) => {
                     exec.df.replace(df.clone());
                     Box::new(MyDataFrameScanExec(exec))
                 }
                 None => return StatusCode::NotLoaded,
-            },
-            Err(err) => return err.into(),
-        },
-        ExecutorType::Projection => match ProjectionExec::try_from(args) {
-            Ok(exec) => Box::new(MyProjectionExec(exec)),
-            Err(err) => return err.into(),
-        },
-        ExecutorType::Filter => match FilterExec::try_from(args) {
-            Ok(exec) => Box::new(MyFilterExec(exec)),
-            Err(err) => return err.into(),
-        },
-        ExecutorType::PartitionGroupBy => match PartitionGroupByExec::try_from(args) {
-            Ok(exec) => Box::new(MyPartitionGroupByExec(exec)),
-            Err(err) => return err.into(),
-        },
+            }
+        }
+        ExecutorType::Projection => Box::new(MyProjectionExec(pcd_ffi_try!(
+            ProjectionExec::try_from(args)
+        ))),
+        ExecutorType::Filter => Box::new(MyFilterExec(pcd_ffi_try!(FilterExec::try_from(args)))),
+        ExecutorType::PartitionGroupBy => Box::new(MyPartitionGroupByExec(pcd_ffi_try!(
+            PartitionGroupByExec::try_from(args)
+        ))),
 
         // Not implemented.
         _ => return StatusCode::Unsupported,
@@ -145,17 +115,12 @@ extern "C" fn create_executor(
 extern "C" fn execute(executor: OpaquePtr, df_ptr: *mut u8, df_len: *mut usize) -> StatusCode {
     let mut executor = unsafe { Box::from_raw(executor as *mut Executor) };
 
-    match executor.execute(&mut ExecutionState::default()) {
-        Ok(df) => {
-            let df_str = df.to_json();
-            unsafe {
-                std::ptr::copy_nonoverlapping(df_str.as_ptr(), df_ptr, df_str.len());
-                *df_len = df_str.len();
-            }
-            StatusCode::Ok
-        }
-        Err(err) => err.into(),
+    let df_str = pcd_ffi_try!(executor.execute(&mut ExecutionState::default())).to_json();
+    unsafe {
+        std::ptr::copy_nonoverlapping(df_str.as_ptr(), df_ptr, df_str.len());
+        *df_len = df_str.len();
     }
+    StatusCode::Ok
 }
 
 // ============= Below should be automatically generated by the policy generator ============= //

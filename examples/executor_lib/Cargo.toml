@@ -11,6 +11,7 @@ policy_core = { path = "../../policy_core" }
 policy_execution = { path = "../../policy_execution" }
 policy_function = { path = "../../policy_function" }
 policy_privacy = { path = "../../policy_privacy" }
+policy_utils = { path = "../../policy_utils" }
 
 serde_json = "1.0.99"
 

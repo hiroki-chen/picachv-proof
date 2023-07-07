@@ -19,7 +19,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     executor::{
-        create_executor, ExecutionState, Executor, ExprArena, LogicalPlanArena, EXPR_ARENA_SIZE,
+        create_executor, ExecutionState, ExprArena, LogicalPlanArena, EXPR_ARENA_SIZE,
         LP_ARENA_SIZE,
     },
     plan::physical_expr::{expr_to_name, expressions_to_schema, make_physical_expr},
@@ -27,7 +27,6 @@ use crate::{
 };
 
 pub mod physical_expr;
-pub mod context;
 
 pub type PhysicalPlan = (ExecutionState, OpaquePtr);
 
@@ -52,7 +51,7 @@ macro_rules! delayed_err {
             Err(err) => {
                 return PlanBuilder {
                     plan: LogicalPlan::StagedError {
-                        input: Box::new($inner),
+                        input: Some(Box::new($inner)),
                         err,
                     },
                 }
@@ -111,7 +110,7 @@ pub enum LogicalPlan {
 
     /// Error that should be emitted later.
     StagedError {
-        input: Box<LogicalPlan>,
+        input: Option<Box<LogicalPlan>>,
         err: PolicyCarryingError,
         // Should we add a span?
     },
@@ -384,7 +383,7 @@ impl PlanBuilder {
 
                 if !names.insert(name.clone()) {
                     return LogicalPlan::StagedError {
-                        input: Box::new(self.plan),
+                        input: None,
                         err: PolicyCarryingError::DuplicateColumn(name),
                     }
                     .into();
@@ -445,7 +444,7 @@ impl PlanBuilder {
             let mut expanded_columns = delayed_err!(expanded_columns, self.plan);
             if expanded_columns.is_empty() {
                 return LogicalPlan::StagedError {
-                    input: Box::new(self.plan),
+                    input: Some(Box::new(self.plan)),
                     err: PolicyCarryingError::ImpossibleOperation(
                         "trying to project on empty schema".into(),
                     ),
@@ -455,7 +454,7 @@ impl PlanBuilder {
                 expanded_columns.pop().unwrap()
             } else {
                 return LogicalPlan::StagedError {
-                    input: Box::new(self.plan),
+                    input: Some(Box::new(self.plan)),
                     err: PolicyCarryingError::ImpossibleOperation(
                         "the predicate passed to 'LazyFrame.filter' expanded to multiple expressions".into(),
                     ),
