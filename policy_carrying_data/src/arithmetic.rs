@@ -6,10 +6,7 @@ use std::{
 use policy_core::{
     error::{PolicyCarryingError, PolicyCarryingResult},
     types::PrimitiveDataType,
-    types::{
-        DataType, Float32Type, Float64Type, Int16Type, Int32Type, Int64Type, Int8Type, UInt16Type,
-        UInt32Type, UInt64Type, UInt8Type,
-    },
+    types::*,
 };
 
 use crate::field::{FieldData, FieldDataArray, FieldDataRef};
@@ -18,7 +15,7 @@ macro_rules! impl_operator {
     ($op:ident, $func:ident) => {
         impl<'a, T> $op<&'a FieldDataArray<T>> for &'a FieldDataArray<T>
         where
-            T: PrimitiveDataType
+            T: PrimitiveData
                 + Debug
                 + Default
                 + Send
@@ -100,7 +97,7 @@ macro_rules! impl_operator {
                             .unwrap()
                             .$func(rhs.try_cast::<Float64Type>().unwrap()))
                         .clone_arc(),
-                        _ => panic!("should not go here"),
+                        ty => panic!("should not go here for {ty:?}"),
                     }
                 } else {
                     self.clone_arc()
@@ -128,10 +125,50 @@ pub fn erased_sum(input: &dyn FieldData) -> PolicyCarryingResult<Box<dyn Primiti
         DataType::Int64 => sum_impl(input.try_cast::<Int64Type>()?, 0.0, None),
         DataType::Float32 => sum_impl(input.try_cast::<Float32Type>()?, 0.0, None),
         DataType::Float64 => sum_impl(input.try_cast::<Float64Type>()?, 0.0, None),
-        _ => return Err(PolicyCarryingError::OperationNotSupported),
+        ty => {
+            return Err(PolicyCarryingError::OperationNotSupported(format!(
+                "{ty:?}"
+            )))
+        }
     }?;
 
     Ok(Box::new(Float64Type::new(res)))
+}
+
+pub fn erased_max(input: &dyn FieldData) -> PolicyCarryingResult<Box<dyn PrimitiveDataType>> {
+    match input.data_type() {
+        DataType::UInt8 => Ok(Box::new(max_impl(input.try_cast::<UInt8Type>()?)?)),
+        DataType::UInt16 => Ok(Box::new(max_impl(input.try_cast::<UInt16Type>()?)?)),
+        DataType::UInt32 => Ok(Box::new(max_impl(input.try_cast::<UInt32Type>()?)?)),
+        DataType::UInt64 => Ok(Box::new(max_impl(input.try_cast::<UInt64Type>()?)?)),
+        DataType::Int8 => Ok(Box::new(max_impl(input.try_cast::<Int8Type>()?)?)),
+        DataType::Int16 => Ok(Box::new(max_impl(input.try_cast::<Int16Type>()?)?)),
+        DataType::Int32 => Ok(Box::new(max_impl(input.try_cast::<Int32Type>()?)?)),
+        DataType::Int64 => Ok(Box::new(max_impl(input.try_cast::<Int64Type>()?)?)),
+        DataType::Float32 => Ok(Box::new(max_impl(input.try_cast::<Float32Type>()?)?)),
+        DataType::Float64 => Ok(Box::new(max_impl(input.try_cast::<Float64Type>()?)?)),
+        ty => Err(PolicyCarryingError::OperationNotSupported(format!(
+            "{ty:?}"
+        ))),
+    }
+}
+
+pub fn erased_min(input: &dyn FieldData) -> PolicyCarryingResult<Box<dyn PrimitiveDataType>> {
+    match input.data_type() {
+        DataType::UInt8 => Ok(Box::new(min_impl(input.try_cast::<UInt8Type>()?)?)),
+        DataType::UInt16 => Ok(Box::new(min_impl(input.try_cast::<UInt16Type>()?)?)),
+        DataType::UInt32 => Ok(Box::new(min_impl(input.try_cast::<UInt32Type>()?)?)),
+        DataType::UInt64 => Ok(Box::new(min_impl(input.try_cast::<UInt64Type>()?)?)),
+        DataType::Int8 => Ok(Box::new(min_impl(input.try_cast::<Int8Type>()?)?)),
+        DataType::Int16 => Ok(Box::new(min_impl(input.try_cast::<Int16Type>()?)?)),
+        DataType::Int32 => Ok(Box::new(min_impl(input.try_cast::<Int32Type>()?)?)),
+        DataType::Int64 => Ok(Box::new(min_impl(input.try_cast::<Int64Type>()?)?)),
+        DataType::Float32 => Ok(Box::new(min_impl(input.try_cast::<Float32Type>()?)?)),
+        DataType::Float64 => Ok(Box::new(min_impl(input.try_cast::<Float64Type>()?)?)),
+        ty => Err(PolicyCarryingError::OperationNotSupported(format!(
+            "{ty:?}"
+        ))),
+    }
 }
 
 /// Sums up the value.
@@ -141,7 +178,7 @@ pub fn sum_impl<R, T>(
     upper: Option<T>,
 ) -> PolicyCarryingResult<R>
 where
-    T: PrimitiveDataType
+    T: PrimitiveData
         + Add<R, Output = R>
         + PartialOrd
         + Debug
@@ -174,4 +211,32 @@ where
             cur + acc
         }))
     }
+}
+
+/// Returns the maximum value of the array.
+pub fn max_impl<T>(input: &FieldDataArray<T>) -> PolicyCarryingResult<T>
+where
+    T: PrimitiveData + PartialOrd + Debug + Default + Send + Sync + Clone + 'static,
+{
+    input
+        .into_iter()
+        .max_by(|&lhs, &rhs| lhs.partial_cmp(rhs).unwrap()) // May panic when NaN
+        .cloned()
+        .ok_or(PolicyCarryingError::ImpossibleOperation(
+            "Input is empty".into(),
+        ))
+}
+
+/// Returns the minimum value of the array.
+pub fn min_impl<T>(input: &FieldDataArray<T>) -> PolicyCarryingResult<T>
+where
+    T: PrimitiveData + PartialOrd + Debug + Default + Send + Sync + Clone + 'static,
+{
+    input
+        .into_iter()
+        .max_by(|&lhs, &rhs| rhs.partial_cmp(lhs).unwrap()) // May panic when NaN
+        .cloned()
+        .ok_or(PolicyCarryingError::ImpossibleOperation(
+            "Input is empty".into(),
+        ))
 }

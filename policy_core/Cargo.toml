@@ -2,13 +2,13 @@
 name = "policy_core"
 version = "0.1.0"
 edition = "2021"
-
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [build-dependencies]
 lalrpop = "0.20.0"
 
 [dependencies]
+fraction = "0.13.1"
 lalrpop = "0.20.0"
 lalrpop-util = "0.20.0"
 libloading = "0.8.0"

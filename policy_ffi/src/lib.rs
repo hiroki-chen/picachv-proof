@@ -1,10 +1,10 @@
 use std::{
-    collections::{hash_map::Entry, HashMap},
     fmt::Debug,
     hash::Hash,
     sync::{atomic::AtomicUsize, atomic::Ordering, Arc, RwLock},
 };
 
+use hashbrown::{hash_map::Entry, HashMap};
 use lazy_static::{__Deref, lazy_static};
 use libloading::{os::unix::Symbol, Library};
 use policy_core::{
@@ -248,7 +248,7 @@ where
 
         let ret = f(args.as_ptr(), args.len());
         if ret != StatusCode::Ok {
-            return Err(PolicyCarryingError::InvalidInput);
+            return Err(ret.into());
         }
 
         let mut lock = get_lock!(self.libs, write);
@@ -298,7 +298,9 @@ where
             GroupByMethod::Max => self.get_symbol::<UserDefinedFunction>(id, "agg_max"),
             GroupByMethod::Sum => self.get_symbol::<UserDefinedFunction>(id, "agg_sum"),
             GroupByMethod::Mean => self.get_symbol::<UserDefinedFunction>(id, "agg_mean"),
-            _ => Err(PolicyCarryingError::OperationNotSupported),
+            gb => Err(PolicyCarryingError::OperationNotSupported(format!(
+                "{gb:?}"
+            ))),
         }
         .map(|symbol| symbol.deref().clone())
     }

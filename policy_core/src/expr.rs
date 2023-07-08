@@ -2,7 +2,10 @@ use std::fmt::{Debug, Display, Formatter};
 
 use serde::{Deserialize, Serialize};
 
-use crate::{error::PolicyCarryingResult, types::PrimitiveDataType};
+use crate::{
+    error::PolicyCarryingResult,
+    types::{PrimitiveData, PrimitiveDataType},
+};
 
 /// Represents the index of the element it points to in the arena.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -15,12 +18,29 @@ impl Default for Node {
 }
 
 /// The aggregation type.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub enum Aggregation {
     Min(Box<Expr>),
     Max(Box<Expr>),
     Sum(Box<Expr>),
     Mean(Box<Expr>),
+}
+
+impl Debug for Aggregation {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Min(expr) => write!(f, "{expr:?}.min()"),
+            Self::Max(expr) => write!(f, "{expr:?}.max()"),
+            Self::Sum(expr) => write!(f, "{expr:?}.sum()"),
+            Self::Mean(expr) => write!(f, "{expr:?}.mean()"),
+        }
+    }
+}
+
+impl Display for Aggregation {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{self:?}")
+    }
 }
 
 #[derive(Copy, Clone, Debug, Serialize, Deserialize)]
@@ -127,7 +147,7 @@ impl Debug for Expr {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Agg(agg) => write!(f, "{agg:?}"),
-            Self::Column(column) => write!(f, "{column}"),
+            Self::Column(column) => write!(f, "col({column})"),
             Self::Wildcard => write!(f, "*"),
             Self::Alias { expr, name } => write!(f, "ALIAS {expr:?} -> {name}"),
             Self::Exclude(expr, columns) => write!(f, "{expr:?} EXCEPT {columns:?}"),
@@ -297,7 +317,7 @@ impl Expr {
         Self::Exclude(Box::new(self), columns)
     }
 
-    pub fn lt<T: PrimitiveDataType>(self, num: T) -> Self {
+    pub fn lt<T: PrimitiveData>(self, num: T) -> Self {
         Self::BinaryOp {
             left: Box::new(self),
             op: BinaryOp::Lt,
@@ -305,7 +325,7 @@ impl Expr {
         }
     }
 
-    pub fn le<T: PrimitiveDataType>(self, num: T) -> Self {
+    pub fn le<T: PrimitiveData>(self, num: T) -> Self {
         Self::BinaryOp {
             left: Box::new(self),
             op: BinaryOp::Le,
@@ -313,7 +333,7 @@ impl Expr {
         }
     }
 
-    pub fn gt<T: PrimitiveDataType>(self, num: T) -> Self {
+    pub fn gt<T: PrimitiveData>(self, num: T) -> Self {
         Self::BinaryOp {
             left: Box::new(self),
             op: BinaryOp::Gt,
@@ -321,7 +341,7 @@ impl Expr {
         }
     }
 
-    pub fn ge<T: PrimitiveDataType>(self, num: T) -> Self {
+    pub fn ge<T: PrimitiveData>(self, num: T) -> Self {
         Self::BinaryOp {
             left: Box::new(self),
             op: BinaryOp::Ge,
@@ -329,7 +349,7 @@ impl Expr {
         }
     }
 
-    pub fn eq<T: PrimitiveDataType>(self, num: T) -> Self {
+    pub fn eq<T: PrimitiveData>(self, num: T) -> Self {
         Self::BinaryOp {
             left: Box::new(self),
             op: BinaryOp::Eq,
@@ -337,7 +357,7 @@ impl Expr {
         }
     }
 
-    pub fn ne<T: PrimitiveDataType>(self, num: T) -> Self {
+    pub fn ne<T: PrimitiveData>(self, num: T) -> Self {
         Self::BinaryOp {
             left: Box::new(self),
             op: BinaryOp::Ne,
@@ -455,7 +475,7 @@ mod test {
 
         let expr = format!("{:#?}", expr);
         assert_eq!(
-            r#"(((some_column > 100: Int8) && (some_column2 < 123: Int8)) || (some_column3 < 111: Int8))"#,
+            r#"(((col(some_column) > 100: Int8) && (col(some_column2) < 123: Int8)) || (col(some_column3) < 111: Int8))"#,
             &expr
         );
     }

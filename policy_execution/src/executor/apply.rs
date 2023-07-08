@@ -23,7 +23,7 @@ impl TryFrom<FunctionArguments> for ApplyExec {
         let input =
             args.get_and_apply("input", |input: usize| move_box_ptr(input as *mut Executor))?;
         let method = args.get_and_apply("method", |method: GroupByMethod| method)?;
-        
+
         Ok(Self::new(input, method))
     }
 }

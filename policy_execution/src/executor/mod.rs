@@ -1,13 +1,13 @@
 use std::{
     any::Any,
     cell::OnceCell,
-    collections::{HashMap, HashSet, VecDeque},
+    collections::VecDeque,
     fmt::Debug,
     sync::{Arc, Mutex, RwLock},
 };
 
 use bitflags::bitflags;
-
+use hashbrown::{HashMap, HashSet};
 use policy_carrying_data::{field::FieldDataRef, schema::SchemaRef, DataFrame};
 use policy_core::{
     error::{PolicyCarryingError, PolicyCarryingResult, StatusCode},
@@ -147,6 +147,7 @@ impl ExecutionState {
 ///
 /// This function should not be called from within an aggregation context (usually combined with `group_by`). If
 /// there is a need to apply functions on groups (a.k.a., the real `aggregation` method),
+#[allow(unused)]
 pub fn get_apply_udf(
     id: ExecutorRefId,
     ty: GroupByMethod,
@@ -176,7 +177,7 @@ pub fn execute(id: ExecutorRefId, executor: OpaquePtr) -> PolicyCarryingResult<D
         StatusCode::Ok => {
             DataFrame::from_json(unsafe { std::str::from_utf8_unchecked(&buf[..buf_len]) })
         }
-        _ => Err(PolicyCarryingError::Unknown),
+        err => Err(err.into()),
     }
 }
 
@@ -214,7 +215,11 @@ pub fn expand_projection_literal(
         let len = column.len();
         df_height = len.max(df_height);
 
-        pcd_ensures!(hashset.insert(column.name()), ImpossibleOperation: "duplicate column name: {}", column.name());
+        pcd_ensures!(
+            hashset.insert(column.name().to_string()),
+            ImpossibleOperation: "duplicate column name: {}",
+            column.name()
+        );
 
         // Length mismatch.
         if !len == selected_columns[0].len() {
@@ -231,7 +236,7 @@ pub fn expand_projection_literal(
                 if array.len() == 1 && df_height > 1 {
                     Ok(array.new_from_index(0, df_height))
                 } else if array.len() == df_height || array.len() == 0 {
-                    Ok(array)
+                    Ok(array.clone())
                 } else {
                     Err(PolicyCarryingError::ImpossibleOperation(format!(
                         "field data length {} doesn't match the dataframe height of {}",

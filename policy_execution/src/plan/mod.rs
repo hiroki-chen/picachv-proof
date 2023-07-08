@@ -12,6 +12,7 @@ use policy_core::{
     args,
     error::{PolicyCarryingError, PolicyCarryingResult},
     expr::{AAggExpr, AExpr, Aggregation, Expr, Node},
+    pcd_ensures,
     policy::Policy,
     types::{ExecutorRefId, ExecutorType, JoinType, OpaquePtr},
 };
@@ -181,7 +182,10 @@ impl LogicalPlan {
                 )
             }
             Self::StagedError { input, err } => {
-                write!(f, "{err:?}\n{input:?}")
+                write!(
+                    f,
+                    "Error occurred when constructing the logical plan: {err:?}\nThe previous output is {input:?}"
+                )
             }
             Self::Aggregation {
                 input, keys, aggs, ..
@@ -345,6 +349,7 @@ impl PlanBuilder {
     }
 
     /// Performs aggregation and groupby.
+    /// BUG: FIX
     pub(crate) fn groupby<T: AsRef<[Expr]>>(
         self,
         keys: Vec<Expr>,
@@ -359,7 +364,7 @@ impl PlanBuilder {
             self.plan
         );
 
-        log::debug!("{schema:?}, {keys:?}, {aggs:?}");
+        log::debug!("In groupby => {schema:?}, {keys:?}, {aggs:?}");
 
         let mut output_schema = delayed_err!(
             expressions_to_schema(keys.as_ref(), &schema, false),
@@ -376,7 +381,7 @@ impl PlanBuilder {
         log::debug!("{output_schema:?}");
 
         // There contains some duplicate column names.
-        if output_schema.columns().len() <= keys.len() + aggs.len() {
+        if output_schema.columns().len() < keys.len() + aggs.len() {
             let mut names = HashSet::new();
             for expr in aggs.iter().chain(keys.iter()) {
                 let name = delayed_err!(expr_to_name(expr), self.plan);
@@ -540,12 +545,8 @@ pub(crate) fn rewrite_projection(
         Expr::Column(ref name) => Some(name),
         _ => None,
     }) {
-        if !set.insert(name) {
-            // TODO: Add qualifier for ambiguous column names. E.g., A.c, B.c => full quantifier!
-            return Err(PolicyCarryingError::ImpossibleOperation(format!(
-                "found duplicate column name {name}"
-            )));
-        }
+        // TODO: Add qualifier for ambiguous column names. E.g., A.c, B.c => full quantifier!
+        pcd_ensures!(set.insert(name), DuplicateColumn:       "found duplicate column name {name}");
     }
 
     Ok(result)
@@ -737,7 +738,12 @@ pub(crate) fn lp_to_alp(
                 options,
             }
         }
-        LogicalPlan::StagedError { err, .. } => return Err(err),
+        LogicalPlan::StagedError { input, err } => {
+            log::error!(
+                "Error occurrred while evaluating logical plan. The last visited plan was {input:?}"
+            );
+            return Err(err);
+        }
     };
 
     Ok(lp_arena.add(alp))
@@ -929,7 +935,9 @@ fn do_make_physical_plan(
             options,
         } => todo!(),
 
-        ALogicalPlan::Nonsense(_) => Err(PolicyCarryingError::OperationNotSupported),
+        ALogicalPlan::Nonsense(_) => Err(PolicyCarryingError::InvalidInput(
+            "nonsence logical plan encountered".into(),
+        )),
     }
 }
 

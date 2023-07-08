@@ -1,0 +1,31 @@
+[env]
+RUST_BACKTRACE = { value = "0", condition = { env_not_set = [
+  "RUST_BACKTRACE",
+] } }
+DEBUG = { value = "0", condition = { env_not_set = ["DEBUG"] } }
+TARGET = { source = "${DEBUG}", default_value = "debug", mapping = { 0 = "--release", 1 = "--debug" } }
+
+[tasks.clean]
+command = "cargo"
+args = ["clean"]
+
+[tasks.executor_lib]
+condition = { platforms = ["linux"], channels = ["nightly"] }
+command = "cargo"
+args = ["build", "${TARGET}", "--manifest-path", "./executor_lib/Cargo.toml"]
+
+[tasks.build]
+condition = { platforms = ["linux"], channels = ["nightly"] }
+command = "cargo"
+args = ["build", "${TARGET}"]
+dependencies = ["executor_lib"]
+
+[tasks.run]
+condition = { platforms = ["linux"], channels = ["nightly"] }
+command = "cargo"
+args = ["run", "${TARGET}", "--bin", "executor_user"]
+dependencies = ["executor_lib"]
+
+[tasks.all]
+condition = { platforms = ["linux"], channels = ["nightly"] }
+dependencies = ["build", "run"]

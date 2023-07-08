@@ -1,14 +1,15 @@
 [workspace]
+resolver = "2"
 members = [
-  "policy_carrying_data",
-  "policy_proc_macro",
-  "policy_core",
-  "policy_generator",
-  "policy_function",
-  "policy_execution",
-  "policy_algebra",
-  "policy_ffi",
-  "policy_utils",
-  "policy_privacy",
   "examples/*",
+  "policy_algebra",
+  "policy_carrying_data",
+  "policy_core",
+  "policy_execution",
+  "policy_ffi",
+  "policy_function",
+  "policy_generator",
+  "policy_privacy",
+  "policy_proc_macro",
+  "policy_utils",
 ]

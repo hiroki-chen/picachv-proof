@@ -33,6 +33,12 @@ macro_rules! pcd_ensures {
             )));
         }
     };
+
+    ($cond:expr, $variant:ident) => {
+        if !$cond {
+            return Err($crate::error::PolicyCarryingError::$variant);
+        }
+    };
 }
 
 /// Helper for converting a [`PolicyCarryingResult`](crate::error::PolicyCarryingResult)

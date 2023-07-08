@@ -79,11 +79,9 @@ Although we cannot determine the concrete appearance of the policy now, we may f
 - [ ] Implement aggregation and DP on it.
   - [x] Implement aggregation expression generation.
   - [x] Implement the executor for aggretation.
-  - [ ] Find a good way to integrate DP into aggregation.
+  - [x] Find a good way to integrate DP into aggregation:
+        apply noises on the aggregated results since we return a context from which we can extract many meaningful information about the aggregated group.
   
-  Although aggregation is partly done, there are several points we need to take care about:
-    * How to make sure aggregations won't overflow: e.g., doing sum on `Vec<i8>`.
-    * Aggregations without `groupby` do not need to be executed with `AggregationExec`; any ways to unify `groupby` aggregators and those without it?
 - [ ] Implement an parser that automatically generates the API layer.
   - [ ] Human-reable policy parser: use `lalrpop`.
     - [ ] Syntax: partially done.
@@ -91,8 +89,10 @@ Although we cannot determine the concrete appearance of the policy now, we may f
     - [ ] codegen to Rust: WIP.
     - [ ] procedural macro generation.
   - [ ] Check policy consistency: use SMT solvers?
-- [] Encode the policy: can we use extended provenance semi-ring.
+- [ ] Encode the policy: can we use extended provenance semi-ring.
 - [x] Make executors loadable <= compiled from the policy.
   - [x] Implement the manager and dynamic loader.
   - [x] Attach the reference id to the schema.
   - [x] Integrate to `make_physical_plan` function.
+- [ ] Deal with null values (which can be annoying).
+- [ ] Implement join on two dataframes and their policy aggregation operations.

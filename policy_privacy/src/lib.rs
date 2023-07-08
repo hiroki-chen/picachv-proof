@@ -41,7 +41,9 @@ impl PrivacyMananger {
 
         match dp_manager.as_ref() {
             Some(manager) => Ok(manager.dp_budget().0),
-            None => Err(PolicyCarryingError::OperationNotSupported),
+            None => Err(PolicyCarryingError::OperationNotSupported(
+                "differential privacy not enabled".into(),
+            )),
         }
     }
 
@@ -51,7 +53,9 @@ impl PrivacyMananger {
 
         match k_anon_manager.as_ref() {
             Some(manager) => Ok(manager.k()),
-            None => Err(PolicyCarryingError::OperationNotSupported),
+            None => Err(PolicyCarryingError::OperationNotSupported(
+                "k-anonymity not enabled".into(),
+            )),
         }
     }
 

@@ -1,8 +1,9 @@
 use std::{
-    any::{Any, TypeId},
+    any::Any,
     cmp::Ordering,
     ffi::c_void,
     fmt::{Debug, Display, Formatter},
+    hash::{Hash, Hasher},
 };
 
 use num_enum::{FromPrimitive, IntoPrimitive};
@@ -166,38 +167,6 @@ impl DataType {
     pub fn to_qualified_str(&self) -> String {
         format!("DataType::{self}")
     }
-
-    /// Fast conversion from trait to concrete data type.
-    pub fn from_primitive_trait<T: PrimitiveDataType>() -> Self {
-        let ty = TypeId::of::<T>();
-        if ty == TypeId::of::<UInt8Type>() {
-            Self::UInt8
-        } else if ty == TypeId::of::<UInt16Type>() {
-            Self::UInt16
-        } else if ty == TypeId::of::<UInt32Type>() {
-            Self::UInt32
-        } else if ty == TypeId::of::<UInt64Type>() {
-            Self::UInt64
-        } else if ty == TypeId::of::<Int8Type>() {
-            Self::Int8
-        } else if ty == TypeId::of::<Int16Type>() {
-            Self::Int16
-        } else if ty == TypeId::of::<Int32Type>() {
-            Self::Int32
-        } else if ty == TypeId::of::<Int64Type>() {
-            Self::Int64
-        } else if ty == TypeId::of::<Float32Type>() {
-            Self::Float32
-        } else if ty == TypeId::of::<Float64Type>() {
-            Self::Float64
-        } else if ty == TypeId::of::<BooleanType>() {
-            Self::Boolean
-        } else if ty == TypeId::of::<Utf8StrType>() {
-            Self::Utf8Str
-        } else {
-            todo!()
-        }
-    }
 }
 
 pub trait TypeCoerce {
@@ -206,9 +175,11 @@ pub trait TypeCoerce {
     }
 }
 
+pub trait WrappedNative: Sized + Send + Sync + 'static {}
+
 /// This trait is a workaround for getting the concrete type of a primitive type that we store
 /// as a trait object `dyn PritimiveDataType`.
-#[typetag::serde(tag = "primitive_data_type")]
+#[typetag::serde(tag = "primitive_data")]
 pub trait PrimitiveDataType: TypeCoerce + Debug + Sync + Send + ToString + 'static {
     fn data_type(&self) -> DataType;
 
@@ -221,6 +192,13 @@ pub trait PrimitiveDataType: TypeCoerce + Debug + Sync + Send + ToString + 'stat
     fn clone_box(&self) -> Box<dyn PrimitiveDataType>;
 }
 
+pub trait PrimitiveData: PrimitiveDataType {
+    type Native: Sized;
+    type WrappedNative: WrappedNative;
+
+    const DATA_TYPE: DataType;
+}
+
 impl dyn PrimitiveDataType {
     /// Cast to `T`.
     #[inline]
@@ -229,6 +207,34 @@ impl dyn PrimitiveDataType {
         T: Clone + 'static,
     {
         self.as_any_ref().downcast_ref::<T>().cloned()
+    }
+}
+
+impl Eq for Box<dyn PrimitiveDataType> {}
+
+impl Hash for Box<dyn PrimitiveDataType> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        match self.data_type() {
+            DataType::Null => u128::MAX.hash(state),
+            DataType::Boolean => self.try_cast::<BooleanType>().unwrap().0.hash(state),
+            DataType::UInt8 => self.try_cast::<UInt8Type>().unwrap().0.hash(state),
+            DataType::UInt16 => self.try_cast::<UInt16Type>().unwrap().0.hash(state),
+            DataType::UInt32 => self.try_cast::<UInt32Type>().unwrap().0.hash(state),
+            DataType::UInt64 => self.try_cast::<UInt64Type>().unwrap().0.hash(state),
+            DataType::Int8 => self.try_cast::<Int8Type>().unwrap().0.hash(state),
+            DataType::Int16 => self.try_cast::<Int16Type>().unwrap().0.hash(state),
+            DataType::Int32 => self.try_cast::<Int32Type>().unwrap().0.hash(state),
+            DataType::Int64 => self.try_cast::<Int64Type>().unwrap().0.hash(state),
+            DataType::Float32 => {
+                let num = fraction::Fraction::from(self.try_cast::<Float32Type>().unwrap().0);
+                num.hash(state)
+            }
+            DataType::Float64 => {
+                let num = fraction::Fraction::from(self.try_cast::<Float64Type>().unwrap().0);
+                num.hash(state)
+            }
+            DataType::Utf8Str => self.try_cast::<Utf8StrType>().unwrap().0.hash(state),
+        }
     }
 }
 
@@ -280,6 +286,15 @@ macro_rules! declare_type {
             fn default() -> Self {
                 Self(Default::default(), $ty)
             }
+        }
+
+        impl $crate::types::WrappedNative for $name {}
+
+        impl $crate::types::PrimitiveData for $name {
+            type Native = $primitive;
+            type WrappedNative = $name;
+
+            const DATA_TYPE: DataType = $ty;
         }
 
         #[typetag::serde]
@@ -420,6 +435,8 @@ macro_rules! declare_numeric_type {
     ($name:ident) => {
         from_primitive!($name);
 
+        impl Eq for $name {}
+
         impl std::ops::Add<$name> for $name {
             type Output = $name;
 
@@ -493,7 +510,6 @@ declare_numeric_type!(UInt32Type);
 declare_numeric_type!(UInt64Type);
 declare_numeric_type!(Float32Type);
 declare_numeric_type!(Float64Type);
-// declare_numeric_type!(Utf8StrType);
 
 #[cfg(test)]
 mod test {

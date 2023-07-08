@@ -21,7 +21,7 @@ pub fn pcd_sum_trait(input: &dyn FieldData) -> PolicyCarryingResult<Box<dyn Prim
         DataType::Int64 => pcd_sum(input.try_cast::<Int64Type>()?, 0.0, None),
         DataType::Float32 => pcd_sum(input.try_cast::<Float32Type>()?, 0.0, None),
         DataType::Float64 => pcd_sum(input.try_cast::<Float64Type>()?, 0.0, None),
-        _ => return Err(PolicyCarryingError::OperationNotSupported),
+        _ => todo!(),
     }?;
 
     Ok(Box::new(Float64Type::new(res)))
@@ -39,14 +39,14 @@ pub fn pcd_max_trait(input: &dyn FieldData) -> PolicyCarryingResult<Box<dyn Prim
         DataType::Int64 => Ok(Box::new(pcd_max(input.try_cast::<Int64Type>()?)?)),
         DataType::Float32 => Ok(Box::new(pcd_max(input.try_cast::<Float32Type>()?)?)),
         DataType::Float64 => Ok(Box::new(pcd_max(input.try_cast::<Float64Type>()?)?)),
-        _ => Err(PolicyCarryingError::OperationNotSupported),
+        _ => todo!(),
     }
 }
 
 /// An identity function transformation.
 pub fn pcd_identity<T>(input: FieldDataArray<T>) -> PolicyCarryingResult<FieldDataArray<T>>
 where
-    T: PrimitiveDataType + Debug + Send + Sync + Clone + 'static,
+    T: PrimitiveData + Debug + Send + Sync + Clone + 'static,
 {
     Ok(input)
 }
@@ -54,7 +54,7 @@ where
 /// Returns the maximum value of the array. Deal with f64?
 pub fn pcd_max<T>(input: &FieldDataArray<T>) -> PolicyCarryingResult<T>
 where
-    T: PrimitiveDataType + PartialOrd + Debug + Default + Send + Sync + Clone + 'static,
+    T: PrimitiveData + PartialOrd + Debug + Default + Send + Sync + Clone + 'static,
 {
     input
         .into_iter()
@@ -72,7 +72,7 @@ pub fn pcd_sum<R, T>(
     upper: Option<T>,
 ) -> PolicyCarryingResult<R>
 where
-    T: PrimitiveDataType
+    T: PrimitiveData
         + Add<R, Output = R>
         + PartialOrd
         + Debug

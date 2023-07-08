@@ -1,4 +1,8 @@
-use policy_core::error::{PolicyCarryingError, PolicyCarryingResult};
+use hashbrown::{hash_map::Entry, HashMap};
+use policy_core::{
+    error::{PolicyCarryingError, PolicyCarryingResult},
+    pcd_ensures,
+};
 
 use crate::{
     field::{new_empty, FieldDataRef},
@@ -85,7 +89,7 @@ impl<'a> GroupByHelper<'a> {
                 GroupsProxy::Idx(groups) => {
                     let mut cur = new_empty(key.field());
                     for &idx in groups.first.iter() {
-                        cur.push_erased(key.index(idx));
+                        cur.push_erased(key.index(idx).unwrap());
                     }
                     ans.push(cur.into());
                 }
@@ -100,7 +104,7 @@ impl DataFrame {
     /// The same as the function in polars implementation.
     pub fn groupby_with_keys(
         &self,
-        selected_keys: Vec<FieldDataRef>,
+        mut selected_keys: Vec<FieldDataRef>,
         maintain_order: bool,
     ) -> PolicyCarryingResult<GroupByHelper> {
         let by_len = selected_keys.len();
@@ -123,17 +127,86 @@ impl DataFrame {
 
             Ok(GroupByHelper::new(self, group, selected_keys, None))
         } else {
-            // We need to check if the keys provided match the length of the dataframe so
-            // that we are able to always group all the rows together.
+            // In this case, we peek the length of the first field in the `groupby` keys.
+            let by_len = selected_keys[0].len();
+
+            // This step checks if one of the following conditions holds:
             //
-            // However, we are still able to group by on an empty dataframe.
+            // 1. We can perform the partition operation using the `groupby` key. If there are multiple
+            //    keys that are used to partition the dataframe, we use the first one.
+            // 2. If the key length does not match the row number, we check if the dataframe is empty.
+            //    This is because doing `groupby` on an empty dataframe is always valid, although this
+            //    operation does nothing.
             if by_len != self.shape().1 && self.shape().0 != 0 {
-                Err(PolicyCarryingError::SchemaMismatch((
-                    "`groupby` cannot be applied because the key array height does not match that of the dataframe."
-                ).into()))
-            } else {
-                unimplemented!("non-dummy groupby is to be implemented")
+                pcd_ensures!(
+                    by_len == 1,
+                    ImpossibleOperation:
+                    r#"`groupby` cannot be applied because the key length does not match
+                    the row number of the dataframe; nor does it have length 1 to be able
+                    to broadcast to the whole dataframe. The length is {}, and the shape
+                    of the dataframe is {:?}"#,
+                    by_len,
+                    self.shape()
+                );
+
+                // Grow the `groupby` key so that we can apply it on the whole dataframe.
+                selected_keys[0] = selected_keys[0].new_from_index(0, self.shape().1);
+            }
+
+            let groups = match selected_keys.len() {
+                1 => self.groupby_single_key(&selected_keys[0], maintain_order),
+                len if len != 0 => Err(PolicyCarryingError::OperationNotSupported(
+                    "`groupby` with multiple keys are not supported now".into(),
+                )),
+                _ => panic!("internal logic error; `len == 0` should be handled before"),
+            }?;
+
+            Ok(GroupByHelper::new(self, groups, selected_keys, None))
+        }
+    }
+
+    /// Creates a lazily grouped dataframe using a single key.
+    fn groupby_single_key(
+        &self,
+        keys: &FieldDataRef,
+        maintain_order: bool,
+    ) -> PolicyCarryingResult<GroupsProxy> {
+        // Iterate over the columns and combine the rows with the same keys indicated by `keys`.
+        let this_column = match self
+            .columns
+            .iter()
+            .find(|col| col.name() == keys.name())
+            .cloned()
+        {
+            Some(this_column) => this_column,
+            None => {
+                return Err(PolicyCarryingError::ColumnNotFound(format!(
+                    "unable to find the column named {}",
+                    keys.name()
+                )))
+            }
+        };
+
+        let mut map = HashMap::<_, (usize, Vec<usize>)>::new();
+        for i in 0..this_column.len() {
+            let cur = this_column.index(i)?;
+
+            println!("visiting {cur:?} @ {i}");
+
+            match map.entry(cur.clone()) {
+                Entry::Occupied(mut entry) => entry.get_mut().1.push(i),
+                Entry::Vacant(entry) => {
+                    entry.insert((i, vec![]));
+                }
             }
         }
+
+        let ans = map.into_values().unzip();
+        let idx = GroupsIdx {
+            sorted: maintain_order,
+            first: ans.0,
+            all: ans.1,
+        };
+        Ok(GroupsProxy::Idx(idx))
     }
 }

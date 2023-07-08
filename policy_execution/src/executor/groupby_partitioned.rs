@@ -4,7 +4,7 @@ use policy_carrying_data::{field::FieldDataRef, schema::SchemaRef, DataFrame};
 use policy_core::{
     error::{PolicyCarryingError, PolicyCarryingResult},
     expr::Expr,
-    get_lock,
+    get_lock, pcd_ensures,
     types::FunctionArguments,
 };
 use policy_utils::move_box_ptr;
@@ -114,6 +114,9 @@ impl PartitionGroupByExec {
         original_df: DataFrame,
     ) -> PolicyCarryingResult<DataFrame> {
         let keys = self.keys(&original_df, state)?;
+
+        println!("get keys => {keys:?}");
+
         groupby_helper(
             original_df,
             keys,
@@ -127,6 +130,7 @@ impl PartitionGroupByExec {
 }
 
 /// The default hash aggregation algorithm.
+/// BUG.
 pub(crate) fn groupby_helper(
     df: DataFrame,
     keys: Vec<FieldDataRef>,
@@ -138,9 +142,7 @@ pub(crate) fn groupby_helper(
 ) -> PolicyCarryingResult<DataFrame> {
     let gb = df.groupby_with_keys(keys, maintain_order)?;
 
-    if let Some(_) = apply {
-        return Err(PolicyCarryingError::OperationNotSupported);
-    }
+    pcd_ensures!(apply.is_none(), OperationNotSupported: "cannot use apply");
 
     get_lock!(state.expr_cache, lock).clear();
     let mut columns = gb.keys_sliced(slice);

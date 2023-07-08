@@ -1,0 +1,38 @@
+[env]
+RUST_BACKTRACE = { value = "0", condition = { env_not_set = [
+  "RUST_BACKTRACE",
+] } }
+DEBUG = { value = "0", condition = { env_not_set = ["DEBUG"] } }
+TARGET = { source = "${DEBUG}", default_value = "debug", mapping = { 0 = "--release", 1 = "--debug" } }
+
+[config]
+default_to_workspace = false
+
+[tasks.clean]
+command = "cargo"
+args = ["clean"]
+
+[tasks.fmt-deps]
+install_crate = "cargo-sort"
+script = "find . -name 'Cargo.toml' | xargs -i cargo sort {}"
+
+[tasks.fmt-code]
+command = "cargo"
+args = ["fmt"]
+
+[tasks.fmt]
+dependencies = ["fmt-code", "fmt-deps"]
+
+[tasks.build]
+condition = { platforms = ["linux"], channels = ["nightly"] }
+command = "cargo"
+args = ["build", "${TARGET}"]
+dependencies = ["fmt"]
+
+[tasks.examples]
+condition = { platforms = ["linux"], channels = ["nightly"] }
+dependencies = [{ name = "build", path = "examples/Makefile.toml" }]
+
+[tasks.example-run]
+condition = { platforms = ["linux"], channels = ["nightly"] }
+dependencies = [{ name = "run", path = "examples/Makefile.toml" }]

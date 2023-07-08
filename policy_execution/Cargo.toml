@@ -2,11 +2,16 @@
 name = "policy_execution"
 version = "0.1.0"
 edition = "2021"
-
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[features]
+default = ["use-sql"]
+# Enable support for SQL.
+use-sql = []
 
 [dependencies]
 bitflags = "2.3.2"
+hashbrown = { version = "0.14.0", features = ["serde"] }
 log = "0.4.19"
 policy_carrying_data = { path = "../policy_carrying_data" }
 policy_core = { path = "../policy_core" }
@@ -15,9 +20,5 @@ policy_function = { path = "../policy_function" }
 policy_utils = { path = "../policy_utils" }
 serde = { version = "1.0.166", features = ["rc", "derive"] }
 serde_json = "1.0.99"
+sqlparser = { version = "0.35.0", features = ["serde", "visitor"] }
 typetag = "0.2.8"
-
-[features]
-default = []
-# Enable built-in executors.
-builtin = []

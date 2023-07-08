@@ -6,6 +6,9 @@ pub mod lazy;
 pub mod plan;
 pub mod udf;
 
+#[cfg(feature = "use-sql")]
+pub mod sql;
+
 #[cfg(test)]
 mod test {
     use std::sync::Arc;

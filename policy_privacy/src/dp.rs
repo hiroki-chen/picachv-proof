@@ -9,7 +9,7 @@ use policy_core::{
     error::{PolicyCarryingError, PolicyCarryingResult},
     expr::Aggregation,
     policy::DpParam,
-    types::PrimitiveDataType,
+    types::PrimitiveData,
 };
 use policy_function::pcd_sum;
 
@@ -30,7 +30,7 @@ pub fn above_threshold<F, T>(
     epsilon: f64,
 ) -> PolicyCarryingResult<usize>
 where
-    T: PrimitiveDataType + Add<f64, Output = f64> + Debug + Send + Sync + Clone + 'static,
+    T: PrimitiveData + Add<f64, Output = f64> + Debug + Send + Sync + Clone + 'static,
     F: Fn(&FieldDataArray<T>) -> f64,
 {
     let scale = 2.0 / epsilon;
@@ -73,7 +73,7 @@ pub fn above_threshold_multiple<F, T>(
     epsilon: f64,
 ) -> PolicyCarryingResult<Vec<usize>>
 where
-    T: PrimitiveDataType + Add<f64, Output = f64> + Debug + Send + Sync + Clone + 'static,
+    T: PrimitiveData + Add<f64, Output = f64> + Debug + Send + Sync + Clone + 'static,
     F: Fn(&FieldDataArray<T>) -> f64,
 {
     let mut indices = Vec::new();
@@ -104,7 +104,7 @@ pub fn sum_upper_bound<T>(
     epsilon: f64,
 ) -> PolicyCarryingResult<usize>
 where
-    T: PrimitiveDataType
+    T: PrimitiveData
         + Add<f64, Output = f64>
         + From<usize>
         + PartialOrd
@@ -195,7 +195,7 @@ impl DpManager {
         dp_param: DpParam,
     ) -> PolicyCarryingResult<F>
     where
-        T: PrimitiveDataType + PartialOrd + Debug + Default + Send + Sync + Clone + 'static,
+        T: PrimitiveData + PartialOrd + Debug + Default + Send + Sync + Clone + 'static,
         F: Fn() -> T,
     {
         let epsilon = self.dp_budget.0;
@@ -219,7 +219,7 @@ mod test {
 
     #[test]
     fn test_svt_correct() {
-        let df = csv::Reader::from_path("../../test_data/adult_with_pii.csv")
+        let df = csv::Reader::from_path("../test_data/adult_with_pii.csv")
             .unwrap()
             .records()
             .into_iter()

@@ -1,10 +1,6 @@
 use std::{fmt::Debug, ops::Index, sync::Arc};
 
-use policy_core::{
-    error::{PolicyCarryingError, PolicyCarryingResult},
-    pcd_ensures,
-    types::PrimitiveDataType,
-};
+use policy_core::{error::PolicyCarryingResult, pcd_ensures, types::PrimitiveDataType};
 
 use crate::{field::FieldRef, DataFrame};
 
@@ -23,7 +19,7 @@ impl DataFrame {
         let lengths = self.columns.iter().map(|v| v.len()).collect::<Vec<_>>();
         pcd_ensures!(
             lengths.len() <= 1 || lengths.iter().all(|&v| v == lengths[0]),
-            ImpossibleOperation: "not all columns have the same length",
+            ImpossibleOperation: "not all columns have the same length; length vec is {lengths:?}",
         );
 
         // Cast all columns to their concrete `FieldDataArray<T>` types.
@@ -35,8 +31,8 @@ impl DataFrame {
 
             for column in self.columns.iter() {
                 // Try to convert the data to its concrete type and return its trait object.
-                let data = column.get_primitive_data(column.data_type(), i)?;
-                row.push(data);
+                let data = column.index(i)?;
+                row.push(data.into());
             }
 
             rows.rows.push(Row { row_data: row });
@@ -78,21 +74,6 @@ impl Index<usize> for Row {
 }
 
 impl Row {
-    /// Gets the concrete type using the index method.
-    pub fn index_as<T>(&self, idx: usize) -> PolicyCarryingResult<&T>
-    where
-        T: PrimitiveDataType + 'static,
-    {
-        match self[idx].as_any_ref().downcast_ref::<T>() {
-            Some(data) => Ok(data),
-            None => Err(PolicyCarryingError::TypeMismatch(format!(
-                "cannot cast {} to {}",
-                self[idx].data_type(),
-                std::any::type_name::<T>()
-            ))),
-        }
-    }
-
     /// Returns the stringified values of the row.
     pub fn stringify(&self) -> Vec<String> {
         self.row_data

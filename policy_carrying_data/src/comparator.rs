@@ -61,7 +61,7 @@ macro_rules! impl_comparator {
 
 impl<T> FieldDataArray<T>
 where
-    T: PrimitiveDataType + Debug + Send + Sync + Clone + PartialOrd + 'static,
+    T: PrimitiveData + Debug + Send + Sync + Clone + PartialOrd + 'static,
 {
     /// Given a predicate, returns the corresponding boolean mask array for filtering the desired elements.
     pub fn boolean_gt(&self, other: &Self) -> PolicyCarryingResult<BooleanFieldData> {
@@ -181,12 +181,8 @@ where
             }
 
             (lhs_len, rhs_len) => {
-                if lhs_len != rhs_len {
-                    return Err(PolicyCarryingError::ImpossibleOperation(format!(
-                        "lengths mismatch: lhs = {}, rhs = {}",
-                        lhs_len, rhs_len
-                    )));
-                }
+                pcd_ensures!(lhs_len == rhs_len,
+                    ImpossibleOperation: "lengths mismatch: lhs = {}, rhs = {}", lhs_len, rhs_len);
 
                 let boolean = self
                     .inner
@@ -226,12 +222,8 @@ where
             }
 
             (lhs_len, rhs_len) => {
-                if lhs_len != rhs_len {
-                    return Err(PolicyCarryingError::ImpossibleOperation(format!(
-                        "lengths mismatch: lhs = {}, rhs = {}",
-                        lhs_len, rhs_len
-                    )));
-                }
+                pcd_ensures!(lhs_len == rhs_len,
+                    ImpossibleOperation: "lengths mismatch: lhs = {}, rhs = {}", lhs_len, rhs_len);
 
                 let boolean = self
                     .inner
@@ -248,7 +240,7 @@ where
 
 impl<T> FieldDataArray<T>
 where
-    T: PrimitiveDataType + Debug + Send + Sync + Clone + PartialEq + 'static,
+    T: PrimitiveData + Debug + Send + Sync + Clone + PartialEq + 'static,
 {
     pub fn boolean_eq(&self, other: &Self) -> PolicyCarryingResult<BooleanFieldData> {
         match (self.inner.len(), other.inner.len()) {
@@ -276,12 +268,8 @@ where
             }
 
             (lhs_len, rhs_len) => {
-                if lhs_len != rhs_len {
-                    return Err(PolicyCarryingError::ImpossibleOperation(format!(
-                        "lengths mismatch: lhs = {}, rhs = {}",
-                        lhs_len, rhs_len
-                    )));
-                }
+                pcd_ensures!(lhs_len == rhs_len,
+                    ImpossibleOperation: "lengths mismatch: lhs = {}, rhs = {}", lhs_len, rhs_len);
 
                 let boolean = self
                     .inner
@@ -321,12 +309,8 @@ where
             }
 
             (lhs_len, rhs_len) => {
-                if lhs_len != rhs_len {
-                    return Err(PolicyCarryingError::ImpossibleOperation(format!(
-                        "lengths mismatch: lhs = {}, rhs = {}",
-                        lhs_len, rhs_len
-                    )));
-                }
+                pcd_ensures!(lhs_len == rhs_len,
+                    ImpossibleOperation: "lengths mismatch: lhs = {}, rhs = {}", lhs_len, rhs_len);
 
                 let boolean = self
                     .inner

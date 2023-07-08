@@ -1,11 +1,10 @@
 #[macro_export]
 macro_rules! push_type {
     ($vec:expr, $data:ident, $ty:tt, $data_type:ident) => {
-        $vec.push($data_type::new(
-            $data
-                .parse::<$ty>()
-                .map_err(|e| PolicyCarryingError::TypeMismatch(e.to_string()))?,
-        ))
+        // We ignore error for the time being.
+        $vec.push_erased(Box::new($data_type::new(
+            $data.parse::<$ty>().unwrap_or_default(),
+        )))
     };
 }
 
@@ -38,7 +37,7 @@ macro_rules! pcd {
 
         $(
             let field = std::sync::Arc::new($crate::field::Field::new($col_name.to_string(), $ty, false, Default::default()));
-            let field_data:  std::sync::Arc<dyn $crate::field::FieldData> = match $ty {
+            let field_data: std::sync::Arc<dyn $crate::field::FieldData> = match $ty {
                 DataType::Int8 => std::sync::Arc::new(
                     $crate::field::FieldDataArray::new(
                         field.clone(),

@@ -69,7 +69,9 @@ pub trait PhysicalExpr: Send + Sync + Debug {
         _df: &DataFrame,
         _state: &ExecutionState,
     ) -> PolicyCarryingResult<FieldDataRef> {
-        Err(PolicyCarryingError::OperationNotSupported)
+        Err(PolicyCarryingError::OperationNotSupported(
+            "`evaluate` not supported".into(),
+        ))
     }
 
     /// Evaluate on groups due to `group_by()`; aggregations can be applied on both groups and a single column.
@@ -79,7 +81,9 @@ pub trait PhysicalExpr: Send + Sync + Debug {
         _groups: &'a GroupsProxy,
         _state: &ExecutionState,
     ) -> PolicyCarryingResult<AggregationContext<'a>> {
-        Err(PolicyCarryingError::OperationNotSupported)
+        Err(PolicyCarryingError::OperationNotSupported(
+            "`evaluate_groups` not supported".into(),
+        ))
     }
 
     /// Returns the children of this node, if any.
@@ -369,9 +373,8 @@ impl PhysicalExpr for AggregateExpr {
             let (d, groups_cur) = ac.get_final_aggregation();
 
             // Apply type erased sum.
-            let mut aggregated = d.aggregate(GroupByMethod::Sum, &groups_cur)?;
+            let mut aggregated = d.aggregate(self.agg_type, &groups_cur)?;
             let agg = Arc::get_mut(&mut aggregated).unwrap();
-            println!("{agg:?}");
             agg.rename(name.as_str())?;
 
             Ok(AggregationContext::new(
@@ -684,7 +687,9 @@ pub(crate) fn aexpr_to_field(
         },
 
         // Cannot extract field information from this type because it should be expaned at higher level!
-        _ => Err(PolicyCarryingError::InvalidInput),
+        expr => Err(PolicyCarryingError::InvalidInput(format!(
+            "{expr:?} should not be evaluated at this level"
+        ))),
     }
 }
 
@@ -742,10 +747,17 @@ pub(crate) fn expr_to_name(expr: &Expr) -> PolicyCarryingResult<String> {
     for e in expr.into_iter() {
         match e {
             Expr::Column(name) | Expr::Alias { name, .. } => return Ok(name.clone()),
-            Expr::Wildcard => return Err(PolicyCarryingError::InvalidInput),
+            Expr::Wildcard => {
+                return Err(PolicyCarryingError::InvalidInput(
+                    "cannot determine the output name from wildcard without a specific context"
+                        .into(),
+                ))
+            }
             _ => continue,
         }
     }
 
-    Err(PolicyCarryingError::InvalidInput)
+    Err(PolicyCarryingError::InvalidInput(format!(
+        "unable to find root column name for expr '{expr:?}' when extracting from it"
+    )))
 }

@@ -10,7 +10,7 @@ pub enum PolicyCarryingError {
     /// Already loaded.
     AlreadyLoaded,
     /// Invalid input.
-    InvalidInput,
+    InvalidInput(String),
     /// Duplicate column names.
     DuplicateColumn(String),
     /// Cannot ser / deserialize.
@@ -24,7 +24,7 @@ pub enum PolicyCarryingError {
     /// Type error.
     TypeMismatch(String),
     /// Unsupported operation.
-    OperationNotSupported,
+    OperationNotSupported(String),
     /// Index out of bound.
     OutOfBound(String),
     /// Privacy error.
@@ -88,10 +88,10 @@ impl From<PolicyCarryingError> for StatusCode {
             PolicyCarryingError::DuplicateColumn(_) => StatusCode::DuplicateColumn,
             PolicyCarryingError::FsError(_) => StatusCode::FsError,
             PolicyCarryingError::ImpossibleOperation(_) => StatusCode::ImpossibleOperation,
-            PolicyCarryingError::InvalidInput => StatusCode::InvalidInput,
+            PolicyCarryingError::InvalidInput(_) => StatusCode::InvalidInput,
             PolicyCarryingError::InconsistentPolicy(_) => StatusCode::InconsistentPolicy,
             PolicyCarryingError::OperationNotAllowed(_) => StatusCode::OperationNotAllowed,
-            PolicyCarryingError::OperationNotSupported => StatusCode::OperationNotSupported,
+            PolicyCarryingError::OperationNotSupported(_) => StatusCode::OperationNotSupported,
             PolicyCarryingError::OutOfBound(_) => StatusCode::OutOfBound,
             PolicyCarryingError::ParseError(_, _) => StatusCode::ParseError,
             PolicyCarryingError::PrivacyError(_) => StatusCode::PrivacyError,
@@ -114,7 +114,9 @@ impl From<StatusCode> for PolicyCarryingError {
             StatusCode::FsError => PolicyCarryingError::FsError("".into()),
             StatusCode::ImpossibleOperation => PolicyCarryingError::ImpossibleOperation("".into()),
             StatusCode::OperationNotAllowed => PolicyCarryingError::OperationNotAllowed("".into()),
-            StatusCode::OperationNotSupported => PolicyCarryingError::OperationNotSupported,
+            StatusCode::OperationNotSupported => {
+                PolicyCarryingError::OperationNotSupported("".into())
+            }
             StatusCode::OutOfBound => PolicyCarryingError::OutOfBound("".into()),
             StatusCode::ParseError => PolicyCarryingError::ParseError("".into(), "".into()),
             StatusCode::PrivacyError => PolicyCarryingError::PrivacyError("".into()),
@@ -141,13 +143,13 @@ impl Display for PolicyCarryingError {
             Self::DuplicateColumn(name) => write!(f, "Duplicate column name found: {}", name),
             Self::SchemaMismatch(info) => write!(f, "Schema mismatch: {}", info),
             Self::InconsistentPolicy(info) => write!(f, "Inconsistent policies: {}", info),
-            Self::InvalidInput => write!(f, "invalid input"),
+            Self::InvalidInput(info) => write!(f, "invalid input: {}", info),
             Self::VersionMismatch(ver) => write!(f, "This version {} is not supported", ver),
             Self::TypeMismatch(info) => write!(f, "Type mismatch: {}", info),
             Self::ColumnNotFound(info) => write!(f, "Missing column {}", info),
             Self::SerializeError(info) => write!(f, "Ser- / deserialization error: {}", info),
             Self::OutOfBound(info) => write!(f, "Index out of bound: {}", info),
-            Self::OperationNotSupported => write!(f, "Operation not supported"),
+            Self::OperationNotSupported(info) => write!(f, "Operation not supported: {}", info),
             Self::FsError(info) => write!(f, "IO error: {}", info),
             Self::OperationNotAllowed(info) => write!(f, "Operation not allowed: {}", info),
             Self::SymbolNotFound(info) => write!(f, "Symbol not found for {}", info),

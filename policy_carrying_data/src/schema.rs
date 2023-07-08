@@ -1,5 +1,6 @@
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
 
+use hashbrown::HashMap;
 use policy_core::types::DataType;
 use serde::{Deserialize, Serialize};
 

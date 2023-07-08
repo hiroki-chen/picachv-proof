@@ -3,6 +3,7 @@
 #![feature(downcast_unchecked)]
 
 use std::{
+    collections::HashSet,
     fmt::{Debug, Display, Formatter},
     sync::Arc,
 };
@@ -11,6 +12,7 @@ use csv::Reader;
 use field::{FieldData, FieldDataArray, FieldDataRef};
 use policy_core::{
     error::{PolicyCarryingError, PolicyCarryingResult},
+    pcd_ensures,
     types::{
         BooleanType, DataType, Float32Type, Float64Type, FunctionArguments, Int16Type, Int32Type,
         Int64Type, Int8Type, UInt16Type, UInt32Type, UInt64Type, UInt8Type, Utf8StrType,
@@ -100,6 +102,7 @@ impl Debug for DataFrame {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "shape: {:?}", self.shape())?;
 
+        println!("{:?}", self.columns());
         #[cfg(feature = "prettyprint")]
         return write!(
             f,
@@ -140,38 +143,35 @@ impl DataFrame {
         })
     }
 
-    /// Loads the CSV file into the pcd.
+    /// Loads the CSV file into the dataframe with its schema specified by `schema`.
     pub fn load_csv(path: &str, schema: Option<SchemaRef>) -> PolicyCarryingResult<Self> {
         let mut reader =
             Reader::from_path(path).map_err(|e| PolicyCarryingError::FsError(e.to_string()))?;
 
-        // If this CSV file has header, we check if this matches the schema.
+        // If this CSV file has header, we check if this matches (the subset of) the schema.
         let schema = match (reader.headers().cloned(), schema) {
             (Ok(headers), Some(schema)) => {
                 let columns = schema.columns();
+                pcd_ensures!(headers.len() >= columns.len(),
+                    SchemaMismatch: "the given schema is incompatible with the CSV");
 
-                if headers.len() != columns.len() {
-                    return Err(PolicyCarryingError::SchemaMismatch(format!(
-                        "csv file has incorrect header length {}",
-                        headers.len()
-                    )));
-                }
-
-                for (idx, header) in headers.into_iter().enumerate() {
-                    if header != columns[idx].name {
-                        return Err(PolicyCarryingError::SchemaMismatch(format!(
-                            "csv file has incorrect column name {} @ {}",
-                            header, idx
-                        )));
-                    }
+                // Check if the schema names are incorporated in the CSV file.
+                let csv_headers = HashSet::<&str>::from_iter(headers.into_iter());
+                for column in columns {
+                    let name = column.name.as_str();
+                    pcd_ensures!(
+                        csv_headers.contains(name),
+                        SchemaMismatch: "the given column name {name} is not found",
+                    )
                 }
 
                 schema
             }
 
             // We cannot produce any schema from it!
-            (Err(_), None) => return Err(PolicyCarryingError::OperationNotSupported),
-            _ => panic!(),
+            _ => unimplemented!(
+                "currently the csv must have a header, and the schema must also be specified"
+            ),
         };
 
         let mut columns = schema.empty_field_data();
@@ -258,55 +258,69 @@ impl DataFrame {
         let mut columns = Vec::new();
 
         for element in arr {
-            let value = serde_json::from_str::<serde_json::Value>(element)
-                .map_err(|_| PolicyCarryingError::InvalidInput)?;
+            let value = serde_json::from_str::<serde_json::Value>(element).map_err(|_| {
+                PolicyCarryingError::InvalidInput("cannot recover from json".into())
+            })?;
             let ty = serde_json::from_value::<DataType>(value["field"]["data_type"].clone())
-                .map_err(|_| PolicyCarryingError::InvalidInput)?;
+                .map_err(|_| {
+                    PolicyCarryingError::InvalidInput("cannot recover from json".into())
+                })?;
 
             let column: Arc<dyn FieldData> = match ty {
                 DataType::Boolean => Arc::new(
-                    serde_json::from_value::<FieldDataArray<BooleanType>>(value)
-                        .map_err(|_| PolicyCarryingError::InvalidInput)?,
+                    serde_json::from_value::<FieldDataArray<BooleanType>>(value).map_err(|_| {
+                        PolicyCarryingError::InvalidInput("cannot recover from json".into())
+                    })?,
                 ),
                 DataType::UInt8 => Arc::new(
-                    serde_json::from_value::<FieldDataArray<UInt8Type>>(value)
-                        .map_err(|_| PolicyCarryingError::InvalidInput)?,
+                    serde_json::from_value::<FieldDataArray<UInt8Type>>(value).map_err(|_| {
+                        PolicyCarryingError::InvalidInput("cannot recover from json".into())
+                    })?,
                 ),
                 DataType::UInt16 => Arc::new(
-                    serde_json::from_value::<FieldDataArray<UInt16Type>>(value)
-                        .map_err(|_| PolicyCarryingError::InvalidInput)?,
+                    serde_json::from_value::<FieldDataArray<UInt16Type>>(value).map_err(|_| {
+                        PolicyCarryingError::InvalidInput("cannot recover from json".into())
+                    })?,
                 ),
                 DataType::UInt32 => Arc::new(
-                    serde_json::from_value::<FieldDataArray<UInt32Type>>(value)
-                        .map_err(|_| PolicyCarryingError::InvalidInput)?,
+                    serde_json::from_value::<FieldDataArray<UInt32Type>>(value).map_err(|_| {
+                        PolicyCarryingError::InvalidInput("cannot recover from json".into())
+                    })?,
                 ),
                 DataType::UInt64 => Arc::new(
-                    serde_json::from_value::<FieldDataArray<UInt64Type>>(value)
-                        .map_err(|_| PolicyCarryingError::InvalidInput)?,
+                    serde_json::from_value::<FieldDataArray<UInt64Type>>(value).map_err(|_| {
+                        PolicyCarryingError::InvalidInput("cannot recover from json".into())
+                    })?,
                 ),
                 DataType::Int8 => Arc::new(
-                    serde_json::from_value::<FieldDataArray<Int8Type>>(value)
-                        .map_err(|_| PolicyCarryingError::InvalidInput)?,
+                    serde_json::from_value::<FieldDataArray<Int8Type>>(value).map_err(|_| {
+                        PolicyCarryingError::InvalidInput("cannot recover from json".into())
+                    })?,
                 ),
                 DataType::Int16 => Arc::new(
-                    serde_json::from_value::<FieldDataArray<Int16Type>>(value)
-                        .map_err(|_| PolicyCarryingError::InvalidInput)?,
+                    serde_json::from_value::<FieldDataArray<Int16Type>>(value).map_err(|_| {
+                        PolicyCarryingError::InvalidInput("cannot recover from json".into())
+                    })?,
                 ),
                 DataType::Int32 => Arc::new(
-                    serde_json::from_value::<FieldDataArray<Int32Type>>(value)
-                        .map_err(|_| PolicyCarryingError::InvalidInput)?,
+                    serde_json::from_value::<FieldDataArray<Int32Type>>(value).map_err(|_| {
+                        PolicyCarryingError::InvalidInput("cannot recover from json".into())
+                    })?,
                 ),
                 DataType::Int64 => Arc::new(
-                    serde_json::from_value::<FieldDataArray<Int64Type>>(value)
-                        .map_err(|_| PolicyCarryingError::InvalidInput)?,
+                    serde_json::from_value::<FieldDataArray<Int64Type>>(value).map_err(|_| {
+                        PolicyCarryingError::InvalidInput("cannot recover from json".into())
+                    })?,
                 ),
                 DataType::Float32 => Arc::new(
-                    serde_json::from_value::<FieldDataArray<Float32Type>>(value)
-                        .map_err(|_| PolicyCarryingError::InvalidInput)?,
+                    serde_json::from_value::<FieldDataArray<Float32Type>>(value).map_err(|_| {
+                        PolicyCarryingError::InvalidInput("cannot recover from json".into())
+                    })?,
                 ),
                 DataType::Float64 => Arc::new(
-                    serde_json::from_value::<FieldDataArray<Float64Type>>(value)
-                        .map_err(|_| PolicyCarryingError::InvalidInput)?,
+                    serde_json::from_value::<FieldDataArray<Float64Type>>(value).map_err(|_| {
+                        PolicyCarryingError::InvalidInput("cannot recover from json".into())
+                    })?,
                 ),
 
                 _ => unimplemented!(),
@@ -390,12 +404,29 @@ mod test {
 
     #[test]
     fn test_load_csv() {
-        let schema = SchemaBuilder::new()
-            .add_field_raw("column_1", DataType::Int64, false)
-            .add_field_raw("column_2", DataType::Float64, false)
-            .finish();
+        let schema = define_schema! {
+            "column_1" => DataType::Int8,
+            "column_2" => DataType::Float64,
+        };
 
-        let pcd = DataFrame::load_csv("../test_data/simple_csv.csv", Some(schema.clone()));
+        let pcd = DataFrame::load_csv("../test_data/simple_csv.csv", Some(schema));
+
+        assert!(pcd.is_ok());
+
+        let schema = define_schema! {
+            "symbol" => DataType::Utf8Str,
+            "name" => DataType::Utf8Str,
+            "lastsale" => DataType::Float64,
+            "marketcap" => DataType::Float64,
+            "adr_tso" => DataType::Utf8Str,
+            "ipoyear" => DataType::Utf8Str,
+            "sector" => DataType::Utf8Str,
+            "industry" => DataType::Utf8Str,
+            "summary_quote" => DataType::Utf8Str,
+            "serialid" => DataType::UInt64,
+        };
+
+        let pcd = DataFrame::load_csv("../test_data/nasdaq_data.csv", Some(schema));
 
         assert!(pcd.is_ok());
     }

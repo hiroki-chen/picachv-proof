@@ -1,24 +1,29 @@
 use std::{
     any::Any,
-    collections::HashMap,
     fmt::{Debug, Display, Formatter},
     marker::PhantomData,
     ops::{Index, Range},
     sync::Arc,
 };
 
+use hashbrown::HashMap;
 use policy_core::{
     error::{PolicyCarryingError, PolicyCarryingResult},
     expr::GroupByMethod,
+    pcd_ensures,
     types::{
         BooleanType, DataType, Float32Type, Float64Type, Int16Type, Int32Type, Int64Type, Int8Type,
-        PrimitiveDataType, UInt16Type, UInt32Type, UInt64Type, UInt8Type, Utf8StrType,
+        PrimitiveData, PrimitiveDataType, UInt16Type, UInt32Type, UInt64Type, UInt8Type,
+        Utf8StrType,
     },
 };
 use roaring::RoaringTreemap as Bitmap;
 use serde::{Deserialize, Serialize};
 
-use crate::{arithmetic::erased_sum, group::GroupsProxy};
+use crate::{
+    arithmetic::{erased_max, erased_min, erased_sum},
+    group::GroupsProxy,
+};
 
 pub type FieldRef = Arc<Field>;
 pub type FieldDataRef = Arc<dyn FieldData>;
@@ -37,20 +42,6 @@ pub type Float32FieldData = FieldDataArray<Float32Type>;
 pub type Float64FieldData = FieldDataArray<Float64Type>;
 pub type StrFieldData = FieldDataArray<Utf8StrType>;
 pub type BooleanFieldData = FieldDataArray<BooleanType>;
-
-macro_rules! index_primitive {
-    ($ty:expr, $concrete_type:ident, $idx:expr, $obj:ident) => {
-        Arc::new(
-            $obj.try_cast::<$concrete_type>()?
-                .index_data($idx)
-                .cloned()
-                .ok_or(PolicyCarryingError::OutOfBound(format!(
-                    "The index {} is out of bound",
-                    $idx
-                )))?,
-        )
-    };
-}
 
 /// Represents a column/attribute in the data table which may carry some specific policies. This struct is an element in
 /// the schema's ([`crate::schema::Schema`]) vector of fields.
@@ -110,7 +101,7 @@ pub trait FieldData: Aggregate + Debug + Send + Sync {
     fn new_from_index(&self, idx: usize, len: usize) -> FieldDataRef;
 
     /// Gets the element with erased type.
-    fn index(&self, idx: usize) -> Box<dyn PrimitiveDataType>;
+    fn index(&self, idx: usize) -> PolicyCarryingResult<Box<dyn PrimitiveDataType>>;
 
     /// Slices the field data array.
     fn slice(&self, range: Range<usize>) -> FieldDataRef;
@@ -155,7 +146,7 @@ impl dyn FieldData + '_ {
     /// between trait objects from different builds.
     pub fn try_cast<T>(&self) -> PolicyCarryingResult<&FieldDataArray<T>>
     where
-        T: PrimitiveDataType + Debug + Send + Sync + Clone + 'static,
+        T: PrimitiveData + Debug + Send + Sync + Clone + 'static,
     {
         unsafe {
             Ok(self
@@ -167,7 +158,7 @@ impl dyn FieldData + '_ {
     /// A similar operation as [`try_cast`] but uses a mutable borrow to `self` instead.
     pub fn try_cast_mut<T>(&mut self) -> PolicyCarryingResult<&mut FieldDataArray<T>>
     where
-        T: PrimitiveDataType + Debug + Send + Sync + Clone + 'static,
+        T: PrimitiveData + Debug + Send + Sync + Clone + 'static,
     {
         unsafe {
             Ok(self
@@ -178,48 +169,6 @@ impl dyn FieldData + '_ {
 
     pub fn as_boolean(&self) -> PolicyCarryingResult<&FieldDataArray<BooleanType>> {
         self.try_cast::<BooleanType>()
-    }
-
-    /// This is a helper function that allows us to index the [`FieldData`] by a series of
-    /// type conversion:
-    ///
-    /// ```
-    /// self: dyn FieldData -> arr: FieldDataArray<T> -> data: arr.index(idx) ->
-    ///     data: &XXXType -> data: &dyn Primitive
-    /// ```
-    ///
-    /// HACK: Is there any other ways to to this?
-    pub fn get_primitive_data(
-        &self,
-        data_type: DataType,
-        idx: usize,
-    ) -> PolicyCarryingResult<Arc<dyn PrimitiveDataType>> {
-        let data: Arc<dyn PrimitiveDataType> = match data_type {
-            DataType::Int8 => index_primitive!(DataType::Int8, Int8Type, idx, self),
-            DataType::Int16 => index_primitive!(DataType::Int16, Int16Type, idx, self),
-            DataType::Int32 => index_primitive!(DataType::Int32, Int32Type, idx, self),
-            DataType::Int64 => index_primitive!(DataType::Int64, Int64Type, idx, self),
-            DataType::UInt8 => index_primitive!(DataType::UInt8, UInt8Type, idx, self),
-            DataType::UInt16 => index_primitive!(DataType::UInt16, UInt16Type, idx, self),
-            DataType::UInt32 => index_primitive!(DataType::UInt32, UInt32Type, idx, self),
-            DataType::UInt64 => index_primitive!(DataType::UInt64, UInt64Type, idx, self),
-            DataType::Float32 => index_primitive!(DataType::Float32, Float32Type, idx, self),
-            DataType::Float64 => index_primitive!(DataType::Float64, Float64Type, idx, self),
-            DataType::Utf8Str => index_primitive!(DataType::Utf8Str, Utf8StrType, idx, self),
-            DataType::Boolean => index_primitive!(DataType::Boolean, BooleanType, idx, self),
-            _ => todo!(),
-        };
-
-        Ok(data)
-    }
-
-    /// Pushes a data into itself.
-    #[inline]
-    pub fn push<T>(&mut self, data: T)
-    where
-        T: PrimitiveDataType + Debug + Send + Sync + Clone + 'static,
-    {
-        self.try_cast_mut::<T>().unwrap().inner.push(data)
     }
 }
 
@@ -232,7 +181,7 @@ impl PartialEq for dyn FieldData + '_ {
 #[derive(Clone, Deserialize, Serialize)]
 pub struct FieldDataArray<T>
 where
-    T: PrimitiveDataType + Debug + Send + Sync + Clone + 'static,
+    T: PrimitiveData + Debug + Send + Sync + Clone + 'static,
 {
     /// The field  that allows for identification of the field this array belongs to.
     pub(crate) field: FieldRef,
@@ -244,7 +193,7 @@ where
 
 impl<T> PartialOrd for FieldDataArray<T>
 where
-    T: PrimitiveDataType + Debug + Send + Sync + Clone + PartialOrd + 'static,
+    T: PrimitiveData + Debug + Send + Sync + Clone + PartialOrd + 'static,
 {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         self.inner.partial_cmp(&other.inner)
@@ -253,7 +202,7 @@ where
 
 impl<T> PartialEq for FieldDataArray<T>
 where
-    T: PrimitiveDataType + Debug + Send + Sync + Clone + PartialEq + 'static,
+    T: PrimitiveData + Debug + Send + Sync + Clone + PartialEq + 'static,
 {
     fn eq(&self, other: &Self) -> bool {
         self.inner == other.inner
@@ -262,7 +211,7 @@ where
 
 impl<T> Index<usize> for FieldDataArray<T>
 where
-    T: PrimitiveDataType + Debug + Send + Sync + Clone + 'static,
+    T: PrimitiveData + Debug + Send + Sync + Clone + 'static,
 {
     type Output = T;
 
@@ -273,7 +222,7 @@ where
 
 impl<'a, T> IntoIterator for &'a FieldDataArray<T>
 where
-    T: PrimitiveDataType + Debug + Default + Send + Sync + Clone + 'static,
+    T: PrimitiveData + Debug + Default + Send + Sync + Clone + 'static,
 {
     type Item = &'a T;
 
@@ -286,7 +235,7 @@ where
 
 impl<T> IntoIterator for FieldDataArray<T>
 where
-    T: PrimitiveDataType + Debug + Send + Sync + Clone + 'static,
+    T: PrimitiveData + Debug + Send + Sync + Clone + 'static,
 {
     type Item = T;
 
@@ -307,7 +256,7 @@ where
 /// Iterator that allows to iterate over the array.
 pub struct FieldDataArrayIterator<T, A>
 where
-    T: PrimitiveDataType + Debug + Send + Sync + Clone + 'static,
+    T: PrimitiveData + Debug + Send + Sync + Clone + 'static,
     A: ArrayAccess,
 {
     access: A,
@@ -319,7 +268,7 @@ where
 /// Iterator that allows to iterate over the array.
 pub struct FieldDataArrayIteratorBorrow<'a, T, A>
 where
-    T: PrimitiveDataType + Debug + Send + Sync + Clone + 'static,
+    T: PrimitiveData + Debug + Send + Sync + Clone + 'static,
     A: ArrayAccess,
 {
     access: &'a A,
@@ -330,7 +279,7 @@ where
 
 impl<T, A> Iterator for FieldDataArrayIterator<T, A>
 where
-    T: PrimitiveDataType + Debug + Send + Sync + Clone + 'static,
+    T: PrimitiveData + Debug + Send + Sync + Clone + 'static,
     A: ArrayAccess,
 {
     type Item = A::Item;
@@ -352,7 +301,7 @@ where
 
 impl<'a, T, A> Iterator for FieldDataArrayIteratorBorrow<'a, T, A>
 where
-    T: PrimitiveDataType + Debug + Send + Sync + Clone + 'static,
+    T: PrimitiveData + Debug + Send + Sync + Clone + 'static,
     A: ArrayAccess,
 {
     type Item = &'a A::Item;
@@ -384,7 +333,7 @@ pub trait ArrayAccess {
 
 impl<T> Aggregate for FieldDataArray<T>
 where
-    T: PrimitiveDataType
+    T: PrimitiveData
         + Serialize
         + Debug
         + Default
@@ -400,9 +349,10 @@ where
         how: GroupByMethod,
         groups: &GroupsProxy,
     ) -> PolicyCarryingResult<FieldDataRef> {
-        if let GroupsProxy::Slice(_) = groups {
-            return Err(PolicyCarryingError::OperationNotSupported);
-        }
+        pcd_ensures!(
+            !matches!(groups, GroupsProxy::Slice(_)),
+            OperationNotSupported: "cannot use slice",
+        );
 
         match how {
             GroupByMethod::Sum => {
@@ -412,14 +362,36 @@ where
                 data.push_erased(sum);
                 Ok(data.into())
             }
-            _ => Err(PolicyCarryingError::OperationNotSupported),
+            GroupByMethod::Max => {
+                // The returning type is the same as the column data type.
+                let max = erased_max(self)?;
+                pcd_ensures!(max.data_type() == self.data_type(),
+                    TypeMismatch: "max returned an invalid aggregated result, and this is unexpected");
+
+                let mut data = new_empty(self.field.clone());
+                data.push_erased(max);
+                Ok(data.into())
+            }
+            GroupByMethod::Min => {
+                // The returning type is the same as the column data type.
+                let min = erased_min(self)?;
+                pcd_ensures!(min.data_type() == self.data_type(),
+                    TypeMismatch: "min returned an invalid aggregated result, and this is unexpected");
+
+                let mut data = new_empty(self.field.clone());
+                data.push_erased(min);
+                Ok(data.into())
+            }
+            gb => Err(PolicyCarryingError::OperationNotSupported(format!(
+                "{gb:?}"
+            ))),
         }
     }
 }
 
 impl<T> FieldData for FieldDataArray<T>
 where
-    T: PrimitiveDataType
+    T: PrimitiveData
         + Serialize
         + Debug
         + Default
@@ -443,7 +415,7 @@ where
     }
 
     fn data_type(&self) -> DataType {
-        DataType::from_primitive_trait::<T>()
+        T::DATA_TYPE
     }
 
     fn name(&self) -> &str {
@@ -470,8 +442,13 @@ where
         })
     }
 
-    fn index(&self, idx: usize) -> Box<dyn PrimitiveDataType> {
-        Box::new(self.inner[idx].clone())
+    fn index(&self, idx: usize) -> PolicyCarryingResult<Box<dyn PrimitiveDataType>> {
+        self.inner
+            .get(idx)
+            .ok_or(PolicyCarryingError::OutOfBound(format!(
+                "The index {idx} is out of bound",
+            )))
+            .map(|val| val.clone_box())
     }
 
     fn to_json(&self) -> String {
@@ -551,7 +528,7 @@ where
 
 impl<T> Debug for FieldDataArray<T>
 where
-    T: PrimitiveDataType + Debug + Send + Sync + Clone,
+    T: PrimitiveData + Debug + Send + Sync + Clone,
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_list().entries(&self.inner).finish()
@@ -560,7 +537,7 @@ where
 
 impl<T> ArrayAccess for FieldDataArray<T>
 where
-    T: PrimitiveDataType + Debug + Send + Sync + Clone,
+    T: PrimitiveData + Debug + Send + Sync + Clone,
 {
     type Item = T;
 
@@ -571,7 +548,7 @@ where
 
 impl<'a, T> ArrayAccess for &'a FieldDataArray<T>
 where
-    T: PrimitiveDataType + Debug + Send + Sync + Clone,
+    T: PrimitiveData + Debug + Send + Sync + Clone,
 {
     type Item = T;
 
@@ -582,7 +559,7 @@ where
 
 impl<T> FieldDataArray<T>
 where
-    T: PrimitiveDataType + Default + Debug + Send + Sync + Clone,
+    T: PrimitiveData + Default + Debug + Send + Sync + Clone,
 {
     #[inline]
     pub fn new(field: FieldRef, inner: Vec<T>) -> Self {
@@ -616,7 +593,7 @@ where
     }
 
     pub fn data_type(&self) -> DataType {
-        DataType::from_primitive_trait::<T>()
+        T::DATA_TYPE
     }
 
     /// Performs slicing on a field data array and returns a cloned `Self`.
@@ -637,7 +614,7 @@ where
         Self {
             field: Arc::new(Field {
                 name,
-                data_type: DataType::from_primitive_trait::<T>(),
+                data_type: T::DATA_TYPE,
                 nullable: false,
                 metadata: Default::default(),
             }),
@@ -816,16 +793,5 @@ mod test {
 
         let arr = arr.unwrap();
         println!("{:?}", arr.slice(0..arr.len()));
-    }
-
-    #[test]
-    fn test_index_primitive() {
-        let int8_data_lhs: Box<dyn FieldData> =
-            Box::new(Int8FieldData::from(vec![1i8, 2, 3, 4, 5]));
-
-        assert!(int8_data_lhs.get_primitive_data(DataType::Int8, 0).is_ok());
-        assert!(int8_data_lhs
-            .get_primitive_data(DataType::Int64, 0)
-            .is_err());
     }
 }

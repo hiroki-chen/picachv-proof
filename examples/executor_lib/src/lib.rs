@@ -8,7 +8,7 @@ use std::{
 use policy_carrying_data::DataFrame;
 use policy_core::{
     error::{PolicyCarryingError, PolicyCarryingResult, StatusCode},
-    pcd_ffi_try,
+    pcd_ensures, pcd_ffi_try,
     types::*,
 };
 use policy_execution::{
@@ -179,9 +179,10 @@ impl PhysicalExecutor for MyDataFrameScanExec {
         if let Some(selection) = self.0.selection.as_ref() {
             let selection = selection.evaluate(&df, state)?;
 
-            if self.0.predicate_has_windows {
-                return Err(PolicyCarryingError::OperationNotSupported);
-            }
+            pcd_ensures!(
+                !self.0.predicate_has_windows,
+                OperationNotSupported: "window functions are not supported",
+            );
 
             df = df.filter(selection.as_boolean()?)?;
         }
@@ -238,6 +239,8 @@ impl PhysicalExecutor for MyFilterExec {
 impl PhysicalExecutor for MyPartitionGroupByExec {
     fn execute(&mut self, state: &ExecutionState) -> PolicyCarryingResult<DataFrame> {
         trace!(state, format!("{self:?}"));
+
+        println!("executing partition group by...");
 
         let original_df = self.0.input.execute(state)?;
         let df = self.0.execute_impl(state, original_df)?;
