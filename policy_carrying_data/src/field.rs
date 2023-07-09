@@ -11,11 +11,7 @@ use policy_core::{
     error::{PolicyCarryingError, PolicyCarryingResult},
     expr::GroupByMethod,
     pcd_ensures,
-    types::{
-        BooleanType, DataType, Float32Type, Float64Type, Int16Type, Int32Type, Int64Type, Int8Type,
-        PrimitiveData, PrimitiveDataType, UInt16Type, UInt32Type, UInt64Type, UInt8Type,
-        Utf8StrType,
-    },
+    types::*,
 };
 use roaring::RoaringTreemap as Bitmap;
 use serde::{Deserialize, Serialize};
@@ -30,18 +26,18 @@ pub type FieldDataRef = Arc<dyn FieldData>;
 pub type FieldMetadata = HashMap<String, String>;
 
 // Column data arrays.
-pub type Int8FieldData = FieldDataArray<Int8Type>;
-pub type Int16FieldData = FieldDataArray<Int16Type>;
-pub type Int32FieldData = FieldDataArray<Int32Type>;
-pub type Int64FieldData = FieldDataArray<Int64Type>;
-pub type UInt8FieldData = FieldDataArray<UInt8Type>;
-pub type UInt16FieldData = FieldDataArray<UInt16Type>;
-pub type UInt32FieldData = FieldDataArray<UInt32Type>;
-pub type UInt64FieldData = FieldDataArray<UInt64Type>;
-pub type Float32FieldData = FieldDataArray<Float32Type>;
-pub type Float64FieldData = FieldDataArray<Float64Type>;
-pub type StrFieldData = FieldDataArray<Utf8StrType>;
-pub type BooleanFieldData = FieldDataArray<BooleanType>;
+pub type Int8FieldData = FieldDataArray<i8>;
+pub type Int16FieldData = FieldDataArray<i16>;
+pub type Int32FieldData = FieldDataArray<i32>;
+pub type Int64FieldData = FieldDataArray<i64>;
+pub type UInt8FieldData = FieldDataArray<u8>;
+pub type UInt16FieldData = FieldDataArray<u16>;
+pub type UInt32FieldData = FieldDataArray<u32>;
+pub type UInt64FieldData = FieldDataArray<u64>;
+pub type Float32FieldData = FieldDataArray<f32>;
+pub type Float64FieldData = FieldDataArray<f64>;
+pub type StrFieldData = FieldDataArray<String>;
+pub type BooleanFieldData = FieldDataArray<bool>;
 
 /// Represents a column/attribute in the data table which may carry some specific policies. This struct is an element in
 /// the schema's ([`crate::schema::Schema`]) vector of fields.
@@ -167,8 +163,8 @@ impl dyn FieldData + '_ {
         }
     }
 
-    pub fn as_boolean(&self) -> PolicyCarryingResult<&FieldDataArray<BooleanType>> {
-        self.try_cast::<BooleanType>()
+    pub fn as_boolean(&self) -> PolicyCarryingResult<&FieldDataArray<bool>> {
+        self.try_cast::<bool>()
     }
 }
 
@@ -354,10 +350,18 @@ where
             OperationNotSupported: "cannot use slice",
         );
 
+        // TODO: This function forgets to aggregate the field data array. There are some tasks
+        // to be fulfilled, stated as follows.
+        // 1. groupby
+        // 2. Returns unsupported.
+        // 3. Dispatch concrete type.
+
+        let mut arregated = new_empty(self.field.clone());
+
         match how {
             GroupByMethod::Sum => {
                 // Always returns f64.
-                let sum = erased_sum(self)?.try_coerce(self.data_type());
+                let sum = erased_sum(self)?.try_coerce(self.data_type())?;
                 let mut data = new_empty(self.field.clone());
                 data.push_erased(sum);
                 Ok(data.into())
@@ -513,7 +517,7 @@ where
             .inner
             .iter()
             .enumerate()
-            .filter(|(idx, _)| boolean.inner[*idx].0)
+            .filter(|(idx, _)| boolean.inner[*idx])
             .map(|(_, v)| v)
             .cloned()
             .collect();
@@ -674,25 +678,19 @@ impl Field {
 
 #[macro_export]
 macro_rules! define_from_arr {
-    ($name:ident, $ty:ident, $primitive:tt, $data_type:path) => {
+    ($name:ident, $primitive:ident, $data_type:path) => {
         impl From<Vec<$primitive>> for $name {
             fn from(other: Vec<$primitive>) -> Self {
                 let mut field = Field::default();
                 field.data_type = $data_type;
 
-                Self::new(
-                    FieldRef::new(field),
-                    other.into_iter().map(|t| $ty::new(t)).collect(),
-                )
+                Self::new(FieldRef::new(field), other)
             }
         }
 
         impl From<&[$primitive]> for $name {
             fn from(other: &[$primitive]) -> Self {
-                Self::new(
-                    Default::default(),
-                    other.into_iter().map(|t| $ty::new(t.clone())).collect(),
-                )
+                Self::new(Default::default(), other.to_vec())
             }
         }
     };
@@ -742,18 +740,18 @@ pub fn new_null(field: FieldRef, len: usize) -> Box<dyn FieldData> {
     }
 }
 
-define_from_arr!(Int8FieldData, Int8Type, i8, DataType::Int8);
-define_from_arr!(Int16FieldData, Int16Type, i16, DataType::Int16);
-define_from_arr!(Int32FieldData, Int32Type, i32, DataType::Int32);
-define_from_arr!(Int64FieldData, Int64Type, i64, DataType::Int64);
-define_from_arr!(UInt8FieldData, UInt8Type, u8, DataType::UInt8);
-define_from_arr!(UInt16FieldData, UInt16Type, u16, DataType::UInt16);
-define_from_arr!(UInt32FieldData, UInt32Type, u32, DataType::UInt32);
-define_from_arr!(UInt64FieldData, UInt64Type, u64, DataType::UInt64);
-define_from_arr!(Float32FieldData, Float32Type, f32, DataType::Float32);
-define_from_arr!(Float64FieldData, Float64Type, f64, DataType::Float64);
-define_from_arr!(StrFieldData, Utf8StrType, String, DataType::Utf8Str);
-define_from_arr!(BooleanFieldData, BooleanType, bool, DataType::Boolean);
+define_from_arr!(Int8FieldData, i8, DataType::Int8);
+define_from_arr!(Int16FieldData, i16, DataType::Int16);
+define_from_arr!(Int32FieldData, i32, DataType::Int32);
+define_from_arr!(Int64FieldData, i64, DataType::Int64);
+define_from_arr!(UInt8FieldData, u8, DataType::UInt8);
+define_from_arr!(UInt16FieldData, u16, DataType::UInt16);
+define_from_arr!(UInt32FieldData, u32, DataType::UInt32);
+define_from_arr!(UInt64FieldData, u64, DataType::UInt64);
+define_from_arr!(Float32FieldData, f32, DataType::Float32);
+define_from_arr!(Float64FieldData, f64, DataType::Float64);
+define_from_arr!(StrFieldData, String, DataType::Utf8Str);
+define_from_arr!(BooleanFieldData, bool, DataType::Boolean);
 
 #[cfg(test)]
 mod test {
@@ -764,7 +762,7 @@ mod test {
         let int8_data = Int8FieldData::from(vec![1i8, 2, 3, 4, 5]);
 
         for (idx, item) in int8_data.into_iter().enumerate() {
-            println!("{idx}: {item}");
+            assert_eq!(item, (idx + 1) as i8);
         }
     }
 
@@ -784,14 +782,19 @@ mod test {
 
     #[test]
     fn test_trait_cast() {
-        let int8_data_lhs: Box<dyn FieldData> =
-            Box::new(Int8FieldData::from(vec![1i8, 2, 3, 4, 5]));
+        let data: Box<dyn FieldData> = Box::new(Int8FieldData::from(vec![1, 2, 3, 4, 5]));
 
         // Compare at the trait level.
-        let arr = int8_data_lhs.try_cast::<Int8Type>();
+        let arr = data.try_cast::<i8>();
         assert!(arr.is_ok());
+    }
 
-        let arr = arr.unwrap();
-        println!("{:?}", arr.slice(0..arr.len()));
+    #[test]
+    fn test_slice() {
+        let data = Int8FieldData::from(vec![1, 2, 3, 4, 5]);
+        let lhs = data.slice(0..3);
+        let rhs = Int8FieldData::from(vec![1, 2, 3]);
+
+        assert!(lhs.is_some_and(|lhs| lhs == rhs));
     }
 }

@@ -48,54 +48,54 @@ macro_rules! impl_operator {
                     // Downcast to concrete types.
                     match self.data_type() {
                         DataType::UInt8 => (self
-                            .try_cast::<UInt8Type>()
+                            .try_cast::<u8>()
                             .unwrap()
-                            .$func(rhs.try_cast::<UInt8Type>().unwrap()))
+                            .$func(rhs.try_cast::<u8>().unwrap()))
                         .clone_arc(),
                         DataType::UInt16 => (self
-                            .try_cast::<UInt16Type>()
+                            .try_cast::<u16>()
                             .unwrap()
-                            .$func(rhs.try_cast::<UInt16Type>().unwrap()))
+                            .$func(rhs.try_cast::<u16>().unwrap()))
                         .clone_arc(),
                         DataType::UInt32 => (self
-                            .try_cast::<UInt32Type>()
+                            .try_cast::<u32>()
                             .unwrap()
-                            .$func(rhs.try_cast::<UInt32Type>().unwrap()))
+                            .$func(rhs.try_cast::<u32>().unwrap()))
                         .clone_arc(),
                         DataType::UInt64 => (self
-                            .try_cast::<UInt64Type>()
+                            .try_cast::<u64>()
                             .unwrap()
-                            .$func(rhs.try_cast::<UInt64Type>().unwrap()))
+                            .$func(rhs.try_cast::<u64>().unwrap()))
                         .clone_arc(),
                         DataType::Int8 => (self
-                            .try_cast::<Int8Type>()
+                            .try_cast::<i8>()
                             .unwrap()
-                            .$func(rhs.try_cast::<Int8Type>().unwrap()))
+                            .$func(rhs.try_cast::<i8>().unwrap()))
                         .clone_arc(),
                         DataType::Int16 => (self
-                            .try_cast::<Int16Type>()
+                            .try_cast::<i16>()
                             .unwrap()
-                            .$func(rhs.try_cast::<Int16Type>().unwrap()))
+                            .$func(rhs.try_cast::<i16>().unwrap()))
                         .clone_arc(),
                         DataType::Int32 => (self
-                            .try_cast::<Int32Type>()
+                            .try_cast::<i32>()
                             .unwrap()
-                            .$func(rhs.try_cast::<Int32Type>().unwrap()))
+                            .$func(rhs.try_cast::<i32>().unwrap()))
                         .clone_arc(),
                         DataType::Int64 => (self
-                            .try_cast::<Int64Type>()
+                            .try_cast::<i64>()
                             .unwrap()
-                            .$func(rhs.try_cast::<Int64Type>().unwrap()))
+                            .$func(rhs.try_cast::<i64>().unwrap()))
                         .clone_arc(),
                         DataType::Float32 => (self
-                            .try_cast::<Float32Type>()
+                            .try_cast::<f32>()
                             .unwrap()
-                            .$func(rhs.try_cast::<Float32Type>().unwrap()))
+                            .$func(rhs.try_cast::<f32>().unwrap()))
                         .clone_arc(),
                         DataType::Float64 => (self
-                            .try_cast::<Float64Type>()
+                            .try_cast::<f64>()
                             .unwrap()
-                            .$func(rhs.try_cast::<Float64Type>().unwrap()))
+                            .$func(rhs.try_cast::<f64>().unwrap()))
                         .clone_arc(),
                         ty => panic!("should not go here for {ty:?}"),
                     }
@@ -114,39 +114,37 @@ impl_operator!(Div, div);
 
 /// By default we use `f64` to prevent overflow.
 pub fn erased_sum(input: &dyn FieldData) -> PolicyCarryingResult<Box<dyn PrimitiveDataType>> {
-    let res = match input.data_type() {
-        DataType::UInt8 => sum_impl(input.try_cast::<UInt8Type>()?, 0.0, None),
-        DataType::UInt16 => sum_impl(input.try_cast::<UInt16Type>()?, 0.0, None),
-        DataType::UInt32 => sum_impl(input.try_cast::<UInt32Type>()?, 0.0, None),
-        DataType::UInt64 => sum_impl(input.try_cast::<UInt64Type>()?, 0.0, None),
-        DataType::Int8 => sum_impl(input.try_cast::<Int8Type>()?, 0.0, None),
-        DataType::Int16 => sum_impl(input.try_cast::<Int16Type>()?, 0.0, None),
-        DataType::Int32 => sum_impl(input.try_cast::<Int32Type>()?, 0.0, None),
-        DataType::Int64 => sum_impl(input.try_cast::<Int64Type>()?, 0.0, None),
-        DataType::Float32 => sum_impl(input.try_cast::<Float32Type>()?, 0.0, None),
-        DataType::Float64 => sum_impl(input.try_cast::<Float64Type>()?, 0.0, None),
+    let res: Box<dyn PrimitiveDataType> = match input.data_type() {
+        DataType::UInt8 | DataType::UInt16 | DataType::UInt32 | DataType::UInt64 => {
+            Box::new(sum_impl(input.try_cast::<u64>()?, 0u64, None)?)
+        }
+        DataType::Int8 | DataType::Int16 | DataType::Int32 | DataType::Int64 => {
+            Box::new(sum_impl(input.try_cast::<i64>()?, 0i64, None)?)
+        }
+        DataType::Float32 => Box::new(sum_impl(input.try_cast::<f32>()?, 0.0f32, None)?),
+        DataType::Float64 => Box::new(sum_impl(input.try_cast::<f64>()?, 0.0f64, None)?),
         ty => {
             return Err(PolicyCarryingError::OperationNotSupported(format!(
                 "{ty:?}"
             )))
         }
-    }?;
+    };
 
-    Ok(Box::new(Float64Type::new(res)))
+    Ok(res)
 }
 
 pub fn erased_max(input: &dyn FieldData) -> PolicyCarryingResult<Box<dyn PrimitiveDataType>> {
     match input.data_type() {
-        DataType::UInt8 => Ok(Box::new(max_impl(input.try_cast::<UInt8Type>()?)?)),
-        DataType::UInt16 => Ok(Box::new(max_impl(input.try_cast::<UInt16Type>()?)?)),
-        DataType::UInt32 => Ok(Box::new(max_impl(input.try_cast::<UInt32Type>()?)?)),
-        DataType::UInt64 => Ok(Box::new(max_impl(input.try_cast::<UInt64Type>()?)?)),
-        DataType::Int8 => Ok(Box::new(max_impl(input.try_cast::<Int8Type>()?)?)),
-        DataType::Int16 => Ok(Box::new(max_impl(input.try_cast::<Int16Type>()?)?)),
-        DataType::Int32 => Ok(Box::new(max_impl(input.try_cast::<Int32Type>()?)?)),
-        DataType::Int64 => Ok(Box::new(max_impl(input.try_cast::<Int64Type>()?)?)),
-        DataType::Float32 => Ok(Box::new(max_impl(input.try_cast::<Float32Type>()?)?)),
-        DataType::Float64 => Ok(Box::new(max_impl(input.try_cast::<Float64Type>()?)?)),
+        DataType::UInt8 => Ok(Box::new(max_impl(input.try_cast::<u8>()?)?)),
+        DataType::UInt16 => Ok(Box::new(max_impl(input.try_cast::<u16>()?)?)),
+        DataType::UInt32 => Ok(Box::new(max_impl(input.try_cast::<u32>()?)?)),
+        DataType::UInt64 => Ok(Box::new(max_impl(input.try_cast::<u64>()?)?)),
+        DataType::Int8 => Ok(Box::new(max_impl(input.try_cast::<i8>()?)?)),
+        DataType::Int16 => Ok(Box::new(max_impl(input.try_cast::<i16>()?)?)),
+        DataType::Int32 => Ok(Box::new(max_impl(input.try_cast::<i32>()?)?)),
+        DataType::Int64 => Ok(Box::new(max_impl(input.try_cast::<i64>()?)?)),
+        DataType::Float32 => Ok(Box::new(max_impl(input.try_cast::<f32>()?)?)),
+        DataType::Float64 => Ok(Box::new(max_impl(input.try_cast::<f64>()?)?)),
         ty => Err(PolicyCarryingError::OperationNotSupported(format!(
             "{ty:?}"
         ))),
@@ -155,16 +153,16 @@ pub fn erased_max(input: &dyn FieldData) -> PolicyCarryingResult<Box<dyn Primiti
 
 pub fn erased_min(input: &dyn FieldData) -> PolicyCarryingResult<Box<dyn PrimitiveDataType>> {
     match input.data_type() {
-        DataType::UInt8 => Ok(Box::new(min_impl(input.try_cast::<UInt8Type>()?)?)),
-        DataType::UInt16 => Ok(Box::new(min_impl(input.try_cast::<UInt16Type>()?)?)),
-        DataType::UInt32 => Ok(Box::new(min_impl(input.try_cast::<UInt32Type>()?)?)),
-        DataType::UInt64 => Ok(Box::new(min_impl(input.try_cast::<UInt64Type>()?)?)),
-        DataType::Int8 => Ok(Box::new(min_impl(input.try_cast::<Int8Type>()?)?)),
-        DataType::Int16 => Ok(Box::new(min_impl(input.try_cast::<Int16Type>()?)?)),
-        DataType::Int32 => Ok(Box::new(min_impl(input.try_cast::<Int32Type>()?)?)),
-        DataType::Int64 => Ok(Box::new(min_impl(input.try_cast::<Int64Type>()?)?)),
-        DataType::Float32 => Ok(Box::new(min_impl(input.try_cast::<Float32Type>()?)?)),
-        DataType::Float64 => Ok(Box::new(min_impl(input.try_cast::<Float64Type>()?)?)),
+        DataType::UInt8 => Ok(Box::new(min_impl(input.try_cast::<u8>()?)?)),
+        DataType::UInt16 => Ok(Box::new(min_impl(input.try_cast::<u16>()?)?)),
+        DataType::UInt32 => Ok(Box::new(min_impl(input.try_cast::<u32>()?)?)),
+        DataType::UInt64 => Ok(Box::new(min_impl(input.try_cast::<u64>()?)?)),
+        DataType::Int8 => Ok(Box::new(min_impl(input.try_cast::<i8>()?)?)),
+        DataType::Int16 => Ok(Box::new(min_impl(input.try_cast::<i16>()?)?)),
+        DataType::Int32 => Ok(Box::new(min_impl(input.try_cast::<i32>()?)?)),
+        DataType::Int64 => Ok(Box::new(min_impl(input.try_cast::<i64>()?)?)),
+        DataType::Float32 => Ok(Box::new(min_impl(input.try_cast::<f32>()?)?)),
+        DataType::Float64 => Ok(Box::new(min_impl(input.try_cast::<f64>()?)?)),
         ty => Err(PolicyCarryingError::OperationNotSupported(format!(
             "{ty:?}"
         ))),

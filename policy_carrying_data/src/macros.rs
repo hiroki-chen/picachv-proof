@@ -2,9 +2,7 @@
 macro_rules! push_type {
     ($vec:expr, $data:ident, $ty:tt, $data_type:ident) => {
         // We ignore error for the time being.
-        $vec.push_erased(Box::new($data_type::new(
-            $data.parse::<$ty>().unwrap_or_default(),
-        )))
+        $vec.push_erased(Box::new($data.parse::<$ty>().unwrap_or_default()))
     };
 }
 
@@ -37,72 +35,11 @@ macro_rules! pcd {
 
         $(
             let field = std::sync::Arc::new($crate::field::Field::new($col_name.to_string(), $ty, false, Default::default()));
-            let field_data: std::sync::Arc<dyn $crate::field::FieldData> = match $ty {
-                DataType::Int8 => std::sync::Arc::new(
-                    $crate::field::FieldDataArray::new(
-                        field.clone(),
-                        $content.iter().map(|e| Int8Type::new(*e as _)).collect(),
-                        )
-                    ),
-                DataType::Int16 => std::sync::Arc::new(
-                    $crate::field::FieldDataArray::new(
-                        field.clone(),
-                        $content.iter().map(|e| Int16Type::new(*e as _)).collect(),
-                        )
-                    ),
-                DataType::Int32 => std::sync::Arc::new(
-                    $crate::field::FieldDataArray::new(
-                        field.clone(),
-                        $content.iter().map(|e| Int32Type::new(*e as _)).collect(),
-                        )
-                    ),
-                DataType::Int64 => std::sync::Arc::new(
-                    $crate::field::FieldDataArray::new(
-                        field.clone(),
-                        $content.iter().map(|e| Int64Type::new(*e as _)).collect(),
-                        )
-                    ),
-                DataType::UInt8 => std::sync::Arc::new(
-                    $crate::field::FieldDataArray::new(
-                        field.clone(),
-                        $content.iter().map(|e| UInt8Type::new(*e as _)).collect(),
-                        )
-                    ),
-                DataType::UInt16 => std::sync::Arc::new(
-                    $crate::field::FieldDataArray::new(
-                        field.clone(),
-                        $content.iter().map(|e| UInt16Type::new(*e as _)).collect(),
-                        )
-                    ),
-                DataType::UInt32 => std::sync::Arc::new(
-                    $crate::field::FieldDataArray::new(
-                        field.clone(),
-                        $content.iter().map(|e| UInt32Type::new(*e as _)).collect(),
-                        )
-                    ),
-                DataType::UInt64 => std::sync::Arc::new(
-                    $crate::field::FieldDataArray::new(
-                        field.clone(),
-                        $content.iter().map(|e| UInt64Type::new(*e as _)).collect(),
-                        )
-                    ),
-                DataType::Float32 => std::sync::Arc::new(
-                    $crate::field::FieldDataArray::new(
-                        field.clone(),
-                        $content.iter().map(|e| Float32Type::new(*e as _)).collect(),
-                        )
-                    ),
-                DataType::Float64 => std::sync::Arc::new(
-                    $crate::field::FieldDataArray::new(
-                        field.clone(),
-                        $content.iter().map(|e| Float64Type::new(*e as _)).collect(),
-                        )
-                    ),
-                _ => unimplemented!(),
-            };
+            let field_data: std::sync::Arc<dyn $crate::field::FieldData> = 
+                std::sync::Arc::new($crate::field::FieldDataArray::new(field.clone(), $content.to_vec()));
             field_array.push(field_data);
             fields.push(field);
-      )*
+        )*
 
       $crate::DataFrame::new_with_cols(field_array)
   }};

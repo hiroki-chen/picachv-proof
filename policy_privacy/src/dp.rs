@@ -4,14 +4,13 @@ use std::{
 };
 
 use opendp::traits::samplers::SampleDiscreteLaplaceZ2k;
-use policy_carrying_data::field::FieldDataArray;
+use policy_carrying_data::{arithmetic::sum_impl, field::FieldDataArray};
 use policy_core::{
     error::{PolicyCarryingError, PolicyCarryingResult},
     expr::Aggregation,
     policy::DpParam,
     types::PrimitiveData,
 };
-use policy_function::pcd_sum;
 
 /// This function computes the optimal upper bound for queries like summation using the
 /// Sparse Vector Technique (SVT). It returns an index!
@@ -98,36 +97,24 @@ where
 /// Computes the clamped upper bound for sum queries that should be \epsilon-differentially private.
 ///
 /// Note that this operation *consumes* `epsilon` privacy budget.
-pub fn sum_upper_bound<T>(
+pub fn sum_upper_bound(
     range: Range<usize>,
-    data: &FieldDataArray<T>,
+    data: &FieldDataArray<f64>,
     epsilon: f64,
-) -> PolicyCarryingResult<usize>
-where
-    T: PrimitiveData
-        + Add<f64, Output = f64>
-        + From<usize>
-        + PartialOrd
-        + Debug
-        + Default
-        + Send
-        + Sync
-        + Clone
-        + 'static,
-{
+) -> PolicyCarryingResult<usize> {
     // Generate a series of queries that is each 1-sensitive.
     let queries = range
         .map(|i| {
-            move |df: &FieldDataArray<T>| {
-                let prev = pcd_sum::<f64, T>(df, 0.0, Some(T::from(i))).unwrap();
-                let cur = pcd_sum::<f64, T>(df, 0.0, Some(T::from(i + 1))).unwrap();
+            move |df: &FieldDataArray<f64>| {
+                let prev = sum_impl::<f64, f64>(df, 0.0, Some(i as f64)).unwrap();
+                let cur = sum_impl::<f64, f64>(df, 0.0, Some(i as f64 + 1.0)).unwrap();
 
                 prev - cur
             }
         })
         .collect::<Vec<_>>();
 
-    above_threshold(&queries, data, T::from(0), epsilon)
+    above_threshold(&queries, data, 0.0, epsilon)
 }
 
 /// Denotes the differentially private mechanism.
@@ -213,7 +200,7 @@ impl DpManager {
 
 #[cfg(test)]
 mod test {
-    use policy_carrying_data::field::Int64FieldData;
+    use policy_carrying_data::field::Float64FieldData;
 
     use super::*;
 
@@ -223,9 +210,9 @@ mod test {
             .unwrap()
             .records()
             .into_iter()
-            .map(|r| r.unwrap().get(4).unwrap().parse::<i64>().unwrap())
+            .map(|r| r.unwrap().get(4).unwrap().parse::<f64>().unwrap())
             .collect::<Vec<_>>();
-        let df = Int64FieldData::from(df);
+        let df = Float64FieldData::from(df);
 
         // Should be larger than 85.
         let idx = sum_upper_bound(0..150, &df, 1.0);

@@ -13,10 +13,7 @@ pub mod sql;
 mod test {
     use std::sync::Arc;
 
-    use policy_core::{
-        expr::{BinaryOp, Expr},
-        types::Int8Type,
-    };
+    use policy_core::expr::{BinaryOp, Expr};
 
     use crate::plan::physical_expr::*;
 
@@ -36,8 +33,8 @@ mod test {
                 }),
                 op: BinaryOp::Ge,
                 right: Arc::new(LiteralExpr {
-                    literal: Box::new(Int8Type::new(0)),
-                    expr: Expr::Literal(Box::new(Int8Type::new(0))),
+                    literal: Box::new(0i8),
+                    expr: Expr::Literal(Box::new(0i8)),
                 }),
                 expr: Expr::Wildcard,
             }),
@@ -46,7 +43,7 @@ mod test {
 
         let s = serde_json::to_string(&phys_expr).unwrap();
         assert_eq!(
-            r#"{"physical_expr":"FilterExpr","input":{"physical_expr":"ColumnExpr","name":"foo","expr":{"Column":"foo"},"schema":null},"by":{"physical_expr":"BinaryOpExpr","left":{"physical_expr":"ColumnExpr","name":"foo","expr":{"Column":"foo"},"schema":null},"op":"Ge","right":{"physical_expr":"LiteralExpr","literal":{"primitive_data_type":"Int8Type","value":[0,"Int8"]},"expr":{"Literal":{"primitive_data_type":"Int8Type","value":[0,"Int8"]}}},"expr":"Wildcard"},"expr":"Wildcard"}"#,
+            r#"{"physical_expr":"FilterExpr","input":{"physical_expr":"ColumnExpr","name":"foo","expr":{"Column":"foo"},"schema":null},"by":{"physical_expr":"BinaryOpExpr","left":{"physical_expr":"ColumnExpr","name":"foo","expr":{"Column":"foo"},"schema":null},"op":"Ge","right":{"physical_expr":"LiteralExpr","literal":{"primitive_data":"i8","value":0},"expr":{"Literal":{"primitive_data":"i8","value":0}}},"expr":"Wildcard"},"expr":"Wildcard"}"#,
             &s
         );
 

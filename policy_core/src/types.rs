@@ -170,12 +170,10 @@ impl DataType {
 }
 
 pub trait TypeCoerce {
-    fn try_coerce(&self, to: DataType) -> Box<dyn PrimitiveDataType> {
+    fn try_coerce(&self, to: DataType) -> PolicyCarryingResult<Box<dyn PrimitiveDataType>> {
         unimplemented!("cannot coerce to {to:?}")
     }
 }
-
-pub trait WrappedNative: Sized + Send + Sync + 'static {}
 
 /// This trait is a workaround for getting the concrete type of a primitive type that we store
 /// as a trait object `dyn PritimiveDataType`.
@@ -194,7 +192,6 @@ pub trait PrimitiveDataType: TypeCoerce + Debug + Sync + Send + ToString + 'stat
 
 pub trait PrimitiveData: PrimitiveDataType {
     type Native: Sized;
-    type WrappedNative: WrappedNative;
 
     const DATA_TYPE: DataType;
 }
@@ -216,24 +213,24 @@ impl Hash for Box<dyn PrimitiveDataType> {
     fn hash<H: Hasher>(&self, state: &mut H) {
         match self.data_type() {
             DataType::Null => u128::MAX.hash(state),
-            DataType::Boolean => self.try_cast::<BooleanType>().unwrap().0.hash(state),
-            DataType::UInt8 => self.try_cast::<UInt8Type>().unwrap().0.hash(state),
-            DataType::UInt16 => self.try_cast::<UInt16Type>().unwrap().0.hash(state),
-            DataType::UInt32 => self.try_cast::<UInt32Type>().unwrap().0.hash(state),
-            DataType::UInt64 => self.try_cast::<UInt64Type>().unwrap().0.hash(state),
-            DataType::Int8 => self.try_cast::<Int8Type>().unwrap().0.hash(state),
-            DataType::Int16 => self.try_cast::<Int16Type>().unwrap().0.hash(state),
-            DataType::Int32 => self.try_cast::<Int32Type>().unwrap().0.hash(state),
-            DataType::Int64 => self.try_cast::<Int64Type>().unwrap().0.hash(state),
+            DataType::Boolean => self.try_cast::<bool>().unwrap().hash(state),
+            DataType::UInt8 => self.try_cast::<i8>().unwrap().hash(state),
+            DataType::UInt16 => self.try_cast::<i16>().unwrap().hash(state),
+            DataType::UInt32 => self.try_cast::<i32>().unwrap().hash(state),
+            DataType::UInt64 => self.try_cast::<i64>().unwrap().hash(state),
+            DataType::Int8 => self.try_cast::<i8>().unwrap().hash(state),
+            DataType::Int16 => self.try_cast::<i16>().unwrap().hash(state),
+            DataType::Int32 => self.try_cast::<i32>().unwrap().hash(state),
+            DataType::Int64 => self.try_cast::<i64>().unwrap().hash(state),
             DataType::Float32 => {
-                let num = fraction::Fraction::from(self.try_cast::<Float32Type>().unwrap().0);
+                let num = fraction::Fraction::from(self.try_cast::<f32>().unwrap());
                 num.hash(state)
             }
             DataType::Float64 => {
-                let num = fraction::Fraction::from(self.try_cast::<Float64Type>().unwrap().0);
+                let num = fraction::Fraction::from(self.try_cast::<f64>().unwrap());
                 num.hash(state)
             }
-            DataType::Utf8Str => self.try_cast::<Utf8StrType>().unwrap().0.hash(state),
+            DataType::Utf8Str => self.try_cast::<String>().unwrap().hash(state),
         }
     }
 }
@@ -257,42 +254,10 @@ impl PartialOrd for dyn PrimitiveDataType {
 }
 
 #[macro_export]
-macro_rules! declare_type {
-    ($name:ident, $ty:expr, $primitive:tt) => {
-        #[derive(Clone, PartialEq, PartialOrd, Serialize, Deserialize)]
-        #[repr(C, align(8))]
-        pub struct $name(pub $primitive, pub $crate::types::DataType);
-
-        impl TypeCoerce for $name {
-            fn try_coerce(&self, to: DataType) -> Box<dyn PrimitiveDataType> {
-                match to {
-                    DataType::Int8 => Box::new(Int8Type::from(self.0.clone())),
-                    DataType::Int16 => Box::new(Int16Type::from(self.0.clone())),
-                    DataType::Int32 => Box::new(Int32Type::from(self.0.clone())),
-                    DataType::Int64 => Box::new(Int64Type::from(self.0.clone())),
-                    DataType::UInt8 => Box::new(UInt8Type::from(self.0.clone())),
-                    DataType::UInt16 => Box::new(UInt16Type::from(self.0.clone())),
-                    DataType::UInt32 => Box::new(UInt32Type::from(self.0.clone())),
-                    DataType::UInt64 => Box::new(UInt64Type::from(self.0.clone())),
-                    DataType::Float32 => Box::new(Float32Type::from(self.0.clone())),
-                    DataType::Float64 => Box::new(Float64Type::from(self.0.clone())),
-                    // Ignored.
-                    _ => self.clone_box(),
-                }
-            }
-        }
-
-        impl Default for $name {
-            fn default() -> Self {
-                Self(Default::default(), $ty)
-            }
-        }
-
-        impl $crate::types::WrappedNative for $name {}
-
+macro_rules! impl_type {
+    ($name:ty, $ty:expr) => {
         impl $crate::types::PrimitiveData for $name {
-            type Native = $primitive;
-            type WrappedNative = $name;
+            type Native = $name;
 
             const DATA_TYPE: DataType = $ty;
         }
@@ -300,7 +265,7 @@ macro_rules! declare_type {
         #[typetag::serde]
         impl $crate::types::PrimitiveDataType for $name {
             fn data_type(&self) -> $crate::types::DataType {
-                self.1
+                $ty
             }
 
             fn as_any_ref(&self) -> &dyn std::any::Any {
@@ -314,36 +279,18 @@ macro_rules! declare_type {
                     None => return false,
                 };
 
-                self.0 == other_downcast.0
+                self == other_downcast
             }
 
             fn ord_impl(&self, other: &dyn $crate::types::PrimitiveDataType) -> Option<Ordering> {
                 match other.as_any_ref().downcast_ref::<$name>() {
-                    Some(value) => self.0.partial_cmp(&value.0),
+                    Some(value) => self.partial_cmp(&value),
                     None => None,
                 }
             }
 
             fn clone_box(&self) -> Box<dyn PrimitiveDataType> {
                 Box::new(self.clone())
-            }
-        }
-
-        impl $name {
-            pub fn new(value: $primitive) -> Self {
-                Self(value, $ty)
-            }
-        }
-
-        impl std::fmt::Debug for $name {
-            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                write!(f, "{}: {:?}", self.0, self.1)
-            }
-        }
-
-        impl std::fmt::Display for $name {
-            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                write!(f, "{:?}", self.0)
             }
         }
 
@@ -355,161 +302,59 @@ macro_rules! declare_type {
     };
 }
 
-macro_rules! from_primitive {
-    ($name:ident) => {
-        impl From<u8> for $name {
-            fn from(value: u8) -> Self {
-                Self::new(value as _)
-            }
-        }
-        impl From<u16> for $name {
-            fn from(value: u16) -> Self {
-                Self::new(value as _)
-            }
-        }
-        impl From<u32> for $name {
-            fn from(value: u32) -> Self {
-                Self::new(value as _)
-            }
-        }
-        impl From<u64> for $name {
-            fn from(value: u64) -> Self {
-                Self::new(value as _)
-            }
-        }
-        impl From<i8> for $name {
-            fn from(value: i8) -> Self {
-                Self::new(value as _)
-            }
-        }
-        impl From<i16> for $name {
-            fn from(value: i16) -> Self {
-                Self::new(value as _)
-            }
-        }
-        impl From<i32> for $name {
-            fn from(value: i32) -> Self {
-                Self::new(value as _)
-            }
-        }
-        impl From<i64> for $name {
-            fn from(value: i64) -> Self {
-                Self::new(value as _)
-            }
-        }
-        impl From<f32> for $name {
-            fn from(value: f32) -> Self {
-                Self::new(value as _)
-            }
-        }
-        impl From<f64> for $name {
-            fn from(value: f64) -> Self {
-                Self::new(value as _)
-            }
-        }
-        impl From<isize> for $name {
-            fn from(value: isize) -> Self {
-                Self::new(value as _)
-            }
-        }
-        impl From<usize> for $name {
-            fn from(value: usize) -> Self {
-                Self::new(value as _)
-            }
-        }
-        impl From<String> for $name {
-            fn from(value: String) -> Self {
-                let value = value.parse().unwrap_or_default();
-                Self::new(value)
-            }
-        }
-        impl From<bool> for $name {
-            fn from(value: bool) -> Self {
-                Self::new(if value { 1 } else { 0 } as _)
+macro_rules! impl_numeric {
+    ($name:ty) => {
+        impl TypeCoerce for $name {
+            fn try_coerce(&self, to: DataType) -> PolicyCarryingResult<Box<dyn PrimitiveDataType>> {
+                match to {
+                    DataType::Int8 => Ok(Box::new(self.clone())),
+                    DataType::Int16 => Ok(Box::new(self.clone())),
+                    DataType::Int32 => Ok(Box::new(self.clone())),
+                    DataType::Int64 => Ok(Box::new(self.clone())),
+                    DataType::UInt8 => Ok(Box::new(self.clone())),
+                    DataType::UInt16 => Ok(Box::new(self.clone())),
+                    DataType::UInt32 => Ok(Box::new(self.clone())),
+                    DataType::UInt64 => Ok(Box::new(self.clone())),
+                    DataType::Float32 => Ok(Box::new(self.clone())),
+                    DataType::Float64 => Ok(Box::new(self.clone())),
+                    // Ignored.
+                    ty => Err(PolicyCarryingError::OperationNotSupported(format!(
+                        "cannot cast {:?} to {:?}",
+                        self.data_type(),
+                        ty
+                    ))),
+                }
             }
         }
     };
 }
 
-macro_rules! declare_numeric_type {
-    ($name:ident) => {
-        from_primitive!($name);
+impl TypeCoerce for bool {}
+impl TypeCoerce for String {}
 
-        impl Eq for $name {}
+impl_type!(bool, DataType::Boolean);
+impl_type!(i8, DataType::Int8);
+impl_type!(i16, DataType::Int16);
+impl_type!(i32, DataType::Int32);
+impl_type!(i64, DataType::Int64);
+impl_type!(u8, DataType::UInt8);
+impl_type!(u16, DataType::UInt16);
+impl_type!(u32, DataType::UInt32);
+impl_type!(u64, DataType::UInt64);
+impl_type!(f32, DataType::Float32);
+impl_type!(f64, DataType::Float64);
+impl_type!(String, DataType::Utf8Str);
 
-        impl std::ops::Add<$name> for $name {
-            type Output = $name;
-
-            fn add(self, other: Self) -> Self {
-                Self::new(self.0.add(&other.0))
-            }
-        }
-
-        impl std::ops::Sub<$name> for $name {
-            type Output = $name;
-
-            fn sub(self, other: Self) -> Self {
-                Self::new(self.0.sub(&other.0))
-            }
-        }
-
-        impl std::ops::Mul<$name> for $name {
-            type Output = $name;
-
-            fn mul(self, other: Self) -> Self {
-                Self::new(self.0.mul(&other.0))
-            }
-        }
-
-        impl std::ops::Div<$name> for $name {
-            type Output = $name;
-
-            fn div(self, other: Self) -> Self {
-                Self::new(self.0.div(&other.0))
-            }
-        }
-
-        impl std::ops::Add<f64> for $name {
-            type Output = f64;
-
-            fn add(self, other: f64) -> f64 {
-                self.0 as f64 + other
-            }
-        }
-
-        impl std::ops::Add<usize> for $name {
-            type Output = usize;
-
-            fn add(self, other: usize) -> usize {
-                self.0 as usize + other
-            }
-        }
-    };
-}
-
-declare_type!(Int8Type, DataType::Int8, i8);
-declare_type!(Int16Type, DataType::Int16, i16);
-declare_type!(Int32Type, DataType::Int32, i32);
-declare_type!(Int64Type, DataType::Int64, i64);
-declare_type!(UInt8Type, DataType::UInt8, u8);
-declare_type!(UInt16Type, DataType::UInt16, u16);
-declare_type!(UInt32Type, DataType::UInt32, u32);
-declare_type!(UInt64Type, DataType::UInt64, u64);
-declare_type!(Float32Type, DataType::Float32, f32);
-declare_type!(Float64Type, DataType::Float64, f64);
-declare_type!(Utf8StrType, DataType::Utf8Str, String);
-declare_type!(BooleanType, DataType::Boolean, bool);
-
-declare_numeric_type!(Int8Type);
-declare_numeric_type!(Int16Type);
-declare_numeric_type!(Int32Type);
-declare_numeric_type!(Int64Type);
-declare_numeric_type!(UInt8Type);
-declare_numeric_type!(UInt16Type);
-declare_numeric_type!(UInt32Type);
-declare_numeric_type!(UInt64Type);
-declare_numeric_type!(Float32Type);
-declare_numeric_type!(Float64Type);
+impl_numeric!(i8);
+impl_numeric!(i16);
+impl_numeric!(i32);
+impl_numeric!(i64);
+impl_numeric!(u8);
+impl_numeric!(u16);
+impl_numeric!(u32);
+impl_numeric!(u64);
+impl_numeric!(f32);
+impl_numeric!(f64);
 
 #[cfg(test)]
 mod test {
@@ -517,30 +362,30 @@ mod test {
 
     #[test]
     fn type_correct() {
-        let int8_data1: Box<dyn PrimitiveDataType> = Box::new(Int8Type::new(0));
-        let int8_data2: Box<dyn PrimitiveDataType> = Box::new(Int8Type::new(100));
-        let int8_data3: Box<dyn PrimitiveDataType> = Box::new(Int8Type::new(0));
-        let int8_data4: Box<dyn PrimitiveDataType> = Box::new(UInt8Type::new(0));
+        let int8_data1: Box<dyn PrimitiveDataType> = Box::new(0);
+        let int8_data2: Box<dyn PrimitiveDataType> = Box::new(100);
+        let int8_data3: Box<dyn PrimitiveDataType> = Box::new(0);
+        let int64_data4: Box<dyn PrimitiveDataType> = Box::new(0i64);
 
         assert!(&int8_data1 != &int8_data2);
-        assert!(&int8_data3 != &int8_data4);
+        assert!(&int8_data3 != &int64_data4);
         assert!(&int8_data1 == &int8_data3);
     }
 
     #[test]
     fn type_serde() {
-        let int8_data: Box<dyn PrimitiveDataType> = Box::new(Int8Type::new(0));
-        let str_data: Box<dyn PrimitiveDataType> = Box::new(Utf8StrType::new("0".into()));
+        let int8_data: Box<dyn PrimitiveDataType> = Box::new(0i8);
+        let str_data: Box<dyn PrimitiveDataType> = Box::new("0".to_string());
 
         let serialized_int8 = serde_json::to_string(&int8_data).unwrap();
         let serialized_str = serde_json::to_string(&str_data).unwrap();
 
         assert_eq!(
-            r#"{"primitive_data_type":"Int8Type","value":[0,"Int8"]}"#,
+            r#"{"primitive_data":"i8","value":0}"#,
             &serialized_int8
         );
         assert_eq!(
-            r#"{"primitive_data_type":"Utf8StrType","value":["0","Utf8Str"]}"#,
+            r#"{"primitive_data":"String","value":"0"}"#,
             &serialized_str
         );
     }

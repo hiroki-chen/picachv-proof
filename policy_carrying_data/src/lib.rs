@@ -13,19 +13,15 @@ use field::{FieldData, FieldDataArray, FieldDataRef};
 use policy_core::{
     error::{PolicyCarryingError, PolicyCarryingResult},
     pcd_ensures,
-    types::{
-        BooleanType, DataType, Float32Type, Float64Type, FunctionArguments, Int16Type, Int32Type,
-        Int64Type, Int8Type, UInt16Type, UInt32Type, UInt64Type, UInt8Type, Utf8StrType,
-    },
+    types::*,
 };
 use schema::{Schema, SchemaRef};
 
-// pub mod api;
+pub mod arithmetic;
 pub mod field;
 pub mod row;
 pub mod schema;
 
-mod arithmetic;
 mod comparator;
 pub mod group;
 mod macros;
@@ -183,40 +179,40 @@ impl DataFrame {
                     if let Some(field_data) = columns.get_mut(idx) {
                         match field_data.data_type() {
                             DataType::Boolean => {
-                                push_type!(field_data, data, bool, BooleanType);
+                                push_type!(field_data, data, bool, bool);
                             }
                             DataType::Int8 => {
-                                push_type!(field_data, data, i8, Int8Type);
+                                push_type!(field_data, data, i8, i8);
                             }
                             DataType::Int16 => {
-                                push_type!(field_data, data, i16, Int16Type);
+                                push_type!(field_data, data, i16, i16);
                             }
                             DataType::Int32 => {
-                                push_type!(field_data, data, i32, Int32Type);
+                                push_type!(field_data, data, i32, i32);
                             }
                             DataType::Int64 => {
-                                push_type!(field_data, data, i64, Int64Type);
+                                push_type!(field_data, data, i64, i64);
                             }
                             DataType::UInt8 => {
-                                push_type!(field_data, data, u8, UInt8Type);
+                                push_type!(field_data, data, u8, u8);
                             }
                             DataType::UInt16 => {
-                                push_type!(field_data, data, u16, UInt16Type);
+                                push_type!(field_data, data, u16, u16);
                             }
                             DataType::UInt32 => {
-                                push_type!(field_data, data, u32, UInt32Type);
+                                push_type!(field_data, data, u32, u32);
                             }
                             DataType::UInt64 => {
-                                push_type!(field_data, data, u64, UInt64Type);
+                                push_type!(field_data, data, u64, u64);
                             }
                             DataType::Float32 => {
-                                push_type!(field_data, data, f32, Float32Type);
+                                push_type!(field_data, data, f32, f32);
                             }
                             DataType::Float64 => {
-                                push_type!(field_data, data, f64, Float64Type);
+                                push_type!(field_data, data, f64, f64);
                             }
                             DataType::Utf8Str => {
-                                push_type!(field_data, data, String, Utf8StrType);
+                                push_type!(field_data, data, String, String);
                             }
 
                             _ => (),
@@ -268,57 +264,57 @@ impl DataFrame {
 
             let column: Arc<dyn FieldData> = match ty {
                 DataType::Boolean => Arc::new(
-                    serde_json::from_value::<FieldDataArray<BooleanType>>(value).map_err(|_| {
+                    serde_json::from_value::<FieldDataArray<bool>>(value).map_err(|_| {
                         PolicyCarryingError::InvalidInput("cannot recover from json".into())
                     })?,
                 ),
                 DataType::UInt8 => Arc::new(
-                    serde_json::from_value::<FieldDataArray<UInt8Type>>(value).map_err(|_| {
+                    serde_json::from_value::<FieldDataArray<u8>>(value).map_err(|_| {
                         PolicyCarryingError::InvalidInput("cannot recover from json".into())
                     })?,
                 ),
                 DataType::UInt16 => Arc::new(
-                    serde_json::from_value::<FieldDataArray<UInt16Type>>(value).map_err(|_| {
+                    serde_json::from_value::<FieldDataArray<u16>>(value).map_err(|_| {
                         PolicyCarryingError::InvalidInput("cannot recover from json".into())
                     })?,
                 ),
                 DataType::UInt32 => Arc::new(
-                    serde_json::from_value::<FieldDataArray<UInt32Type>>(value).map_err(|_| {
+                    serde_json::from_value::<FieldDataArray<u32>>(value).map_err(|_| {
                         PolicyCarryingError::InvalidInput("cannot recover from json".into())
                     })?,
                 ),
                 DataType::UInt64 => Arc::new(
-                    serde_json::from_value::<FieldDataArray<UInt64Type>>(value).map_err(|_| {
+                    serde_json::from_value::<FieldDataArray<u64>>(value).map_err(|_| {
                         PolicyCarryingError::InvalidInput("cannot recover from json".into())
                     })?,
                 ),
                 DataType::Int8 => Arc::new(
-                    serde_json::from_value::<FieldDataArray<Int8Type>>(value).map_err(|_| {
+                    serde_json::from_value::<FieldDataArray<i8>>(value).map_err(|_| {
                         PolicyCarryingError::InvalidInput("cannot recover from json".into())
                     })?,
                 ),
                 DataType::Int16 => Arc::new(
-                    serde_json::from_value::<FieldDataArray<Int16Type>>(value).map_err(|_| {
+                    serde_json::from_value::<FieldDataArray<i16>>(value).map_err(|_| {
                         PolicyCarryingError::InvalidInput("cannot recover from json".into())
                     })?,
                 ),
                 DataType::Int32 => Arc::new(
-                    serde_json::from_value::<FieldDataArray<Int32Type>>(value).map_err(|_| {
+                    serde_json::from_value::<FieldDataArray<i32>>(value).map_err(|_| {
                         PolicyCarryingError::InvalidInput("cannot recover from json".into())
                     })?,
                 ),
                 DataType::Int64 => Arc::new(
-                    serde_json::from_value::<FieldDataArray<Int64Type>>(value).map_err(|_| {
+                    serde_json::from_value::<FieldDataArray<i64>>(value).map_err(|_| {
                         PolicyCarryingError::InvalidInput("cannot recover from json".into())
                     })?,
                 ),
                 DataType::Float32 => Arc::new(
-                    serde_json::from_value::<FieldDataArray<Float32Type>>(value).map_err(|_| {
+                    serde_json::from_value::<FieldDataArray<f32>>(value).map_err(|_| {
                         PolicyCarryingError::InvalidInput("cannot recover from json".into())
                     })?,
                 ),
                 DataType::Float64 => Arc::new(
-                    serde_json::from_value::<FieldDataArray<Float64Type>>(value).map_err(|_| {
+                    serde_json::from_value::<FieldDataArray<f64>>(value).map_err(|_| {
                         PolicyCarryingError::InvalidInput("cannot recover from json".into())
                     })?,
                 ),
@@ -354,7 +350,7 @@ impl DataFrame {
 
     /// Applies a boolean filter array on this dataframe and returns a new one.
     #[must_use]
-    pub fn filter(&self, boolean: &FieldDataArray<BooleanType>) -> PolicyCarryingResult<Self> {
+    pub fn filter(&self, boolean: &FieldDataArray<bool>) -> PolicyCarryingResult<Self> {
         let data = self
             .columns
             .iter()
@@ -434,8 +430,8 @@ mod test {
     #[test]
     fn test_json() {
         let pcd_old = pcd! {
-            "column_1" => DataType::Int8: [1, 2, 3, 4, 5, 6, 7, 8],
-            "column_2" => DataType::Float64: [1.0, 2.0, 3.0, 4.0, 22.3, 22.3, 22.3, 22.3],
+            "column_1" => DataType::Int8: [1i8, 2, 3, 4, 5, 6, 7, 8],
+            "column_2" => DataType::Float64: [1.0f64, 2.0, 3.0, 4.0, 22.3, 22.3, 22.3, 22.3],
         };
 
         let json = pcd_old.to_json();

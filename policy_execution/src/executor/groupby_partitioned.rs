@@ -153,7 +153,6 @@ pub(crate) fn groupby_helper(
             Ok(agg)
         })
         .collect::<PolicyCarryingResult<Vec<_>>>()?;
-
     get_lock!(state.expr_cache, lock).clear();
 
     columns.extend_from_slice(aggs.as_slice());

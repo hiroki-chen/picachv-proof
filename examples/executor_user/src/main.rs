@@ -1,5 +1,5 @@
 use policy_carrying_data::define_schema;
-use policy_core::{col, cols, types::*};
+use policy_core::{col, cols};
 use policy_execution::{context::AnalysisContext, lazy::IntoLazy};
 
 #[cfg(debug_assertions)]
@@ -38,11 +38,7 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let df = ctx
         .lazy()
         .select(cols!("column_1", "column_2"))
-        .filter(
-            col!("column_1")
-                .ge(UInt8Type::new(4))
-                .and(col!("column_2").lt(Float64Type::new(10000.0))),
-        )
+        .filter(col!("column_1").ge(4u8).and(col!("column_2").lt(10000.0)))
         .groupby([col!("column_2")])
         .agg([col!("column_1").min()]);
 

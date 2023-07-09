@@ -15,9 +15,16 @@ use crate::{
 pub struct GroupsIdx {
     pub(crate) sorted: bool,
     /// The groupby key.
-    first: Vec<usize>,
+    pub(crate) first: Vec<usize>,
     /// The elements grouped in the group.
-    all: Vec<Vec<usize>>,
+    pub(crate) all: Vec<Vec<usize>>,
+}
+
+impl GroupsIdx {
+    #[inline]
+    pub fn groupby_with_null(&self) -> bool {
+        self.first.len() == 1 && self.first[0] == 0 && self.all.len() == 1
+    }
 }
 
 /// A group slice since groups are 2-dimensional arrays of the original dataframe.
@@ -117,11 +124,11 @@ impl DataFrame {
 
             // The `index` column is phantom since we can just create it from the height.
             // We thus do not need to manunally insert a column into the dataframe.
-            let (first, all) = (0..height).into_iter().map(|i| (i, vec![i])).unzip();
             let all_index = GroupsIdx {
                 sorted: maintain_order,
-                first,
-                all,
+                // `group by NULL` transforms the dataframe into a single partition.
+                first: vec![0],
+                all: vec![(0..height).collect()],
             };
             let group = GroupsProxy::Idx(all_index);
 
@@ -196,7 +203,7 @@ impl DataFrame {
             match map.entry(cur.clone()) {
                 Entry::Occupied(mut entry) => entry.get_mut().1.push(i),
                 Entry::Vacant(entry) => {
-                    entry.insert((i, vec![]));
+                    entry.insert((i, vec![i]));
                 }
             }
         }

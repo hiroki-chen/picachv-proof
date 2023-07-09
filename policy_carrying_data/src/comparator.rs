@@ -15,45 +15,45 @@ macro_rules! impl_comparator {
     ($lhs:expr, $rhs:expr, $op:ident) => {
         match $lhs.data_type() {
             DataType::UInt8 => $lhs
-                .try_cast::<UInt8Type>()
+                .try_cast::<u8>()
                 .unwrap()
-                .$op($rhs.try_cast::<UInt8Type>().unwrap()),
+                .$op($rhs.try_cast::<u8>().unwrap()),
             DataType::UInt16 => $lhs
-                .try_cast::<UInt16Type>()
+                .try_cast::<u16>()
                 .unwrap()
-                .$op($rhs.try_cast::<UInt16Type>().unwrap()),
+                .$op($rhs.try_cast::<u16>().unwrap()),
             DataType::UInt32 => $lhs
-                .try_cast::<UInt32Type>()
+                .try_cast::<u32>()
                 .unwrap()
-                .$op($rhs.try_cast::<UInt32Type>().unwrap()),
+                .$op($rhs.try_cast::<u32>().unwrap()),
             DataType::UInt64 => $lhs
-                .try_cast::<UInt64Type>()
+                .try_cast::<u64>()
                 .unwrap()
-                .$op($rhs.try_cast::<UInt64Type>().unwrap()),
+                .$op($rhs.try_cast::<u64>().unwrap()),
             DataType::Int8 => $lhs
-                .try_cast::<Int8Type>()
+                .try_cast::<i8>()
                 .unwrap()
-                .$op($rhs.try_cast::<Int8Type>().unwrap()),
+                .$op($rhs.try_cast::<i8>().unwrap()),
             DataType::Int16 => $lhs
-                .try_cast::<Int16Type>()
+                .try_cast::<i16>()
                 .unwrap()
-                .$op($rhs.try_cast::<Int16Type>().unwrap()),
+                .$op($rhs.try_cast::<i16>().unwrap()),
             DataType::Int32 => $lhs
-                .try_cast::<Int32Type>()
+                .try_cast::<i32>()
                 .unwrap()
-                .$op($rhs.try_cast::<Int32Type>().unwrap()),
+                .$op($rhs.try_cast::<i32>().unwrap()),
             DataType::Int64 => $lhs
-                .try_cast::<Int64Type>()
+                .try_cast::<i64>()
                 .unwrap()
-                .$op($rhs.try_cast::<Int64Type>().unwrap()),
+                .$op($rhs.try_cast::<i64>().unwrap()),
             DataType::Float32 => $lhs
-                .try_cast::<Float32Type>()
+                .try_cast::<f32>()
                 .unwrap()
-                .$op($rhs.try_cast::<Float32Type>().unwrap()),
+                .$op($rhs.try_cast::<f32>().unwrap()),
             DataType::Float64 => $lhs
-                .try_cast::<Float64Type>()
+                .try_cast::<f64>()
                 .unwrap()
-                .$op($rhs.try_cast::<Float64Type>().unwrap()),
+                .$op($rhs.try_cast::<f64>().unwrap()),
             _ => panic!("should not go here"),
         }
     };
@@ -69,22 +69,14 @@ where
             // len == 1 => broadcast the predicate to all the elements of the other array.
             (_, 1) => {
                 let other = &other.inner[0];
-                let boolean = self
-                    .inner
-                    .iter()
-                    .map(|val| BooleanType::new(val.gt(other)))
-                    .collect();
+                let boolean = self.inner.iter().map(|val| (val.gt(other))).collect();
 
                 Ok(BooleanFieldData::new(self.field.clone(), boolean))
             }
 
             (1, _) => {
                 let this = &self.inner[0];
-                let boolean = other
-                    .inner
-                    .iter()
-                    .map(|val| BooleanType::new(this.gt(val)))
-                    .collect();
+                let boolean = other.inner.iter().map(|val| (this.gt(val))).collect();
 
                 Ok(BooleanFieldData::new(other.field.clone(), boolean))
             }
@@ -102,7 +94,7 @@ where
                     .inner
                     .iter()
                     .zip(other.inner.iter())
-                    .map(|(lhs, rhs)| BooleanType::new(lhs.gt(rhs)))
+                    .map(|(lhs, rhs)| (lhs.gt(rhs)))
                     .collect();
 
                 Ok(BooleanFieldData::new(other.field.clone(), boolean))
@@ -115,22 +107,14 @@ where
             // len == 1 => broadcast the predicate to all the elements of the other array.
             (_, 1) => {
                 let other = &other.inner[0];
-                let boolean = self
-                    .inner
-                    .iter()
-                    .map(|val| BooleanType::new(val.ge(other)))
-                    .collect();
+                let boolean = self.inner.iter().map(|val| (val.ge(other))).collect();
 
                 Ok(BooleanFieldData::new(self.field.clone(), boolean))
             }
 
             (1, _) => {
                 let this = &self.inner[0];
-                let boolean = other
-                    .inner
-                    .iter()
-                    .map(|val| BooleanType::new(this.ge(val)))
-                    .collect();
+                let boolean = other.inner.iter().map(|val| (this.ge(val))).collect();
 
                 Ok(BooleanFieldData::new(other.field.clone(), boolean))
             }
@@ -147,7 +131,7 @@ where
                     .inner
                     .iter()
                     .zip(other.inner.iter())
-                    .map(|(lhs, rhs)| BooleanType::new(lhs.ge(rhs)))
+                    .map(|(lhs, rhs)| (lhs.ge(rhs)))
                     .collect();
 
                 Ok(BooleanFieldData::new(other.field.clone(), boolean))
@@ -160,22 +144,14 @@ where
             // len == 1 => broadcast the predicate to all the elements of the other array.
             (_, 1) => {
                 let other = &other.inner[0];
-                let boolean = self
-                    .inner
-                    .iter()
-                    .map(|val| BooleanType::new(val.lt(other)))
-                    .collect();
+                let boolean = self.inner.iter().map(|val| (val.lt(other))).collect();
 
                 Ok(BooleanFieldData::new(self.field.clone(), boolean))
             }
 
             (1, _) => {
                 let this = &self.inner[0];
-                let boolean = other
-                    .inner
-                    .iter()
-                    .map(|val| BooleanType::new(this.lt(val)))
-                    .collect();
+                let boolean = other.inner.iter().map(|val| (this.lt(val))).collect();
 
                 Ok(BooleanFieldData::new(other.field.clone(), boolean))
             }
@@ -188,7 +164,7 @@ where
                     .inner
                     .iter()
                     .zip(other.inner.iter())
-                    .map(|(lhs, rhs)| BooleanType::new(lhs.lt(rhs)))
+                    .map(|(lhs, rhs)| (lhs.lt(rhs)))
                     .collect();
 
                 Ok(BooleanFieldData::new(other.field.clone(), boolean))
@@ -201,22 +177,14 @@ where
             // len == 1 => broadcast the predicate to all the elements of the other array.
             (_, 1) => {
                 let other = &other.inner[0];
-                let boolean = self
-                    .inner
-                    .iter()
-                    .map(|val| BooleanType::new(val.le(other)))
-                    .collect();
+                let boolean = self.inner.iter().map(|val| (val.le(other))).collect();
 
                 Ok(BooleanFieldData::new(self.field.clone(), boolean))
             }
 
             (1, _) => {
                 let this = &self.inner[0];
-                let boolean = other
-                    .inner
-                    .iter()
-                    .map(|val| BooleanType::new(this.le(val)))
-                    .collect();
+                let boolean = other.inner.iter().map(|val| (this.le(val))).collect();
 
                 Ok(BooleanFieldData::new(other.field.clone(), boolean))
             }
@@ -229,7 +197,7 @@ where
                     .inner
                     .iter()
                     .zip(other.inner.iter())
-                    .map(|(lhs, rhs)| BooleanType::new(lhs.le(rhs)))
+                    .map(|(lhs, rhs)| (lhs.le(rhs)))
                     .collect();
 
                 Ok(BooleanFieldData::new(other.field.clone(), boolean))
@@ -247,22 +215,14 @@ where
             // len == 1 => broadcast the predicate to all the elements of the other array.
             (_, 1) => {
                 let other = &other.inner[0];
-                let boolean = self
-                    .inner
-                    .iter()
-                    .map(|val| BooleanType::new(val.eq(other)))
-                    .collect();
+                let boolean = self.inner.iter().map(|val| (val.eq(other))).collect();
 
                 Ok(BooleanFieldData::new(self.field.clone(), boolean))
             }
 
             (1, _) => {
                 let this = &self.inner[0];
-                let boolean = other
-                    .inner
-                    .iter()
-                    .map(|val| BooleanType::new(this.eq(val)))
-                    .collect();
+                let boolean = other.inner.iter().map(|val| (this.eq(val))).collect();
 
                 Ok(BooleanFieldData::new(other.field.clone(), boolean))
             }
@@ -275,7 +235,7 @@ where
                     .inner
                     .iter()
                     .zip(other.inner.iter())
-                    .map(|(lhs, rhs)| BooleanType::new(lhs.eq(rhs)))
+                    .map(|(lhs, rhs)| (lhs.eq(rhs)))
                     .collect();
 
                 Ok(BooleanFieldData::new(other.field.clone(), boolean))
@@ -288,22 +248,14 @@ where
             // len == 1 => broadcast the predicate to all the elements of the other array.
             (_, 1) => {
                 let other = &other.inner[0];
-                let boolean = self
-                    .inner
-                    .iter()
-                    .map(|val| BooleanType::new(val.ne(other)))
-                    .collect();
+                let boolean = self.inner.iter().map(|val| (val.ne(other))).collect();
 
                 Ok(BooleanFieldData::new(self.field.clone(), boolean))
             }
 
             (1, _) => {
                 let this = &self.inner[0];
-                let boolean = other
-                    .inner
-                    .iter()
-                    .map(|val| BooleanType::new(this.ne(val)))
-                    .collect();
+                let boolean = other.inner.iter().map(|val| (this.ne(val))).collect();
 
                 Ok(BooleanFieldData::new(other.field.clone(), boolean))
             }
@@ -316,7 +268,7 @@ where
                     .inner
                     .iter()
                     .zip(other.inner.iter())
-                    .map(|(lhs, rhs)| BooleanType::new(lhs.ne(rhs)))
+                    .map(|(lhs, rhs)| (lhs.ne(rhs)))
                     .collect();
 
                 Ok(BooleanFieldData::new(other.field.clone(), boolean))
@@ -481,7 +433,7 @@ impl<'a> Comparator<&'a dyn FieldData> for &'a dyn FieldData {
     }
 }
 
-impl BitAnd for FieldDataArray<BooleanType> {
+impl BitAnd for FieldDataArray<bool> {
     type Output = PolicyCarryingResult<Self>;
 
     fn bitand(self, rhs: Self) -> Self::Output {
@@ -489,21 +441,21 @@ impl BitAnd for FieldDataArray<BooleanType> {
     }
 }
 
-impl<'a> BitAnd<&'a FieldDataArray<BooleanType>> for &'a FieldDataArray<BooleanType> {
-    type Output = PolicyCarryingResult<FieldDataArray<BooleanType>>;
+impl<'a> BitAnd<&'a FieldDataArray<bool>> for &'a FieldDataArray<bool> {
+    type Output = PolicyCarryingResult<FieldDataArray<bool>>;
 
     fn bitand(self, rhs: Self) -> Self::Output {
         let data = self
             .into_iter()
             .zip(rhs.into_iter())
-            .map(|(lhs, rhs)| BooleanType::new(lhs.0 & rhs.0))
+            .map(|(lhs, rhs)| (lhs & rhs))
             .collect::<Vec<_>>();
 
         Ok(FieldDataArray::new(self.field.clone(), data))
     }
 }
 
-impl BitOr for FieldDataArray<BooleanType> {
+impl BitOr for FieldDataArray<bool> {
     type Output = PolicyCarryingResult<Self>;
 
     fn bitor(self, rhs: Self) -> Self::Output {
@@ -511,20 +463,20 @@ impl BitOr for FieldDataArray<BooleanType> {
     }
 }
 
-impl<'a> BitOr<&'a FieldDataArray<BooleanType>> for &'a FieldDataArray<BooleanType> {
-    type Output = PolicyCarryingResult<FieldDataArray<BooleanType>>;
+impl<'a> BitOr<&'a FieldDataArray<bool>> for &'a FieldDataArray<bool> {
+    type Output = PolicyCarryingResult<FieldDataArray<bool>>;
 
     fn bitor(self, rhs: Self) -> Self::Output {
         let data = self
             .into_iter()
             .zip(rhs.into_iter())
-            .map(|(lhs, rhs)| BooleanType::new(lhs.0 | rhs.0))
+            .map(|(lhs, rhs)| (lhs | rhs))
             .collect::<Vec<_>>();
 
         Ok(FieldDataArray::new(self.field.clone(), data))
     }
 }
-impl BitXor for FieldDataArray<BooleanType> {
+impl BitXor for FieldDataArray<bool> {
     type Output = PolicyCarryingResult<Self>;
 
     fn bitxor(self, rhs: Self) -> Self::Output {
@@ -532,14 +484,14 @@ impl BitXor for FieldDataArray<BooleanType> {
     }
 }
 
-impl<'a> BitXor<&'a FieldDataArray<BooleanType>> for &'a FieldDataArray<BooleanType> {
-    type Output = PolicyCarryingResult<FieldDataArray<BooleanType>>;
+impl<'a> BitXor<&'a FieldDataArray<bool>> for &'a FieldDataArray<bool> {
+    type Output = PolicyCarryingResult<FieldDataArray<bool>>;
 
     fn bitxor(self, rhs: Self) -> Self::Output {
         let data = self
             .into_iter()
             .zip(rhs.into_iter())
-            .map(|(lhs, rhs)| BooleanType::new(lhs.0 ^ rhs.0))
+            .map(|(lhs, rhs)| (lhs ^ rhs))
             .collect::<Vec<_>>();
 
         Ok(FieldDataArray::new(self.field.clone(), data))

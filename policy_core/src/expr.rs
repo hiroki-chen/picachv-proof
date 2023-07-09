@@ -464,18 +464,17 @@ impl AExpr {
 
 #[cfg(test)]
 mod test {
-    use crate::types::Int8Type;
 
     #[test]
     fn test_visit() {
         let expr = (col!("some_column")
-            .gt(Int8Type::new(100))
-            .and(col!("some_column2").lt(Int8Type::new(123))))
-        .or(col!("some_column3").lt(Int8Type::new(111)));
+            .gt(100i8)
+            .and(col!("some_column2").lt(123i8)))
+        .or(col!("some_column3").lt(111i8));
 
         let expr = format!("{:#?}", expr);
         assert_eq!(
-            r#"(((col(some_column) > 100: Int8) && (col(some_column2) < 123: Int8)) || (col(some_column3) < 111: Int8))"#,
+            r#"(((col(some_column) > 100) && (col(some_column2) < 123)) || (col(some_column3) < 111))"#,
             &expr
         );
     }

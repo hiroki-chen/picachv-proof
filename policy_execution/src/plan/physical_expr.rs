@@ -15,10 +15,7 @@ use policy_carrying_data::{
 use policy_core::{
     error::{PolicyCarryingError, PolicyCarryingResult},
     expr::{AAggExpr, AExpr, BinaryOp, Expr, GroupByMethod, Node},
-    types::{
-        BooleanType, DataType, Float32Type, Float64Type, Int32Type, Int64Type, Int8Type,
-        PrimitiveDataType, UInt16Type, UInt32Type, UInt64Type, UInt8Type,
-    },
+    types::*,
 };
 use serde::{Deserialize, Serialize};
 
@@ -225,52 +222,52 @@ impl PhysicalExpr for LiteralExpr {
 
         match data_type {
             DataType::UInt8 => Ok(Arc::new(FieldDataArray::new_with_duplicate(
-                self.literal.try_cast::<UInt8Type>().unwrap(),
+                self.literal.try_cast::<u8>().unwrap(),
                 1,
                 "literal".into(),
             ))),
             DataType::UInt16 => Ok(Arc::new(FieldDataArray::new_with_duplicate(
-                self.literal.try_cast::<UInt16Type>().unwrap(),
+                self.literal.try_cast::<u16>().unwrap(),
                 1,
                 "literal".into(),
             ))),
             DataType::UInt32 => Ok(Arc::new(FieldDataArray::new_with_duplicate(
-                self.literal.try_cast::<UInt32Type>().unwrap(),
+                self.literal.try_cast::<u32>().unwrap(),
                 1,
                 "literal".into(),
             ))),
             DataType::UInt64 => Ok(Arc::new(FieldDataArray::new_with_duplicate(
-                self.literal.try_cast::<UInt64Type>().unwrap(),
+                self.literal.try_cast::<u64>().unwrap(),
                 1,
                 "literal".into(),
             ))),
             DataType::Int8 => Ok(Arc::new(FieldDataArray::new_with_duplicate(
-                self.literal.try_cast::<Int8Type>().unwrap(),
+                self.literal.try_cast::<i8>().unwrap(),
                 1,
                 "literal".into(),
             ))),
             DataType::Int16 => Ok(Arc::new(FieldDataArray::new_with_duplicate(
-                self.literal.try_cast::<UInt16Type>().unwrap(),
+                self.literal.try_cast::<u16>().unwrap(),
                 1,
                 "literal".into(),
             ))),
             DataType::Int32 => Ok(Arc::new(FieldDataArray::new_with_duplicate(
-                self.literal.try_cast::<Int32Type>().unwrap(),
+                self.literal.try_cast::<i32>().unwrap(),
                 1,
                 "literal".into(),
             ))),
             DataType::Int64 => Ok(Arc::new(FieldDataArray::new_with_duplicate(
-                self.literal.try_cast::<Int64Type>().unwrap(),
+                self.literal.try_cast::<i64>().unwrap(),
                 1,
                 "literal".into(),
             ))),
             DataType::Float32 => Ok(Arc::new(FieldDataArray::new_with_duplicate(
-                self.literal.try_cast::<Float32Type>().unwrap(),
+                self.literal.try_cast::<f32>().unwrap(),
                 1,
                 "literal".into(),
             ))),
             DataType::Float64 => Ok(Arc::new(FieldDataArray::new_with_duplicate(
-                self.literal.try_cast::<Float64Type>().unwrap(),
+                self.literal.try_cast::<f64>().unwrap(),
                 1,
                 "literal".into(),
             ))),
@@ -461,19 +458,19 @@ pub(crate) fn apply_binary_operator(
 
         // Logical connectors: evaluate lhs and rhs and do logical evaluation on the both sides (should be applied
         // directly on boolean data field).
-        BinaryOp::And => match (lhs.try_cast::<BooleanType>(), rhs.try_cast::<BooleanType>()) {
+        BinaryOp::And => match (lhs.try_cast::<bool>(), rhs.try_cast::<bool>()) {
             (Ok(lhs), Ok(rhs)) => Ok(Arc::new(lhs.bitand(rhs)?)),
             (_, _) => Err(PolicyCarryingError::ImpossibleOperation(
                 "cannot evaluate `&` on non-boolean arrays.".into(),
             )),
         },
-        BinaryOp::Or => match (lhs.try_cast::<BooleanType>(), rhs.try_cast::<BooleanType>()) {
+        BinaryOp::Or => match (lhs.try_cast::<bool>(), rhs.try_cast::<bool>()) {
             (Ok(lhs), Ok(rhs)) => Ok(Arc::new(lhs.bitor(rhs)?)),
             (_, _) => Err(PolicyCarryingError::ImpossibleOperation(
                 "cannot evaluate `|` on non-boolean arrays.".into(),
             )),
         },
-        BinaryOp::Xor => match (lhs.try_cast::<BooleanType>(), rhs.try_cast::<BooleanType>()) {
+        BinaryOp::Xor => match (lhs.try_cast::<bool>(), rhs.try_cast::<bool>()) {
             (Ok(lhs), Ok(rhs)) => Ok(Arc::new(lhs.bitxor(rhs)?)),
             (_, _) => Err(PolicyCarryingError::ImpossibleOperation(
                 "cannot evaluate `^` on non-boolean arrays.".into(),
