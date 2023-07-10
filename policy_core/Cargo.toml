@@ -12,6 +12,7 @@ fraction = "0.13.1"
 lalrpop = "0.20.0"
 lalrpop-util = "0.20.0"
 libloading = "0.8.0"
+num-traits = "0.2.15"
 num_enum = "0.6.1"
 serde = { version = "1.0.164", features = ["derive", "rc"] }
 serde_json = "1.0.99"

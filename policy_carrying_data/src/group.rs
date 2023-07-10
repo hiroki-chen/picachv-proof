@@ -1,11 +1,14 @@
+use std::sync::Arc;
+
 use hashbrown::{hash_map::Entry, HashMap};
 use policy_core::{
     error::{PolicyCarryingError, PolicyCarryingResult},
     pcd_ensures,
+    types::DataType,
 };
 
 use crate::{
-    field::{new_empty, FieldDataRef},
+    field::{new_empty, Field, FieldDataArray, FieldDataRef},
     DataFrame,
 };
 
@@ -52,6 +55,29 @@ impl GroupsProxy {
             // Groupby with keys.
             GroupsProxy::Idx(groups) => groups.first.len(),
             GroupsProxy::Slice(groups) => groups.len(),
+        }
+    }
+
+    /// Returns the row count as a [`FieldDataRef`].
+    pub fn row_count(&self) -> PolicyCarryingResult<FieldDataRef> {
+        match self {
+            GroupsProxy::Idx(groups) => {
+                let field = Field::new(
+                    "COUNT(*)".into(),
+                    DataType::UInt64,
+                    false,
+                    Default::default(),
+                );
+
+                let mut data =
+                    FieldDataArray::from_iter(groups.all.iter().map(|idx| idx.len() as u64));
+                data.field = field.into();
+
+                Ok(Arc::new(data))
+            }
+            GroupsProxy::Slice(_) => {
+                todo!()
+            }
         }
     }
 }

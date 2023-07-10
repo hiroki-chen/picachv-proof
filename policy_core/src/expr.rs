@@ -74,6 +74,12 @@ impl From<AAggExpr> for GroupByMethod {
     }
 }
 
+impl GroupByMethod {
+    pub fn need_coerce(&self) -> bool {
+        matches!(self, Self::Sum)
+    }
+}
+
 impl AAggExpr {
     pub fn get_input(&self) -> &Node {
         match self {
@@ -100,6 +106,8 @@ pub enum Expr {
     Agg(Aggregation),
     /// Select a vector of column names.
     Column(String),
+    /// Count expression.
+    Count,
     /// Making alias.
     Alias {
         expr: Box<Expr>,
@@ -128,6 +136,7 @@ pub enum Expr {
 pub enum AExpr {
     Alias(Node, String),
     Column(String),
+    Count,
     Literal(Box<dyn PrimitiveDataType>),
     BinaryOp {
         left: Node,
@@ -148,6 +157,7 @@ impl Debug for Expr {
         match self {
             Self::Agg(agg) => write!(f, "{agg:?}"),
             Self::Column(column) => write!(f, "col({column})"),
+            Self::Count => write!(f, "COUNT"),
             Self::Wildcard => write!(f, "*"),
             Self::Alias { expr, name } => write!(f, "ALIAS {expr:?} -> {name}"),
             Self::Exclude(expr, columns) => write!(f, "{expr:?} EXCEPT {columns:?}"),
@@ -224,9 +234,11 @@ impl<'a> Iterator for ExprIterator<'a> {
         match current_expr {
             Some(current_expr) => {
                 match current_expr {
-                    Expr::Wildcard | Expr::Column(_) | Expr::Literal(_) | Expr::Alias { .. } => {
-                        None
-                    }
+                    Expr::Wildcard
+                    | Expr::Count
+                    | Expr::Column(_)
+                    | Expr::Literal(_)
+                    | Expr::Alias { .. } => None,
                     Expr::Agg(agg) => Some(agg.as_expr()),
                     Expr::BinaryOp { left, right, .. } => {
                         // Push left and right but return the current one.
@@ -289,6 +301,7 @@ impl Expr {
             match node {
                 Expr::Wildcard
                 | Expr::Column(_)
+                | Expr::Count
                 | Expr::Literal(_)
                 | Expr::Agg(_)
                 | Expr::Alias { .. } => (),
@@ -442,7 +455,7 @@ impl AExpr {
         let mut push = |e: &'a Node| container.push(*e);
 
         match self {
-            Self::Wildcard | Self::Column(_) | Self::Literal(_) => return,
+            Self::Wildcard | Self::Column(_) | Self::Literal(_) | Self::Count => return,
             Self::BinaryOp { left, right, .. } => {
                 push(right);
                 push(left);
@@ -460,6 +473,11 @@ impl AExpr {
             },
         }
     }
+}
+
+/// Creates a count expression.
+pub fn count() -> Expr {
+    Expr::Count
 }
 
 #[cfg(test)]

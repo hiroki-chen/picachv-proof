@@ -5,11 +5,12 @@ use std::{
 
 use policy_core::{
     error::{PolicyCarryingError, PolicyCarryingResult},
+    expr::GroupByMethod,
     types::PrimitiveDataType,
     types::*,
 };
 
-use crate::field::{FieldData, FieldDataArray, FieldDataRef};
+use crate::field::{new_empty, FieldData, FieldDataArray, FieldDataRef, FieldRef};
 
 macro_rules! impl_operator {
     ($op:ident, $func:ident) => {
@@ -111,6 +112,56 @@ impl_operator!(Add, add);
 impl_operator!(Sub, sub);
 impl_operator!(Mul, mul);
 impl_operator!(Div, div);
+
+pub(crate) fn do_aggregate<T>(
+    partitions: Vec<Vec<T>>,
+    field: FieldRef,
+    how: GroupByMethod,
+) -> PolicyCarryingResult<FieldDataRef>
+where
+    T: PrimitiveData + PartialOrd + Debug + Default + Send + Sync + Clone + 'static,
+{
+    let mut res = new_empty(field);
+
+    for partition in partitions.into_iter() {
+        let cur: Box<dyn PrimitiveDataType> = match how {
+            GroupByMethod::Min => Box::new(
+                partition
+                    .into_iter()
+                    .min_by(|lhs, rhs| lhs.partial_cmp(rhs).unwrap())
+                    .ok_or(PolicyCarryingError::ImpossibleOperation(
+                        "cannot find max value".into(),
+                    ))?,
+            ),
+            GroupByMethod::Max => Box::new(
+                partition
+                    .into_iter()
+                    .max_by(|lhs, rhs| lhs.partial_cmp(rhs).unwrap())
+                    .ok_or(PolicyCarryingError::ImpossibleOperation(
+                        "cannot find max value".into(),
+                    ))?,
+            ),
+            GroupByMethod::Sum => {
+                let mut sum = Box::new(
+                    partition
+                        .into_iter()
+                        .fold(T::zero(), |acc, cur| acc.add(&cur)),
+                ) as Box<dyn PrimitiveDataType>;
+                sum = sum.try_coerce(res.data_type())?;
+                sum
+            }
+            _ => {
+                return Err(PolicyCarryingError::OperationNotSupported(format!(
+                    "aggregation method {how:?} is not supported"
+                )))
+            }
+        };
+
+        res.push_erased(cur);
+    }
+
+    Ok(res.into())
+}
 
 /// By default we use `f64` to prevent overflow.
 pub fn erased_sum(input: &dyn FieldData) -> PolicyCarryingResult<Box<dyn PrimitiveDataType>> {

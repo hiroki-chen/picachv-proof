@@ -133,6 +133,11 @@ pub struct ApplyExpr {
     pub(crate) input_schema: Option<SchemaRef>,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CountExpr {
+    pub(crate) expr: Expr,
+}
+
 #[typetag::serde]
 impl PhysicalExpr for FilterExpr {
     fn as_any_ref(&self) -> &dyn Any {
@@ -368,11 +373,7 @@ impl PhysicalExpr for AggregateExpr {
         } else {
             check_null_prop!(ac, name, groups);
             let (d, groups_cur) = ac.get_final_aggregation();
-
-            // Apply type erased sum.
-            let mut aggregated = d.aggregate(self.agg_type, &groups_cur)?;
-            let agg = Arc::get_mut(&mut aggregated).unwrap();
-            agg.rename(name.as_str())?;
+            let aggregated = d.aggregate(self.agg_type, &groups_cur)?;
 
             Ok(AggregationContext::new(
                 aggregated,
@@ -427,6 +428,51 @@ impl PhysicalExpr for ApplyExpr {
 
     fn expr(&self) -> Option<&Expr> {
         Some(&self.expr)
+    }
+}
+
+#[typetag::serde]
+impl PhysicalExpr for CountExpr {
+    fn as_any_ref(&self) -> &dyn Any {
+        self
+    }
+
+    fn expr(&self) -> Option<&Expr> {
+        Some(&self.expr)
+    }
+
+    fn children(&self) -> Vec<PhysicalExprRef> {
+        vec![]
+    }
+
+    fn evaluate(
+        &self,
+        df: &DataFrame,
+        _state: &ExecutionState,
+    ) -> PolicyCarryingResult<FieldDataRef> {
+        Ok(Arc::new(FieldDataArray::new(
+            Field::new(
+                "COUNT(*)".into(),
+                DataType::UInt64,
+                false,
+                Default::default(),
+            )
+            .into(),
+            vec![df.shape().1 as u64],
+        )))
+    }
+
+    fn evaluate_groups<'a>(
+        &self,
+        _df: &DataFrame,
+        groups: &'a GroupsProxy,
+        _state: &ExecutionState,
+    ) -> PolicyCarryingResult<AggregationContext<'a>> {
+        Ok(AggregationContext::new(
+            groups.row_count()?,
+            Cow::Borrowed(groups),
+            true,
+        ))
     }
 }
 
@@ -591,6 +637,7 @@ pub(crate) fn make_physical_expr(
             expr: aexpr_to_expr(aexpr, expr_arena),
             schema,
         })),
+        AExpr::Count => Ok(Arc::new(CountExpr { expr: Expr::Count })),
         AExpr::Literal(literal) => Ok(Arc::new(LiteralExpr {
             literal,
             expr: aexpr_to_expr(aexpr, expr_arena),
@@ -682,6 +729,12 @@ pub(crate) fn aexpr_to_field(
                 aexpr_to_field(expr_arena.get(*input), expr_arena, schema, in_aggregation)
             }
         },
+        AExpr::Count => Ok(Arc::new(Field::new(
+            "COUNT(*)".into(),
+            DataType::UInt64,
+            false,
+            Default::default(),
+        ))),
 
         // Cannot extract field information from this type because it should be expaned at higher level!
         expr => Err(PolicyCarryingError::InvalidInput(format!(

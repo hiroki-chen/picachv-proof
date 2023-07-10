@@ -7,19 +7,16 @@ use std::{
 };
 
 use hashbrown::HashMap;
+use lazy_static::__Deref;
 use policy_core::{
     error::{PolicyCarryingError, PolicyCarryingResult},
     expr::GroupByMethod,
-    pcd_ensures,
     types::*,
 };
 use roaring::RoaringTreemap as Bitmap;
 use serde::{Deserialize, Serialize};
 
-use crate::{
-    arithmetic::{erased_max, erased_min, erased_sum},
-    group::GroupsProxy,
-};
+use crate::{arithmetic::do_aggregate, group::GroupsProxy};
 
 pub type FieldRef = Arc<Field>;
 pub type FieldDataRef = Arc<dyn FieldData>;
@@ -55,7 +52,7 @@ pub struct Field {
 
 impl Display for Field {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.name)
+        write!(f, "{}: {:?}", self.name, self.data_type)
     }
 }
 
@@ -345,50 +342,25 @@ where
         how: GroupByMethod,
         groups: &GroupsProxy,
     ) -> PolicyCarryingResult<FieldDataRef> {
-        pcd_ensures!(
-            !matches!(groups, GroupsProxy::Slice(_)),
-            OperationNotSupported: "cannot use slice",
-        );
+        if let GroupsProxy::Idx(idx) = groups {
+            // Note that doing aggregation will change the type of the resulting field if needed.
+            let all_partitions = idx
+                .all
+                .iter()
+                .map(|index| index.iter().map(|&idx| self.inner[idx].clone()).collect())
+                .collect::<Vec<Vec<_>>>();
 
-        // TODO: This function forgets to aggregate the field data array. There are some tasks
-        // to be fulfilled, stated as follows.
-        // 1. groupby
-        // 2. Returns unsupported.
-        // 3. Dispatch concrete type.
-
-        let mut arregated = new_empty(self.field.clone());
-
-        match how {
-            GroupByMethod::Sum => {
-                // Always returns f64.
-                let sum = erased_sum(self)?.try_coerce(self.data_type())?;
-                let mut data = new_empty(self.field.clone());
-                data.push_erased(sum);
-                Ok(data.into())
+            let mut field = self.field.deref().clone();
+            field.name = format!("{:?}({})", how, field.name);
+            if how.need_coerce() {
+                field.data_type = field.data_type.to_upper();
             }
-            GroupByMethod::Max => {
-                // The returning type is the same as the column data type.
-                let max = erased_max(self)?;
-                pcd_ensures!(max.data_type() == self.data_type(),
-                    TypeMismatch: "max returned an invalid aggregated result, and this is unexpected");
 
-                let mut data = new_empty(self.field.clone());
-                data.push_erased(max);
-                Ok(data.into())
-            }
-            GroupByMethod::Min => {
-                // The returning type is the same as the column data type.
-                let min = erased_min(self)?;
-                pcd_ensures!(min.data_type() == self.data_type(),
-                    TypeMismatch: "min returned an invalid aggregated result, and this is unexpected");
-
-                let mut data = new_empty(self.field.clone());
-                data.push_erased(min);
-                Ok(data.into())
-            }
-            gb => Err(PolicyCarryingError::OperationNotSupported(format!(
-                "{gb:?}"
-            ))),
+            do_aggregate(all_partitions, field.into(), how)
+        } else {
+            Err(PolicyCarryingError::OperationNotSupported(
+                "cannot aggregate on a sliced groups proxy at this moment".into(),
+            ))
         }
     }
 }
@@ -558,6 +530,22 @@ where
 
     fn index_data(&self, idx: usize) -> Option<&Self::Item> {
         self.inner.get(idx)
+    }
+}
+
+impl<T> FromIterator<T> for FieldDataArray<T>
+where
+    T: PrimitiveData + Default + Debug + Send + Sync + Clone,
+{
+    fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
+        let inner = iter.into_iter().collect::<Vec<_>>();
+        let mut bitmap = Bitmap::new();
+        bitmap.insert_range(0..inner.len() as u64);
+        Self {
+            field: Default::default(),
+            inner,
+            bitmap,
+        }
     }
 }
 

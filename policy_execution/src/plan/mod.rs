@@ -607,6 +607,7 @@ pub(crate) fn expr_to_aexpr(expr: Expr, expr_arena: &mut ExprArena) -> PolicyCar
     let aexpr = match expr {
         Expr::Agg(aggregation) => AExpr::Agg(agg_to_aagg(aggregation, expr_arena)?),
         Expr::Column(name) => AExpr::Column(name),
+        Expr::Count => AExpr::Count,
         Expr::Alias { expr, name } => {
             let expr = expr_to_aexpr(*expr, expr_arena)?;
             AExpr::Alias(expr, name)
@@ -950,6 +951,7 @@ pub(crate) fn aexpr_to_expr(aexpr: Node, expr_arena: &ExprArena) -> Expr {
             expr: Box::new(aexpr_to_expr(input, expr_arena)),
             name,
         },
+        AExpr::Count => Expr::Count,
         AExpr::Column(name) => Expr::Column(name),
         AExpr::Literal(val) => Expr::Literal(val),
         AExpr::BinaryOp { left, op, right } => Expr::BinaryOp {
@@ -1003,6 +1005,13 @@ pub(crate) fn partitionable(keys: &[Node], aggs: &[Node], expr_arena: &ExprArena
         if partitionable {
             for agg in aggs {
                 let aexpr = expr_arena.get(*agg);
+
+                // COUNT(*) is definitely partitionable, but it only has depth 1.
+                // So we skip this case.
+                if matches!(aexpr, AExpr::Count) {
+                    continue;
+                }
+
                 let depth = (expr_arena).iter(*agg).count();
 
                 if depth == 1 {
@@ -1024,7 +1033,7 @@ pub(crate) fn partitionable(keys: &[Node], aggs: &[Node], expr_arena: &ExprArena
                 let has_aggregation = |node: Node| {
                     expr_arena
                         .iter(node)
-                        .any(|(_, ae)| matches!(ae, AExpr::Agg(_)))
+                        .any(|(_, ae)| matches!(ae, AExpr::Agg(_) | AExpr::Count))
                 };
 
                 // check if the aggregation type is partitionable
@@ -1035,7 +1044,9 @@ pub(crate) fn partitionable(keys: &[Node], aggs: &[Node], expr_arena: &ExprArena
                         agg_e,
                         AAggExpr::Min { .. } | AAggExpr::Max { .. } | AAggExpr::Sum(_)
                     ),
-                    AExpr::Column(_) | AExpr::Literal(_) | AExpr::Alias(_, _) => true,
+                    AExpr::Count | AExpr::Column(_) | AExpr::Literal(_) | AExpr::Alias(_, _) => {
+                        true
+                    }
                     AExpr::BinaryOp { left, right, .. } => {
                         !has_aggregation(*left) && !has_aggregation(*right)
                     }

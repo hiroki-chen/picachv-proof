@@ -7,6 +7,7 @@ use std::{
 };
 
 use num_enum::{FromPrimitive, IntoPrimitive};
+use num_traits::Zero;
 use serde::{Deserialize, Serialize};
 
 use crate::error::{PolicyCarryingError, PolicyCarryingResult};
@@ -167,6 +168,19 @@ impl DataType {
     pub fn to_qualified_str(&self) -> String {
         format!("DataType::{self}")
     }
+
+    /// Casts to the upper type. For example, all integers are coerced to `Self::Int64`.
+    pub fn to_upper(&self) -> Self {
+        if self.is_float() {
+            Self::Float64
+        } else if self.is_integer() {
+            Self::Int64
+        } else if self.is_unsigned_integer() {
+            Self::UInt64
+        } else {
+            *self
+        }
+    }
 }
 
 pub trait TypeCoerce {
@@ -190,10 +204,30 @@ pub trait PrimitiveDataType: TypeCoerce + Debug + Sync + Send + ToString + 'stat
     fn clone_box(&self) -> Box<dyn PrimitiveDataType>;
 }
 
-pub trait PrimitiveData: PrimitiveDataType {
+pub trait PrimitiveData: PrimitiveDataType + Arithmetic {
     type Native: Sized;
 
     const DATA_TYPE: DataType;
+}
+
+pub trait Arithmetic: Sized {
+    fn zero() -> Self;
+
+    fn add(&self, _other: &Self) -> Self {
+        panic!("this type cannot be added");
+    }
+
+    fn sub(&self, _other: &Self) -> Self {
+        panic!("this type cannot be added");
+    }
+
+    fn mul(&self, _other: &Self) -> Self {
+        panic!("this type cannot be added");
+    }
+
+    fn div(&self, _other: &Self) -> Self {
+        panic!("this type cannot be added");
+    }
 }
 
 impl dyn PrimitiveDataType {
@@ -307,16 +341,16 @@ macro_rules! impl_numeric {
         impl TypeCoerce for $name {
             fn try_coerce(&self, to: DataType) -> PolicyCarryingResult<Box<dyn PrimitiveDataType>> {
                 match to {
-                    DataType::Int8 => Ok(Box::new(self.clone())),
-                    DataType::Int16 => Ok(Box::new(self.clone())),
-                    DataType::Int32 => Ok(Box::new(self.clone())),
-                    DataType::Int64 => Ok(Box::new(self.clone())),
-                    DataType::UInt8 => Ok(Box::new(self.clone())),
-                    DataType::UInt16 => Ok(Box::new(self.clone())),
-                    DataType::UInt32 => Ok(Box::new(self.clone())),
-                    DataType::UInt64 => Ok(Box::new(self.clone())),
-                    DataType::Float32 => Ok(Box::new(self.clone())),
-                    DataType::Float64 => Ok(Box::new(self.clone())),
+                    DataType::Int8 => Ok(Box::new(self.clone() as i8)),
+                    DataType::Int16 => Ok(Box::new(self.clone() as i16)),
+                    DataType::Int32 => Ok(Box::new(self.clone() as i32)),
+                    DataType::Int64 => Ok(Box::new(self.clone() as i64)),
+                    DataType::UInt8 => Ok(Box::new(self.clone() as u8)),
+                    DataType::UInt16 => Ok(Box::new(self.clone() as u16)),
+                    DataType::UInt32 => Ok(Box::new(self.clone() as u32)),
+                    DataType::UInt64 => Ok(Box::new(self.clone() as u64)),
+                    DataType::Float32 => Ok(Box::new(self.clone() as f32)),
+                    DataType::Float64 => Ok(Box::new(self.clone() as f64)),
                     // Ignored.
                     ty => Err(PolicyCarryingError::OperationNotSupported(format!(
                         "cannot cast {:?} to {:?}",
@@ -326,11 +360,30 @@ macro_rules! impl_numeric {
                 }
             }
         }
+
+        impl Arithmetic for $name {
+            fn zero() -> Self {
+                Zero::zero()
+            }
+
+            fn add(&self, other: &Self) -> Self {
+                std::ops::Add::add(self, other)
+            }
+
+            fn sub(&self, other: &Self) -> Self {
+                std::ops::Sub::sub(self, other)
+            }
+
+            fn mul(&self, other: &Self) -> Self {
+                std::ops::Mul::mul(self, other)
+            }
+
+            fn div(&self, other: &Self) -> Self {
+                std::ops::Div::div(self, other)
+            }
+        }
     };
 }
-
-impl TypeCoerce for bool {}
-impl TypeCoerce for String {}
 
 impl_type!(bool, DataType::Boolean);
 impl_type!(i8, DataType::Int8);
@@ -356,6 +409,21 @@ impl_numeric!(u64);
 impl_numeric!(f32);
 impl_numeric!(f64);
 
+impl TypeCoerce for bool {}
+impl TypeCoerce for String {}
+
+impl Arithmetic for bool {
+    fn zero() -> Self {
+        false
+    }
+}
+
+impl Arithmetic for String {
+    fn zero() -> Self {
+        "".into()
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -380,10 +448,7 @@ mod test {
         let serialized_int8 = serde_json::to_string(&int8_data).unwrap();
         let serialized_str = serde_json::to_string(&str_data).unwrap();
 
-        assert_eq!(
-            r#"{"primitive_data":"i8","value":0}"#,
-            &serialized_int8
-        );
+        assert_eq!(r#"{"primitive_data":"i8","value":0}"#, &serialized_int8);
         assert_eq!(
             r#"{"primitive_data":"String","value":"0"}"#,
             &serialized_str

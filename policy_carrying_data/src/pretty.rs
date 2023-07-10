@@ -12,7 +12,7 @@ pub fn print_rows(rows: &RowSet) -> String {
     let content = rows
         .schema
         .iter()
-        .map(|field| field.name.clone())
+        .map(|field| field.to_string())
         .collect::<Vec<_>>();
     let rows = rows
         .rows
