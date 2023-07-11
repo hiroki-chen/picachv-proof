@@ -6,16 +6,23 @@ use policy_core::{
     error::{PolicyCarryingError, PolicyCarryingResult},
 };
 
-static TEMPLATE: &str = include_str!("../templates/load_module.template");
+static FFI_TEMPLATE: &str = include_str!("../templates/ld.rstp");
+static BUILD_TEMPLATE: &str = include_str!("../templates/build.rstp");
 
-/// Takikng as input a policy struct [`Policy`] and an output file path, this function generates
+/// Taking as input a policy struct [`Policy`] and an output file path, this function generates
 /// the corresponding API set in the Rust source code for the policy language. This Rust source
 /// code can be further compiled with the rustc compiler and be built to the dynamic module, if
 /// needed.
-pub fn codegen_output<P: Into<PathBuf>>(policy: Policy, output: P) -> PolicyCarryingResult<()> {
+pub fn codegen_output<P: Into<PathBuf>>(
+    policy: Policy,
+    output_file: P,
+    output_build: P,
+) -> PolicyCarryingResult<()> {
     let code = generate(policy)?;
 
-    fs::write(output.into(), code.as_bytes())
+    fs::write(output_file.into(), code.as_bytes())
+        .map_err(|e| PolicyCarryingError::FsError(e.to_string()))?;
+    fs::write(output_build.into(), BUILD_TEMPLATE)
         .map_err(|e| PolicyCarryingError::FsError(e.to_string()))
 }
 
@@ -24,7 +31,7 @@ pub fn generate(policy: Policy) -> PolicyCarryingResult<String> {
     let mut scope = Scope::new();
 
     generate_imports(&mut scope)?;
-    generate_extern_fn(&mut scope, policy.name())?;
+    generate_auxiliary(&mut scope)?;
     generate_struct(&mut scope, policy)?;
 
     Ok(scope.to_string())
@@ -103,19 +110,9 @@ fn generate_annotations(
     Ok(())
 }
 
-/// Generates the external function for FFI linking.
-fn generate_extern_fn<T: AsRef<str>>(scope: &mut Scope, name: T) -> PolicyCarryingResult<()> {
-    let func = scope
-        .new_fn("load_module")
-        .extern_abi("C")
-        .attr("no_mangle")
-        .arg("name", "*const u8")
-        .arg("len", "usize")
-        .arg("ptr", "*mut u64")
-        .ret("i32");
-
-    // Add function body: check if the name is correct.
-    func.line(TEMPLATE.clone().replace("{}", name.as_ref()));
+/// Generates some auxiliary rust code including some external FFI interfaces.
+fn generate_auxiliary(scope: &mut Scope) -> PolicyCarryingResult<()> {
+    scope.raw(FFI_TEMPLATE.to_string());
 
     Ok(())
 }

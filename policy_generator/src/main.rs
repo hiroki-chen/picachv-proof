@@ -8,7 +8,7 @@ use std::{
 
 use clap::Parser;
 use policy_core::{
-    error::{PolicyCarryingError, PolicyCarryingResult, StatusCode},
+    error::{PolicyCarryingError, PolicyCarryingResult},
     policy_parser,
 };
 
@@ -69,7 +69,7 @@ fn entry(args: Args) -> PolicyCarryingResult<()> {
         .map_err(|e| PolicyCarryingError::ParseError(args.input.clone(), e.to_string()))?;
     policy.postprocess();
 
-    let output_file_name = if args.project {
+    let (output_file_name, build_file) = if args.project {
         log::info!("trying to create a Cargo project...");
 
         if Path::new(&args.output).exists() {
@@ -93,13 +93,16 @@ fn entry(args: Args) -> PolicyCarryingResult<()> {
         if !output.status.success() {
             log::error!("cargo:\n{}", std::str::from_utf8(&output.stderr).unwrap());
 
-            return Err(StatusCode::from(output.status.code().unwrap_or_default()).into());
+            panic!("failed to execute `cargo`");
         }
 
-        format!("{}/src/lib.rs", args.output)
+        (
+            format!("{}/src/lib.rs", args.output),
+            format!("{}/src/build.rs", args.output),
+        )
     } else {
-        args.output
+        (args.output, "build.rs".into())
     };
 
-    codegen_output(policy, output_file_name)
+    codegen_output(policy, output_file_name, build_file)
 }

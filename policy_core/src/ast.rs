@@ -8,7 +8,11 @@ use crate::{
     types::DataType,
 };
 
+#[cfg(feature = "ast-serde")]
+use serde::{Deserialize, Serialize};
+
 /// Defines the type of the privacy scheme that should be applied.
+#[cfg_attr(feature = "ast-serde", derive(Serialize, Deserialize))]
 #[derive(Clone, Debug, PartialEq)]
 pub enum PrivacyScheme {
     /// Differential privacy with epsilon and delta.
@@ -18,6 +22,7 @@ pub enum PrivacyScheme {
 }
 
 /// Scheme for ensuring privacy.
+#[cfg_attr(feature = "ast-serde", derive(Serialize, Deserialize))]
 #[derive(Clone, Debug)]
 pub enum Scheme {
     Redact,
@@ -36,6 +41,7 @@ pub enum Scheme {
 }
 
 /// Policy clauses.
+#[cfg_attr(feature = "ast-serde", derive(Serialize, Deserialize))]
 #[derive(Clone, Debug)]
 pub enum Clause {
     Allow {
@@ -47,7 +53,8 @@ pub enum Clause {
 }
 
 /// The root node of the policy AST.
-#[derive(Clone, Debug)]
+#[cfg_attr(feature = "ast-serde", derive(Serialize, Deserialize))]
+#[derive(Clone, Debug, Default)]
 pub struct Policy {
     name: String,
     schema: Schema,
@@ -70,6 +77,10 @@ impl Policy {
         self.name.as_ref()
     }
 
+    pub fn schema_mut(&mut self) -> &mut Vec<(String, DataType)> {
+        &mut self.schema
+    }
+
     pub fn schema(&self) -> &[(String, DataType)] {
         self.schema.as_ref()
     }
@@ -80,6 +91,10 @@ impl Policy {
 
     /// Performs the postprocessing that removes duplications.
     pub fn postprocess(&mut self) {}
+
+    pub fn clause_mut(&mut self) -> &mut Vec<Clause> {
+        &mut self.clause
+    }
 }
 
 #[cfg(test)]
@@ -145,5 +160,26 @@ mod test {
         assert!(policy_parser::AttributeListParser::new()
             .parse(list)
             .is_ok());
+    }
+
+    #[test]
+    #[cfg(feature = "ast-serde")]
+    fn pdl_can_serialize_policies() {
+        let simple_policy = r#"
+            FOO ATTRIBUTE(foo: i64, bar: f32, baz: u64):
+            (
+                Deny (foo, baz), Deny (foo), Allow(foo),
+            )
+        "#;
+        let policy = policy_parser::PolicyParser::new().parse(simple_policy);
+
+        assert!(policy.is_ok());
+
+        let policy = serde_json::to_string(&policy.unwrap()).unwrap();
+
+        assert_eq!(
+            r#"{"name":"FOO","schema":[["foo","Int64"],["bar","Float32"],["baz","UInt64"]],"clause":[{"Deny":["foo","baz"]},{"Deny":["foo"]},{"Allow":{"attribute_list":["foo"],"scheme":[]}}]}"#,
+            policy
+        );
     }
 }

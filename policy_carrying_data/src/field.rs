@@ -684,6 +684,24 @@ macro_rules! define_from_arr {
     };
 }
 
+impl From<&[&str]> for StrFieldData {
+    fn from(value: &[&str]) -> Self {
+        Self::new(
+            Default::default(),
+            value.iter().map(|v| v.to_string()).collect(),
+        )
+    }
+}
+
+impl From<Vec<&str>> for StrFieldData {
+    fn from(value: Vec<&str>) -> Self {
+        Self::new(
+            Default::default(),
+            value.iter().map(|v| v.to_string()).collect(),
+        )
+    }
+}
+
 /// Creates an empty [`FieldDataArray`] and returns as a trait object.
 pub fn new_empty(field: FieldRef) -> Box<dyn FieldData> {
     match field.data_type {
@@ -761,7 +779,7 @@ mod test {
         let int8_data_rhs: Box<dyn FieldData> =
             Box::new(Int8FieldData::from(vec![1i8, 2, 3, 4, 5]));
         let string_data: Box<dyn FieldData> =
-            Box::new(StrFieldData::from(vec!["foo".into(), "bar".into()]));
+            Box::new(StrFieldData::from(vec!["foo", "bar"]));
 
         // Compare at the trait level.
         assert!(int8_data_lhs == int8_data_rhs);

@@ -31,8 +31,8 @@ dependencies = ["fmt"]
 
 [tasks.examples]
 condition = { platforms = ["linux"], channels = ["nightly"] }
-dependencies = [{ name = "build", path = "examples/Makefile.toml" }]
+dependencies = [{ name = "build", path = "examples/simple_executor/Makefile.toml" }]
 
 [tasks.example-run]
 condition = { platforms = ["linux"], channels = ["nightly"] }
-dependencies = [{ name = "run", path = "examples/Makefile.toml" }]
+dependencies = [{ name = "run", path = "examples/simple_executor/Makefile.toml" }]

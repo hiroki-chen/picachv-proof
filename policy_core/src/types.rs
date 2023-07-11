@@ -136,6 +136,40 @@ impl Display for DataType {
     }
 }
 
+impl TryFrom<&str> for DataType {
+    type Error = PolicyCarryingError;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        match value {
+            "bool" | "Boolean" | "DataType::Boolean" => Ok(Self::Boolean),
+            "i8" | "Int8" | "DataType::Int8" => Ok(Self::Int8),
+            "i16" | "Int16" | "DataType::Int16" => Ok(Self::Int16),
+            "i32" | "Int32" | "DataType::Int32" => Ok(Self::Int32),
+            "i64" | "Int64" | "DataType::Int64" => Ok(Self::Int64),
+            "u8" | "UInt8" | "DataType::UInt8" => Ok(Self::UInt8),
+            "u16" | "UInt16" | "DataType::UInt16" => Ok(Self::UInt16),
+            "u32" | "UInt32" | "DataType::UInt32" => Ok(Self::UInt32),
+            "u64" | "UInt64" | "DataType::UInt64" => Ok(Self::UInt64),
+            "f32" | "Float32" | "DataType::Float32" => Ok(Self::Float32),
+            "f64" | "Float64" | "DataType::Float64" => Ok(Self::Float64),
+            "null" | "Null" | "DataType::Null" => Ok(Self::Null),
+            "str" | "String" | "Utf8Str" | "DataType::Utf8Str" => Ok(Self::Utf8Str),
+            _ => Err(PolicyCarryingError::ParseError(
+                "".into(),
+                format!("cannot parse {value}"),
+            )),
+        }
+    }
+}
+
+impl TryFrom<String> for DataType {
+    type Error = PolicyCarryingError;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        Self::try_from(value.as_str())
+    }
+}
+
 impl DataType {
     #[inline]
     pub fn is_numeric(&self) -> bool {

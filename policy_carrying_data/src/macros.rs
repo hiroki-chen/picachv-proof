@@ -35,7 +35,7 @@ macro_rules! pcd {
 
         $(
             let field = std::sync::Arc::new($crate::field::Field::new($col_name.to_string(), $ty, false, Default::default()));
-            let field_data: std::sync::Arc<dyn $crate::field::FieldData> = 
+            let field_data: std::sync::Arc<dyn $crate::field::FieldData> =
                 std::sync::Arc::new($crate::field::FieldDataArray::new(field.clone(), $content.to_vec()));
             field_array.push(field_data);
             fields.push(field);
