@@ -5,12 +5,12 @@ use policy_execution::{context::AnalysisContext, lazy::IntoLazy};
 #[cfg(debug_assertions)]
 static LIB_PATH: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/../../target/debug/libexecutor_lib.so"
+    "/../target/debug/libexecutor_lib.so"
 );
 #[cfg(not(debug_assertions))]
 static LIB_PATH: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/../../target/release/libexecutor_lib.so"
+    "/../target/release/libexecutor_lib.so"
 );
 
 fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
@@ -29,7 +29,7 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     ctx.register_data(
         concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../../test_data/simple_csv.csv"
+            "/../../../test_data/simple_csv.csv"
         ),
         schema,
     )?;
