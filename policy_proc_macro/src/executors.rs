@@ -98,15 +98,7 @@ impl ExecutorContext {
                     for attribute in field.attrs.iter() {
                         match &attribute.meta {
                             Meta::List(attr_list) => {
-                                let clause_ty =
-                                    attr_list.path.to_token_stream().to_string().to_lowercase();
-                                if !clause_ty.starts_with("allows")
-                                    && !clause_ty.starts_with("denies")
-                                {
-                                    panic!("unrecognized token {}", attr_list.to_token_stream());
-                                }
-
-                                clause.push(attr_list.tokens.clone());
+                                clause.push(attr_list.to_token_stream());
                                 policy.schema_mut().push((
                                     field.ident.to_token_stream().to_string(),
                                     DataType::try_from(ty.path.to_token_stream().to_string())
@@ -130,16 +122,20 @@ impl ExecutorContext {
         policy.clause_mut().extend(
             clause
                 .into_iter()
-                .map(|clause| handle_field_attribute(clause.into()))
-                .flatten(),
+                .map(|clause| handle_field_attribute(clause.into()).unwrap()),
         );
-        policy.postprocess();
 
         policy
     }
 
-    pub(crate) fn executor_generation(&mut self) -> TokenStream {
-        let policy = self.parse_fields();
+    pub(crate) fn executor_generation(&mut self, ts: proc_macro::TokenStream) -> TokenStream {
+        let mut policy = self.parse_fields();
+        // Collect extra policies from the whole struct.
+        if let Some(top_policy) = handle_field_attribute(ts.into()) {
+            policy.clause_mut().push(top_policy);
+            policy.postprocess();
+        }
+
         println!("policy => {policy:?}");
         let import = self.executor_import();
         let decl = self.executor_decl();

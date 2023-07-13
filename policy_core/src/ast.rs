@@ -52,6 +52,14 @@ pub enum Clause {
     Deny(Vec<String>),
 }
 
+impl Clause {
+    pub fn attribute_list_mut(&mut self) -> &mut Vec<String> {
+        match self {
+            Self::Allow { attribute_list, .. } | Self::Deny(attribute_list) => attribute_list,
+        }
+    }
+}
+
 /// The root node of the policy AST.
 #[cfg_attr(feature = "ast-serde", derive(Serialize, Deserialize))]
 #[derive(Clone, Debug, Default)]

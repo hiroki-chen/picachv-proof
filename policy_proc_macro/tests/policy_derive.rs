@@ -1,5 +1,8 @@
 #[policy_proc_macro::policy_carrying]
 struct Foo {
-    #[allows(abcd)]
+    #[allow(
+        attribute_list => ["foo", "bar"];
+        scheme => [];
+    )]
     ok: i32,
 }

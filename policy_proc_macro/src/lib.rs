@@ -14,11 +14,14 @@ pub(crate) mod fields;
 ///
 /// This procedural macro attribute generates the corresponding the interfaces for the executor.
 #[proc_macro_attribute]
-pub fn policy_carrying(_args: TokenStream, input: TokenStream) -> TokenStream {
+pub fn policy_carrying(args: TokenStream, input: TokenStream) -> TokenStream {
     let item_struct = parse_macro_input!(input as ItemStruct);
 
     let mut ctx = ExecutorContext::new(item_struct);
-    let tt: TokenStream = ctx.executor_generation().into();
+
+    println!("[+] Context built");
+    let tt: TokenStream = ctx.executor_generation(args).into();
+    println!("[+] tt built");
 
     println!("{}", tt.to_string());
     tt
