@@ -10,7 +10,7 @@ use bitflags::bitflags;
 use hashbrown::{HashMap, HashSet};
 use policy_carrying_data::{field::FieldDataRef, schema::SchemaRef, DataFrame};
 use policy_core::{
-    error::{PolicyCarryingError, PolicyCarryingResult, StatusCode},
+    error::{PolicyCarryingError, PolicyCarryingResult},
     expr::{AExpr, GroupByMethod},
     get_lock, pcd_ensures,
     types::{ExecutorRefId, FunctionArguments, OpaquePtr},
@@ -169,16 +169,9 @@ pub fn create_executor(
 }
 
 pub fn execute(id: ExecutorRefId, executor: OpaquePtr) -> PolicyCarryingResult<DataFrame> {
-    let mut buf = vec![0; 1 << 16];
-    let mut buf_len = 0usize;
+    let buf = policy_ffi::execute(id, executor)?;
 
-    let func = policy_ffi::get_execution(id)?;
-    match func(executor, buf.as_mut_ptr(), &mut buf_len) {
-        StatusCode::Ok => {
-            DataFrame::from_json(unsafe { std::str::from_utf8_unchecked(&buf[..buf_len]) })
-        }
-        err => Err(err.into()),
-    }
+    DataFrame::from_json(unsafe { std::str::from_utf8_unchecked(&buf) })
 }
 
 /// Given a vector of [`PhysicalExpr`]s, evaluates all of them on a given [`DataFrame`] and

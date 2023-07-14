@@ -778,8 +778,7 @@ mod test {
             Box::new(Int8FieldData::from(vec![1i8, 2, 3, 4, 5]));
         let int8_data_rhs: Box<dyn FieldData> =
             Box::new(Int8FieldData::from(vec![1i8, 2, 3, 4, 5]));
-        let string_data: Box<dyn FieldData> =
-            Box::new(StrFieldData::from(vec!["foo", "bar"]));
+        let string_data: Box<dyn FieldData> = Box::new(StrFieldData::from(vec!["foo", "bar"]));
 
         // Compare at the trait level.
         assert!(int8_data_lhs == int8_data_rhs);
