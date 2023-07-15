@@ -12,11 +12,8 @@ prettyprint = ["tabled"]
 load_module = []
 
 [dependencies]
-bitflags = "2.3.1"
 csv = { version = "1.2.2", optional = true }
 hashbrown = { version = "0.14.0", features = ["serde"] }
-lazy_static = "1.4.0"
-libloading = "0.8.0"
 policy_core = { path = "../policy_core" }
 roaring = { version = "0.10.1", features = ["serde"] }
 serde = { version = "1.0.164", features = ["derive", "rc"] }

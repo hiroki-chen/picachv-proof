@@ -6,10 +6,6 @@
 #![cfg_attr(test, allow(unused))]
 #![forbid(unsafe_code)]
 
-use lalrpop_util::lalrpop_mod;
-
-lalrpop_mod!(pub policy_parser, "/grammar/policy_definition_language.rs");
-
 pub mod ast;
 pub mod error;
 pub mod expr;

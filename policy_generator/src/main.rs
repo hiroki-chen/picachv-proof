@@ -7,10 +7,8 @@ use std::{
 };
 
 use clap::Parser;
-use policy_core::{
-    error::{PolicyCarryingError, PolicyCarryingResult},
-    policy_parser,
-};
+use policy_core::error::{PolicyCarryingError, PolicyCarryingResult};
+use policy_parser::policy_parser::PolicyParser;
 
 pub mod generator;
 
@@ -61,7 +59,7 @@ fn main() {
 }
 
 fn entry(args: Args) -> PolicyCarryingResult<()> {
-    let parser = policy_parser::PolicyParser::new();
+    let parser = PolicyParser::new();
     let policy_content = read_file(&args.input)?;
 
     let mut policy = parser

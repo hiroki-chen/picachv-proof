@@ -8,16 +8,10 @@ edition = "2021"
 default = []
 ast-serde = []
 
-[build-dependencies]
-lalrpop = "0.20.0"
-
 [dependencies]
-fraction = "0.13.1"
-lalrpop = "0.20.0"
-lalrpop-util = "0.20.0"
-libloading = "0.8.0"
 num-traits = "0.2.15"
 num_enum = "0.6.1"
+ordered-float = "3.7.0"
 serde = { version = "1.0.164", features = ["derive", "rc"] }
 serde_json = "1.0.99"
 typetag = "0.2.8"

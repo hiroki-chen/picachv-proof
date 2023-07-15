@@ -8,6 +8,7 @@ use std::{
 
 use num_enum::{FromPrimitive, IntoPrimitive};
 use num_traits::Zero;
+use ordered_float::OrderedFloat;
 use serde::{Deserialize, Serialize};
 
 use crate::error::{PolicyCarryingError, PolicyCarryingResult};
@@ -291,11 +292,11 @@ impl Hash for Box<dyn PrimitiveDataType> {
             DataType::Int32 => self.try_cast::<i32>().unwrap().hash(state),
             DataType::Int64 => self.try_cast::<i64>().unwrap().hash(state),
             DataType::Float32 => {
-                let num = fraction::Fraction::from(self.try_cast::<f32>().unwrap());
+                let num = OrderedFloat::from(self.try_cast::<f32>().unwrap());
                 num.hash(state)
             }
             DataType::Float64 => {
-                let num = fraction::Fraction::from(self.try_cast::<f64>().unwrap());
+                let num = OrderedFloat::from(self.try_cast::<f64>().unwrap());
                 num.hash(state)
             }
             DataType::Utf8Str => self.try_cast::<String>().unwrap().hash(state),

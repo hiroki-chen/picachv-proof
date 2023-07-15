@@ -2,12 +2,11 @@ use std::{
     any::Any,
     fmt::{Debug, Display, Formatter},
     marker::PhantomData,
-    ops::{Index, Range},
+    ops::{Deref, Index, Range},
     sync::Arc,
 };
 
 use hashbrown::HashMap;
-use lazy_static::__Deref;
 use policy_core::{
     error::{PolicyCarryingError, PolicyCarryingResult},
     expr::GroupByMethod,

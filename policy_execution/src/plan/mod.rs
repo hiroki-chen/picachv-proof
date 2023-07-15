@@ -1,12 +1,12 @@
 use std::{
     borrow::Cow,
-    collections::HashSet,
     fmt::{Debug, Formatter},
     ops::Deref,
     sync::Arc,
 };
 
 use bitflags::bitflags;
+use hashbrown::HashSet;
 use policy_carrying_data::{schema::SchemaRef, DataFrame};
 use policy_core::{
     args,
@@ -546,7 +546,7 @@ pub(crate) fn rewrite_projection(
         _ => None,
     }) {
         // TODO: Add qualifier for ambiguous column names. E.g., A.c, B.c => full quantifier!
-        pcd_ensures!(set.insert(name), DuplicateColumn:       "found duplicate column name {name}");
+        pcd_ensures!(set.insert(name.clone()), DuplicateColumn:       "found duplicate column name {name}");
     }
 
     Ok(result)

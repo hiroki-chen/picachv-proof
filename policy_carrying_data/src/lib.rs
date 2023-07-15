@@ -3,13 +3,13 @@
 #![feature(downcast_unchecked)]
 
 use std::{
-    collections::HashSet,
     fmt::{Debug, Display, Formatter},
     sync::Arc,
 };
 
 use csv::Reader;
 use field::{FieldData, FieldDataArray, FieldDataRef};
+use hashbrown::HashSet;
 use policy_core::{
     error::{PolicyCarryingError, PolicyCarryingResult},
     pcd_ensures,
