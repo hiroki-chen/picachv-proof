@@ -1,4 +1,8 @@
 #![cfg_attr(test, allow(unused))]
+#![cfg_attr(not(test), no_std)]
+#![feature(once_cell)]
+
+extern crate alloc;
 
 pub mod context;
 pub mod executor;
@@ -8,6 +12,8 @@ pub mod udf;
 
 #[cfg(feature = "use-sql")]
 pub mod sql;
+
+pub use policy_carrying_data::*;
 
 #[cfg(test)]
 mod test {

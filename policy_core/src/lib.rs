@@ -4,11 +4,11 @@
 //! * Policy struct definitions
 
 #![cfg_attr(test, allow(unused))]
+#![cfg_attr(not(test), no_std)]
+#![feature(error_in_core)]
 #![forbid(unsafe_code)]
 
-use lalrpop_util::lalrpop_mod;
-
-lalrpop_mod!(pub policy_parser, "/grammar/policy_definition_language.rs");
+extern crate alloc;
 
 pub mod ast;
 pub mod error;

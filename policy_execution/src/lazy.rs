@@ -1,6 +1,6 @@
 //! The lazy data frame module.
-
-use std::fmt::{Debug, Formatter};
+use alloc::{format, string::String, vec, vec::Vec};
+use core::fmt::{Debug, Formatter};
 
 use policy_carrying_data::{schema::SchemaRef, DataFrame};
 use policy_core::{col, error::PolicyCarryingResult, expr::Expr, types::ExecutorRefId};
@@ -44,7 +44,7 @@ pub trait IntoLazy {
 }
 
 impl Debug for LazyFrame {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
         write!(f, "{:#?} with {:?}", &self.plan, &self.opt_flag)
     }
 }

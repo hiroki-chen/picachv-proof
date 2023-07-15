@@ -1,3 +1,5 @@
+use alloc::string::{String, ToString};
+
 use policy_core::{error::PolicyCarryingError, types::FunctionArguments};
 use policy_utils::move_box_ptr;
 

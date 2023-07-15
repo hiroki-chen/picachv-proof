@@ -1,9 +1,16 @@
-use std::{
+use alloc::{
+    boxed::Box,
+    format,
+    string::{String, ToString},
+    sync::Arc,
+    vec,
+    vec::Vec,
+};
+use core::{
     any::Any,
     fmt::{Debug, Display, Formatter},
     marker::PhantomData,
     ops::{Index, Range},
-    sync::Arc,
 };
 
 use hashbrown::HashMap;
@@ -13,7 +20,6 @@ use policy_core::{
     expr::GroupByMethod,
     types::*,
 };
-use roaring::RoaringTreemap as Bitmap;
 use serde::{Deserialize, Serialize};
 
 use crate::{arithmetic::do_aggregate, group::GroupsProxy};
@@ -51,7 +57,7 @@ pub struct Field {
 }
 
 impl Display for Field {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
         write!(f, "{}: {:?}", self.name, self.data_type)
     }
 }
@@ -180,15 +186,13 @@ where
     pub(crate) field: FieldRef,
     /// Inner storage.
     pub(crate) inner: Vec<T>,
-    /// The bitmap for bookkeeping the nullance.
-    pub(crate) bitmap: Bitmap,
 }
 
 impl<T> PartialOrd for FieldDataArray<T>
 where
     T: PrimitiveData + Debug + Send + Sync + Clone + PartialOrd + 'static,
 {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
         self.inner.partial_cmp(&other.inner)
     }
 }
@@ -408,13 +412,9 @@ where
     }
 
     fn new_from_index(&self, idx: usize, len: usize) -> FieldDataRef {
-        let mut bitmap = Bitmap::new();
-        bitmap.insert_range(0..len as u64);
-
         Arc::new(Self {
             field: self.field.clone(),
             inner: vec![self.inner[idx].clone(); len],
-            bitmap,
         })
     }
 
@@ -432,13 +432,9 @@ where
     }
 
     fn slice(&self, range: Range<usize>) -> FieldDataRef {
-        let mut bitmap = Bitmap::new();
-        bitmap.insert_range(range.start as u64..range.end as u64);
-
         Arc::new(Self {
             field: self.field.clone(),
             inner: self.inner[range].to_vec(),
-            bitmap,
         })
     }
 
@@ -506,7 +502,7 @@ impl<T> Debug for FieldDataArray<T>
 where
     T: PrimitiveData + Debug + Send + Sync + Clone,
 {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
         f.debug_list().entries(&self.inner).finish()
     }
 }
@@ -539,12 +535,10 @@ where
 {
     fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
         let inner = iter.into_iter().collect::<Vec<_>>();
-        let mut bitmap = Bitmap::new();
-        bitmap.insert_range(0..inner.len() as u64);
+
         Self {
             field: Default::default(),
             inner,
-            bitmap,
         }
     }
 }
@@ -555,14 +549,7 @@ where
 {
     #[inline]
     pub fn new(field: FieldRef, inner: Vec<T>) -> Self {
-        let mut bitmap = Bitmap::new();
-        bitmap.insert_range(0..inner.len() as u64);
-
-        Self {
-            field,
-            inner,
-            bitmap,
-        }
+        Self { field, inner }
     }
 
     #[inline]
@@ -570,7 +557,6 @@ where
         Self {
             field,
             inner: Vec::new(),
-            bitmap: Bitmap::new(),
         }
     }
 
@@ -579,8 +565,6 @@ where
         Self {
             field,
             inner: vec![Default::default(); len],
-            // create an empty bitmap.
-            bitmap: Bitmap::new(),
         }
     }
 
@@ -600,9 +584,6 @@ where
 
     /// Creates a new array with `item` duplicated `num` times.
     pub fn new_with_duplicate(item: T, num: usize, name: String) -> Self {
-        let mut bitmap = Bitmap::new();
-        bitmap.insert_range(0..num as u64);
-
         Self {
             field: Arc::new(Field {
                 name,
@@ -611,7 +592,6 @@ where
                 metadata: Default::default(),
             }),
             inner: vec![item.clone(); num],
-            bitmap,
         }
     }
 

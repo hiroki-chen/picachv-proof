@@ -1,4 +1,5 @@
 //! A module for generating logical plans from SQL language.
+use alloc::{format, string::ToString};
 
 use policy_core::{
     error::{PolicyCarryingError, PolicyCarryingResult},
@@ -42,9 +43,9 @@ impl AnalysisContext {
 
         match &sql[0] {
             Statement::Query(select) => {
-                println!("executing select query {select:?}");
+                // println!("executing select query {select:?}");
 
-                todo!()
+                unimplemented!("{select:?}")
             }
             Statement::Explain { statement, .. } => {
                 log::debug!("explain {statement:?}");

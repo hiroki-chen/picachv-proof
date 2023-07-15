@@ -1,4 +1,5 @@
-use std::fmt::{Debug, Display, Formatter};
+use alloc::{boxed::Box, string::String, vec::Vec};
+use core::fmt::{Debug, Display, Formatter};
 
 use serde::{Deserialize, Serialize};
 
@@ -27,7 +28,7 @@ pub enum Aggregation {
 }
 
 impl Debug for Aggregation {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
         match self {
             Self::Min(expr) => write!(f, "{expr:?}.min()"),
             Self::Max(expr) => write!(f, "{expr:?}.max()"),
@@ -38,7 +39,7 @@ impl Debug for Aggregation {
 }
 
 impl Display for Aggregation {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
         write!(f, "{self:?}")
     }
 }
@@ -153,7 +154,7 @@ pub enum AExpr {
 }
 
 impl Debug for Expr {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
         match self {
             Self::Agg(agg) => write!(f, "{agg:?}"),
             Self::Column(column) => write!(f, "col({column})"),
@@ -172,7 +173,7 @@ impl Debug for Expr {
 }
 
 impl Display for Expr {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
         write!(f, "{self:?}")
     }
 }
@@ -195,7 +196,7 @@ pub enum BinaryOp {
 }
 
 impl Debug for BinaryOp {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
         match self {
             Self::Lt => write!(f, "<"),
             Self::Gt => write!(f, ">"),
@@ -215,7 +216,7 @@ impl Debug for BinaryOp {
 }
 
 impl Display for BinaryOp {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
         write!(f, "{self:?}")
     }
 }

@@ -1,3 +1,4 @@
+use alloc::{string::ToString, vec, vec::Vec};
 use policy_core::{
     error::{PolicyCarryingError, PolicyCarryingResult, StatusCode},
     expr::GroupByMethod,
@@ -78,7 +79,7 @@ pub fn create_executor(
     _id: ExecutorRefId,
     args: FunctionArguments,
 ) -> PolicyCarryingResult<OpaquePtr> {
-    let mut executor = std::ptr::null_mut();
+    let mut executor = core::ptr::null_mut();
     let args = serde_json::to_string(&args)
         .map_err(|e| PolicyCarryingError::SerializeError(e.to_string()))?;
 

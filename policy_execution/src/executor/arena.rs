@@ -1,3 +1,5 @@
+use alloc::{vec, vec::Vec};
+
 use policy_core::{
     error::PolicyCarryingResult,
     expr::{AExpr, Node},
@@ -96,7 +98,7 @@ impl<T> Arena<T> {
 impl<T: Default> Arena<T> {
     #[inline]
     pub fn take(&mut self, idx: Node) -> T {
-        std::mem::take(self.get_mut(idx))
+        core::mem::take(self.get_mut(idx))
     }
 
     pub fn replace_with<F>(&mut self, idx: Node, f: F)

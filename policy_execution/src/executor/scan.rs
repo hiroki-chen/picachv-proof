@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use alloc::{string::String, sync::Arc, vec::Vec};
 
 use policy_carrying_data::DataFrame;
 use policy_core::{error::PolicyCarryingError, types::FunctionArguments};

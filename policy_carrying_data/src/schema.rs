@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use alloc::{boxed::Box, string::String, sync::Arc, vec::Vec};
 
 use hashbrown::HashMap;
 use policy_core::types::DataType;
@@ -36,7 +36,7 @@ impl SchemaBuilder {
                     match Arc::get_mut(this_field) {
                         Some(old) => {
                             // Move to `_` and drop it when out of scope.
-                            let _ = std::mem::replace(old, field.as_ref().clone());
+                            let _ = core::mem::replace(old, field.as_ref().clone());
                         }
                         None => {
                             // Failed to mutate the inner value. We just let the Arc point to field.

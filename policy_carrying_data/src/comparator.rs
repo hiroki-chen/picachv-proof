@@ -1,4 +1,5 @@
-use std::{
+use alloc::{format, vec::Vec};
+use core::{
     fmt::Debug,
     ops::{BitAnd, BitOr, BitXor},
 };

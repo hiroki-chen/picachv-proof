@@ -1,4 +1,7 @@
-use std::borrow::Cow;
+use alloc::{
+    borrow::Cow,
+    string::{String, ToString},
+};
 
 use policy_carrying_data::{field::FieldDataRef, group::GroupsProxy, schema::SchemaRef};
 use policy_core::{
@@ -221,9 +224,28 @@ impl AnalysisContext {
     /// ctx.initialize("./foo/bar/libexecutor.so").expect("cannot initialize the context!");
     ///
     /// ```
+    #[cfg(feature = "modular")]
     pub fn initialize(&mut self, path: &str) -> PolicyCarryingResult<()> {
         let executor_ref_id = policy_ffi::load_executor_lib(path, Default::default())?;
         self.executor_ref_id.replace(executor_ref_id);
+
+        Ok(())
+    }
+
+    /// Initializes this context by registering the executor module.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use policy_execution::context::AnalysisContext;
+    ///
+    /// let mut ctx = AnalysisContext::new();
+    /// ctx.initialize().expect("cannot initialize the context!");
+    ///
+    /// ```
+    #[cfg(not(feature = "modular"))]
+    pub fn initialize(&mut self) -> PolicyCarryingResult<()> {
+        self.executor_ref_id.replace(Default::default());
 
         Ok(())
     }

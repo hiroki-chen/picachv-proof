@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use alloc::{format, string::String, sync::Arc, vec, vec::Vec};
 
 use hashbrown::{hash_map::Entry, HashMap};
 use policy_core::{
@@ -223,8 +223,6 @@ impl DataFrame {
         let mut map = HashMap::<_, (usize, Vec<usize>)>::new();
         for i in 0..this_column.len() {
             let cur = this_column.index(i)?;
-
-            println!("visiting {cur:?} @ {i}");
 
             match map.entry(cur.clone()) {
                 Entry::Occupied(mut entry) => entry.get_mut().1.push(i),

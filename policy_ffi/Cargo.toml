@@ -10,10 +10,12 @@ modular = ["libloading", "lazy_static", "hashbrown"]
 
 [dependencies]
 hashbrown = { version = "0.14.0", features = ["serde"], optional = true }
-lazy_static = { version = "1.4.0", optional = true }
+lazy_static = { version = "1.4.0", features = ["spin_no_std"], optional = true }
 libloading = { version = "0.8.0", optional = true }
 policy_core = { path = "../policy_core" }
-serde_json = "1.0.99"
+serde_json = { version = "1.0.99", features = [
+  "alloc",
+], default-features = false }
 
 [build-dependencies]
 rustc_version = "0.2"

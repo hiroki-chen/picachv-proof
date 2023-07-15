@@ -1,12 +1,19 @@
-use std::{
+use alloc::{
     borrow::Cow,
-    collections::HashSet,
+    boxed::Box,
+    format,
+    string::{String, ToString},
+    sync::Arc,
+    vec,
+    vec::Vec,
+};
+use core::{
     fmt::{Debug, Formatter},
     ops::Deref,
-    sync::Arc,
 };
 
 use bitflags::bitflags;
+use hashbrown::HashSet;
 use policy_carrying_data::{schema::SchemaRef, DataFrame};
 use policy_core::{
     args,
@@ -126,13 +133,13 @@ pub enum LogicalPlan {
 }
 
 impl Debug for LogicalPlan {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
         self.fmt_impl(f, 0)
     }
 }
 
 impl LogicalPlan {
-    fn fmt_impl(&self, f: &mut Formatter<'_>, indent: usize) -> std::fmt::Result {
+    fn fmt_impl(&self, f: &mut Formatter<'_>, indent: usize) -> core::fmt::Result {
         if indent != 0 {
             writeln!(f)?;
         }
@@ -546,7 +553,7 @@ pub(crate) fn rewrite_projection(
         _ => None,
     }) {
         // TODO: Add qualifier for ambiguous column names. E.g., A.c, B.c => full quantifier!
-        pcd_ensures!(set.insert(name), DuplicateColumn:       "found duplicate column name {name}");
+        pcd_ensures!(set.insert(name.clone()), DuplicateColumn: "found duplicate column name {name}");
     }
 
     Ok(result)

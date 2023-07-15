@@ -2,12 +2,12 @@ use policy_carrying_data::define_schema;
 use policy_core::{col, cols, expr::count};
 use policy_execution::{context::AnalysisContext, lazy::IntoLazy};
 
-#[cfg(debug_assertions)]
+#[cfg(all(debug_assertions, feature = "modular"))]
 static LIB_PATH: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../target/debug/libexecutor_lib.so"
 );
-#[cfg(not(debug_assertions))]
+#[cfg(all(not(debug_assertions), feature = "modular"))]
 static LIB_PATH: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../target/release/libexecutor_lib.so"
@@ -22,9 +22,14 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
 
     print!("[+] Creating new analysis context...");
     let mut ctx = AnalysisContext::new();
-    ctx.initialize(LIB_PATH)?;
-    println!("\tOK");
 
+    #[cfg(feature = "modular")]
+    ctx.initialize(LIB_PATH)?;
+
+    #[cfg(not(feature = "modular"))]
+    ctx.initialize()?;;
+
+    println!("\tOK");
     print!("[+] Registering data in the analysis context...");
     ctx.register_data(
         concat!(

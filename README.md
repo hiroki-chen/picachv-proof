@@ -15,6 +15,10 @@ The layout of the project:
 * `policy_ffi`: the FFI module of policy-compliant executors for the time being.
 * `policy_algebra`: the algebraic structures for encoding policies.
 
+## Note
+
+This branch `teaclave-sgx` is made for compilation with teaclave-sgx-sdk-v2.0.0.
+
 ## Known Issues
 
 * rustc will generate different `TypeId`s for generics when crates are not compiled in a bundle, even if the generics have the same type. Thus, `std::any::Any` cannot be downcast in safe Rust. The workaround is simple but a little bit of hacky: we bypass the security check and switch to nightly Rust to enable the feature `downcast_unchecked`.

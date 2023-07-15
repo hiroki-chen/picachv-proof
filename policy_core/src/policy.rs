@@ -1,4 +1,5 @@
-use std::{
+use alloc::{boxed::Box, string::String, vec::Vec};
+use core::{
     any::Any,
     cmp::Ordering,
     fmt::{Debug, Formatter},
@@ -93,7 +94,7 @@ impl Clone for Box<dyn Policy> {
 pub struct TopPolicy {}
 
 impl Debug for TopPolicy {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
         write!(f, "Top Policy")
     }
 }
@@ -132,7 +133,7 @@ impl Policy for TopPolicy {
 pub struct BottomPolicy {}
 
 impl Debug for BottomPolicy {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
         write!(f, "Bottom Policy")
     }
 }

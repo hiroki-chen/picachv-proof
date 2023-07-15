@@ -7,14 +7,15 @@ use std::{
 };
 
 use clap::Parser;
-use policy_core::{
-    error::{PolicyCarryingError, PolicyCarryingResult},
-    policy_parser,
-};
+use policy_core::error::{PolicyCarryingError, PolicyCarryingResult};
 
 pub mod generator;
 
 use generator::codegen_output;
+
+use lalrpop_util::lalrpop_mod;
+
+lalrpop_mod!(pub policy_parser, "/grammar/policy_definition_language.rs");
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]

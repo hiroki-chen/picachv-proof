@@ -1,10 +1,16 @@
-use std::{
+use alloc::{
+    boxed::Box,
+    format,
+    string::{String, ToString},
+};
+use core::{
     any::Any,
     cmp::Ordering,
     ffi::c_void,
     fmt::{Debug, Display, Formatter},
     hash::{Hash, Hasher},
 };
+use ordered_float::OrderedFloat;
 
 use num_enum::{FromPrimitive, IntoPrimitive};
 use num_traits::Zero;
@@ -22,7 +28,7 @@ pub type OpaquePtr = *mut c_void;
 pub struct ExecutorRefId(pub usize);
 
 impl Display for ExecutorRefId {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
         write!(f, "{}", self.0)
     }
 }
@@ -131,7 +137,7 @@ impl FunctionArguments {
 }
 
 impl Display for DataType {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
         write!(f, "{:?}", self)
     }
 }
@@ -291,11 +297,11 @@ impl Hash for Box<dyn PrimitiveDataType> {
             DataType::Int32 => self.try_cast::<i32>().unwrap().hash(state),
             DataType::Int64 => self.try_cast::<i64>().unwrap().hash(state),
             DataType::Float32 => {
-                let num = fraction::Fraction::from(self.try_cast::<f32>().unwrap());
+                let num = OrderedFloat::from(self.try_cast::<f32>().unwrap());
                 num.hash(state)
             }
             DataType::Float64 => {
-                let num = fraction::Fraction::from(self.try_cast::<f64>().unwrap());
+                let num = OrderedFloat::from(self.try_cast::<f64>().unwrap());
                 num.hash(state)
             }
             DataType::Utf8Str => self.try_cast::<String>().unwrap().hash(state),
@@ -336,7 +342,7 @@ macro_rules! impl_type {
                 $ty
             }
 
-            fn as_any_ref(&self) -> &dyn std::any::Any {
+            fn as_any_ref(&self) -> &dyn core::any::Any {
                 self
             }
 
@@ -362,7 +368,7 @@ macro_rules! impl_type {
             }
         }
 
-        impl std::borrow::Borrow<dyn $crate::types::PrimitiveDataType> for $name {
+        impl alloc::borrow::Borrow<dyn $crate::types::PrimitiveDataType> for $name {
             fn borrow(&self) -> &dyn $crate::types::PrimitiveDataType {
                 self
             }
@@ -401,19 +407,19 @@ macro_rules! impl_numeric {
             }
 
             fn add(&self, other: &Self) -> Self {
-                std::ops::Add::add(self, other)
+                core::ops::Add::add(self, other)
             }
 
             fn sub(&self, other: &Self) -> Self {
-                std::ops::Sub::sub(self, other)
+                core::ops::Sub::sub(self, other)
             }
 
             fn mul(&self, other: &Self) -> Self {
-                std::ops::Mul::mul(self, other)
+                core::ops::Mul::mul(self, other)
             }
 
             fn div(&self, other: &Self) -> Self {
-                std::ops::Div::div(self, other)
+                core::ops::Div::div(self, other)
             }
         }
     };

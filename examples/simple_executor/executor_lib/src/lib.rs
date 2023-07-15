@@ -1,3 +1,5 @@
+extern crate alloc;
+
 use std::{
     any::Any,
     fmt::{Debug, Formatter},

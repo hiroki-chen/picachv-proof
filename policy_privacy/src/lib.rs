@@ -1,8 +1,13 @@
-#![forbid(unsafe_code)]
-
 //! The privacy module for managing and controlling the privacy schemes.
 
-use std::{fmt::Debug, sync::RwLock};
+#![cfg_attr(not(test), no_std)]
+#![allow(unused)]
+#![forbid(unsafe_code)]
+#![feature(is_some_and)]
+
+extern crate alloc;
+
+use core::fmt::{Debug, Formatter};
 
 use dp::DpManager;
 use k_anon::KAnonManager;
@@ -11,6 +16,7 @@ use policy_core::{
     get_lock,
     policy::DpParam,
 };
+use spin::RwLock;
 
 pub(crate) mod dp;
 pub(crate) mod k_anon;
@@ -25,7 +31,7 @@ pub struct PrivacyMananger {
 }
 
 impl Debug for PrivacyMananger {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
         write!(f, "privacy manager")
     }
 }
@@ -37,7 +43,7 @@ impl PrivacyMananger {
 
     /// Returns the remaining privacy budget.
     pub fn dp_budget(&self) -> PolicyCarryingResult<f64> {
-        let dp_manager = get_lock!(self.dp_manager, read);
+        let dp_manager = get_lock!(self.dp_manager, try_read);
 
         match dp_manager.as_ref() {
             Some(manager) => Ok(manager.dp_budget().0),
@@ -49,7 +55,7 @@ impl PrivacyMananger {
 
     /// Returns the `k`.
     pub fn k(&self) -> PolicyCarryingResult<usize> {
-        let k_anon_manager = get_lock!(self.k_anon_manager, read);
+        let k_anon_manager = get_lock!(self.k_anon_manager, try_read);
 
         match k_anon_manager.as_ref() {
             Some(manager) => Ok(manager.k()),
@@ -60,7 +66,7 @@ impl PrivacyMananger {
     }
 
     pub fn set_dp_manager(&self, id: usize, dp_param: DpParam) -> PolicyCarryingResult<()> {
-        let mut dp_manager = get_lock!(self.dp_manager, write);
+        let mut dp_manager = get_lock!(self.dp_manager, try_write);
 
         match dp_manager.as_ref() {
             Some(_) => Err(PolicyCarryingError::AlreadyLoaded),
@@ -72,7 +78,7 @@ impl PrivacyMananger {
     }
 
     pub fn set_k_anon_manager(&self, k: usize) -> PolicyCarryingResult<()> {
-        let mut k_anon_manager = get_lock!(self.k_anon_manager, write);
+        let mut k_anon_manager = get_lock!(self.k_anon_manager, try_write);
 
         match k_anon_manager.as_ref() {
             Some(_) => Err(PolicyCarryingError::AlreadyLoaded),

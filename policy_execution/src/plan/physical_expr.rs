@@ -1,9 +1,16 @@
-use std::{
-    any::Any,
+use alloc::{
     borrow::Cow,
+    boxed::Box,
+    format,
+    string::{String, ToString},
+    sync::Arc,
+    vec,
+    vec::Vec,
+};
+use core::{
+    any::Any,
     fmt::Debug,
     ops::{BitAnd, BitOr, BitXor, Deref},
-    sync::Arc,
 };
 
 use policy_carrying_data::{
@@ -316,7 +323,7 @@ impl PhysicalExpr for ColumnExpr {
 
                         // Not found in the dataframe but found in the current schema.
                         // We need to consult the state if there is something altered during the query.
-                        Err(_) => match state.schema_cache.read().unwrap().as_ref() {
+                        Err(_) => match state.schema_cache.read().as_ref() {
                             Some(schema) => todo!("{schema:?}"),
                             None => df.find_column(self.name.as_ref()),
                         },
@@ -333,7 +340,7 @@ impl PhysicalExpr for ColumnExpr {
         groups: &'a GroupsProxy,
         state: &ExecutionState,
     ) -> PolicyCarryingResult<AggregationContext<'a>> {
-        println!("performing evaluate_groups for `ColumnExpr`");
+        log::debug!("performing evaluate_groups for `ColumnExpr`");
 
         let s = self.evaluate(df, state)?;
         Ok(AggregationContext::new(s, Cow::Borrowed(groups), false))
@@ -360,11 +367,10 @@ impl PhysicalExpr for AggregateExpr {
         groups: &'a GroupsProxy,
         state: &ExecutionState,
     ) -> PolicyCarryingResult<AggregationContext<'a>> {
-        println!("performing evaluate_groups for `AggregateExpr`");
+        log::debug!("performing evaluate_groups for `AggregateExpr`");
 
         let mut ac = self.input.evaluate_groups(df, groups, state)?;
         let name = ac.data().name().to_string();
-        println!("{ac:?}");
 
         if matches!(ac.state, AggState::Literal(_)) {
             Err(PolicyCarryingError::ImpossibleOperation(
@@ -594,7 +600,7 @@ pub(crate) fn make_physical_expr_aaggexpr(
     // Discern `in_aggregation`.
     in_aggregation: bool,
 ) -> PolicyCarryingResult<PhysicalExprRef> {
-    println!("{parent:?}, {aexpr:?}, {schema:?}, {state:?}, {in_aggregation}");
+    log::debug!("{parent:?}, {aexpr:?}, {schema:?}, {state:?}, {in_aggregation}");
 
     let input = make_physical_expr(
         aexpr.get_input().clone(),
@@ -775,7 +781,7 @@ fn replace_with_empty(dst: &mut FieldDataRef) -> FieldDataRef {
     );
     let src = Arc::from(new_empty(field.into()));
 
-    std::mem::replace(dst, src)
+    core::mem::replace(dst, src)
 }
 
 /// Take a list of expressions and a schema and determine the output schema.

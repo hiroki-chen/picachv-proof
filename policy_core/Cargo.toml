@@ -8,18 +8,18 @@ edition = "2021"
 default = []
 ast-serde = []
 
-[build-dependencies]
-lalrpop = "0.20.0"
-
 [dependencies]
-fraction = "0.13.1"
-lalrpop = "0.20.0"
-lalrpop-util = "0.20.0"
-libloading = "0.8.0"
-num-traits = "0.2.15"
-num_enum = "0.6.1"
-serde = { version = "1.0.164", features = ["derive", "rc"] }
-serde_json = "1.0.99"
+ordered-float = { version = "3.0", default-features = false }
+num-traits = { version = "0.2.15", default-features = false }
+num_enum = { version = "0.6.1", default-features = false }
+serde = { version = "1.0.164", features = [
+  "alloc",
+  "derive",
+  "rc",
+], default-features = false }
+serde_json = { version = "1.0.99", features = [
+  "alloc",
+], default-features = false }
 typetag = "0.2.8"
 
 [lib]

@@ -2,8 +2,8 @@
 //! generate a parser that can be used to convert human-readable policies into a Rust struct.
 
 // (id) => single-column policy; (id_1, id_2, ...) = cross-column policy.
-
-use std::str::FromStr;
+use alloc::{string::{String, ToString}, vec::Vec};
+use core::str::FromStr;
 
 // Import all the AST types.
 use crate::ast;

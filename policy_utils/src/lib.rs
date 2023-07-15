@@ -1,4 +1,8 @@
-use std::sync::Arc;
+#![no_std]
+
+extern crate alloc;
+
+use alloc::{boxed::Box, string::ToString, sync::Arc};
 
 use policy_core::{
     error::{PolicyCarryingError, PolicyCarryingResult},
@@ -18,8 +22,8 @@ pub fn move_arc_ptr<T: ?Sized>(box_ptr: *mut Arc<T>) -> Arc<T> {
 pub fn args_from_raw(args: *const u8, args_len: usize) -> PolicyCarryingResult<FunctionArguments> {
     // Deserialize the arguments.
     let args = unsafe {
-        let args = std::slice::from_raw_parts(args, args_len);
-        std::str::from_utf8_unchecked(args)
+        let args = core::slice::from_raw_parts(args, args_len);
+        core::str::from_utf8_unchecked(args)
     };
     serde_json::from_str::<FunctionArguments>(args)
         .map_err(|e| PolicyCarryingError::SerializeError(e.to_string()))

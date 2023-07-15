@@ -18,9 +18,15 @@ log = "0.4.19"
 policy_carrying_data = { path = "../policy_carrying_data" }
 policy_core = { path = "../policy_core" }
 policy_ffi = { path = "../policy_ffi" }
-policy_function = { path = "../policy_function" }
 policy_utils = { path = "../policy_utils" }
-serde = { version = "1.0.166", features = ["rc", "derive"] }
-serde_json = "1.0.99"
-sqlparser = { version = "0.35.0", features = ["serde", "visitor"] }
+serde = { version = "1.0.166", features = [
+  "alloc",
+  "rc",
+  "derive",
+], default-features = false }
+serde_json = { version = "1.0.99", features = [
+  "alloc",
+], default-features = false }
+spin = { version = "0.9.8", features = ["rwlock"] }
+sqlparser = { version = "0.35.0", default-features = false }
 typetag = "0.2.8"

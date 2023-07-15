@@ -7,9 +7,10 @@
 //!
 //! Unfortunately, other implementations are simply out of scope.
 
+#![cfg_attr(not(test), no_std)]
 #![forbid(unsafe_code)]
 
-use std::{
+use core::{
     fmt::{Debug, Display},
     ops::{Add, Mul},
 };

@@ -1,3 +1,8 @@
+use alloc::{
+    string::{String, ToString},
+    vec::Vec,
+};
+
 use policy_carrying_data::schema::{Schema, SchemaRef};
 use policy_core::{error::PolicyCarryingError, types::FunctionArguments};
 use policy_utils::move_box_ptr;

@@ -1,4 +1,5 @@
-use std::{fmt::Debug, ops::Index, sync::Arc};
+use alloc::{string::String, sync::Arc, vec::Vec};
+use core::{fmt::Debug, ops::Index};
 
 use policy_core::{error::PolicyCarryingResult, pcd_ensures, types::PrimitiveDataType};
 

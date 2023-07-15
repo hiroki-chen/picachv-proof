@@ -1,10 +1,12 @@
-use std::{
-    any::Any,
-    cell::OnceCell,
+use alloc::{
+    boxed::Box,
     collections::VecDeque,
-    fmt::Debug,
-    sync::{Arc, Mutex, RwLock},
+    format,
+    string::{String, ToString},
+    sync::Arc,
+    vec::Vec,
 };
+use core::{any::Any, cell::OnceCell, fmt::Debug};
 
 use bitflags::bitflags;
 use hashbrown::{HashMap, HashSet};
@@ -15,6 +17,7 @@ use policy_core::{
     get_lock, pcd_ensures,
     types::{ExecutorRefId, FunctionArguments, OpaquePtr},
 };
+use spin::{Mutex, RwLock};
 
 use crate::plan::{physical_expr::PhysicalExpr, ALogicalPlan};
 
@@ -41,12 +44,10 @@ macro_rules! trace {
         if $state
             .execution_flag
             .read()
-            .unwrap()
             .contains($crate::executor::ExecutionFlag::TRACE)
         {
-            if let Ok(mut log) = $state.log.write() {
-                log.push_back($content.into());
-            }
+            let mut log = $state.log.write();
+            log.push_back($content.into());
         }
     };
 }
@@ -128,8 +129,8 @@ impl Default for ExecutionState {
 impl ExecutionState {
     pub fn clear_expr(&self) {
         match self.expr_cache.try_lock() {
-            Ok(mut lock) => lock.clear(),
-            Err(_) => std::hint::spin_loop(),
+            Some(mut lock) => lock.clear(),
+            None => core::hint::spin_loop(),
         }
     }
 
@@ -171,7 +172,7 @@ pub fn create_executor(
 pub fn execute(id: ExecutorRefId, executor: OpaquePtr) -> PolicyCarryingResult<DataFrame> {
     let buf = policy_ffi::execute(id, executor)?;
 
-    DataFrame::from_json(unsafe { std::str::from_utf8_unchecked(&buf) })
+    DataFrame::from_json(unsafe { core::str::from_utf8_unchecked(&buf) })
 }
 
 /// Given a vector of [`PhysicalExpr`]s, evaluates all of them on a given [`DataFrame`] and
@@ -260,12 +261,12 @@ pub fn execution_epilogue(
     df: DataFrame,
     state: &ExecutionState,
 ) -> PolicyCarryingResult<DataFrame> {
-    let lock = get_lock!(state.execution_flag, read);
+    let lock = get_lock!(state.execution_flag, try_read);
     if lock.contains(ExecutionFlag::TRACE) {
-        let log = get_lock!(state.log, read);
+        let log = get_lock!(state.log, try_read);
 
         for info in log.iter() {
-            println!("{info}");
+            log::info!("{info}");
         }
     }
 

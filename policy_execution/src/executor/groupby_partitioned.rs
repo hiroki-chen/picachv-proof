@@ -1,4 +1,8 @@
-use std::sync::Arc;
+use alloc::{
+    string::{String, ToString},
+    sync::Arc,
+    vec::Vec,
+};
 
 use policy_carrying_data::{field::FieldDataRef, schema::SchemaRef, DataFrame};
 use policy_core::{
@@ -102,7 +106,7 @@ impl PartitionGroupByExec {
         let keys = self.keys(df, state)?;
         let gb = df.groupby_with_keys(keys, maintain_order)?;
 
-        println!("groupby helper => {gb:?}");
+        log::debug!("groupby helper => {gb:?}");
 
         todo!()
     }
@@ -115,7 +119,7 @@ impl PartitionGroupByExec {
     ) -> PolicyCarryingResult<DataFrame> {
         let keys = self.keys(&original_df, state)?;
 
-        println!("get keys => {keys:?}");
+        log::debug!("get keys => {keys:?}");
 
         groupby_helper(
             original_df,
@@ -144,7 +148,7 @@ pub(crate) fn groupby_helper(
 
     pcd_ensures!(apply.is_none(), OperationNotSupported: "cannot use apply");
 
-    get_lock!(state.expr_cache, lock).clear();
+    get_lock!(state.expr_cache, try_lock).clear();
     let mut columns = gb.keys_sliced(slice);
     let aggs = aggs
         .into_iter()
@@ -153,7 +157,7 @@ pub(crate) fn groupby_helper(
             Ok(agg)
         })
         .collect::<PolicyCarryingResult<Vec<_>>>()?;
-    get_lock!(state.expr_cache, lock).clear();
+    get_lock!(state.expr_cache, try_lock).clear();
 
     columns.extend_from_slice(aggs.as_slice());
     Ok(DataFrame::new_with_cols(columns))

@@ -1,4 +1,5 @@
-use std::fmt::{Debug, Formatter};
+use alloc::string::String;
+use core::fmt::{Debug, Formatter};
 
 use policy_carrying_data::field::FieldDataRef;
 use policy_core::error::PolicyCarryingResult;
@@ -11,7 +12,7 @@ pub trait UserDefinedFunction: Send + Sync {
 }
 
 impl Debug for dyn UserDefinedFunction {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
         write!(f, "UDF")
     }
 }

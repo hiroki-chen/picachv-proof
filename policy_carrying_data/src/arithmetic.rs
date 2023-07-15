@@ -1,4 +1,5 @@
-use std::{
+use alloc::{boxed::Box, format, vec::Vec};
+use core::{
     fmt::Debug,
     ops::{Add, Div, Mul, Sub},
 };

@@ -1,29 +1,28 @@
 #![cfg_attr(not(test), deny(unused_must_use))]
+#![cfg_attr(not(test), no_std)]
 #![cfg_attr(test, allow(unused))]
 #![feature(downcast_unchecked)]
+#![feature(is_some_and)]
 
-use std::{
-    collections::HashSet,
-    fmt::{Debug, Display, Formatter},
-    sync::Arc,
-};
+extern crate alloc;
 
-use csv::Reader;
+use alloc::{string::String, sync::Arc, vec::Vec};
+use core::fmt::{Debug, Display, Formatter};
+
 use field::{FieldData, FieldDataArray, FieldDataRef};
 use policy_core::{
     error::{PolicyCarryingError, PolicyCarryingResult},
-    pcd_ensures,
     types::*,
 };
 use schema::{Schema, SchemaRef};
 
 pub mod arithmetic;
 pub mod field;
+pub mod group;
 pub mod row;
 pub mod schema;
 
 mod comparator;
-pub mod group;
 mod macros;
 
 pub use comparator::Comparator;
@@ -89,16 +88,15 @@ pub struct DataFrame {
 }
 
 impl Display for DataFrame {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
         Debug::fmt(&self, f)
     }
 }
 
 impl Debug for DataFrame {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
         writeln!(f, "shape: {:?}", self.shape())?;
 
-        println!("{:?}", self.columns());
         #[cfg(feature = "prettyprint")]
         return write!(
             f,
@@ -140,22 +138,25 @@ impl DataFrame {
     }
 
     /// Loads the CSV file into the dataframe with its schema specified by `schema`.
+    #[cfg(any(feature = "use_csv", test))]
     pub fn load_csv(path: &str, schema: Option<SchemaRef>) -> PolicyCarryingResult<Self> {
-        let mut reader =
-            Reader::from_path(path).map_err(|e| PolicyCarryingError::FsError(e.to_string()))?;
+        use alloc::{boxed::Box, string::ToString};
+
+        let mut reader = csv::Reader::from_path(path)
+            .map_err(|e| PolicyCarryingError::FsError(e.to_string()))?;
 
         // If this CSV file has header, we check if this matches (the subset of) the schema.
         let schema = match (reader.headers().cloned(), schema) {
             (Ok(headers), Some(schema)) => {
                 let columns = schema.columns();
-                pcd_ensures!(headers.len() >= columns.len(),
+                policy_core::pcd_ensures!(headers.len() >= columns.len(),
                     SchemaMismatch: "the given schema is incompatible with the CSV");
 
                 // Check if the schema names are incorporated in the CSV file.
-                let csv_headers = HashSet::<&str>::from_iter(headers.into_iter());
+                let csv_headers = hashbrown::HashSet::<&str>::from_iter(headers.into_iter());
                 for column in columns {
                     let name = column.name.as_str();
-                    pcd_ensures!(
+                    policy_core:: pcd_ensures!(
                         csv_headers.contains(name),
                         SchemaMismatch: "the given column name {name} is not found",
                     )
@@ -377,6 +378,7 @@ impl DataFrame {
     }
 }
 
+#[cfg(any(feature = "use_csv", test))]
 impl TryFrom<FunctionArguments> for DataFrame {
     type Error = PolicyCarryingError;
 

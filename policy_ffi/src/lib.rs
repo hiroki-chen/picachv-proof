@@ -1,4 +1,7 @@
+#![cfg_attr(not(test), no_std)]
 #![feature(linkage)]
+
+extern crate alloc;
 
 #[cfg(feature = "modular")]
 mod so_impl;

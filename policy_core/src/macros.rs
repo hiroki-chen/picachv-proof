@@ -2,8 +2,8 @@
 macro_rules! get_lock {
     ($lock:expr, $op:ident) => {
         match $lock.$op() {
-            Ok(lock) => lock,
-            Err(_) => return Err($crate::error::PolicyCarryingError::Unknown),
+            Some(lock) => lock,
+            None => return Err($crate::error::PolicyCarryingError::Unknown),
         }
     };
 }
@@ -28,7 +28,7 @@ macro_rules! args {
 macro_rules! pcd_ensures {
     ($cond:expr, $variant:ident: $($tt:tt)+) => {
         if !$cond {
-            return Err($crate::error::PolicyCarryingError::$variant(format!(
+            return Err($crate::error::PolicyCarryingError::$variant(alloc::format!(
                 $($tt)+
             )));
         }

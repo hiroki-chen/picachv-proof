@@ -1,8 +1,9 @@
-use std::fmt::{Debug, Display, Formatter};
+use alloc::string::String;
+use core::fmt::{Debug, Display, Formatter};
 
 use num_enum::{FromPrimitive, IntoPrimitive};
 
-pub type PolicyCarryingResult<T> = std::result::Result<T, PolicyCarryingError>;
+pub type PolicyCarryingResult<T> = core::result::Result<T, PolicyCarryingError>;
 
 /// Enums for the errors that would occur in the implementation of policy carrying data.
 #[derive(Clone, Default)]
@@ -130,13 +131,13 @@ impl From<StatusCode> for PolicyCarryingError {
 }
 
 impl Debug for PolicyCarryingError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
         write!(f, "{self}")
     }
 }
 
 impl Display for PolicyCarryingError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
         match self {
             Self::AlreadyLoaded => write!(f, "already loaded"),
             Self::ImpossibleOperation(info) => write!(f, "This operation is impossible: {}", info),
@@ -165,4 +166,4 @@ impl Display for PolicyCarryingError {
     }
 }
 
-impl std::error::Error for PolicyCarryingError {}
+impl core::error::Error for PolicyCarryingError {}
