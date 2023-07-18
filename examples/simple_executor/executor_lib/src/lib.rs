@@ -1,23 +1,18 @@
 use std::{
     any::Any,
     fmt::{Debug, Formatter},
-    ops::Deref,
     sync::{Arc, OnceLock},
 };
 
 use policy_carrying_data::DataFrame;
 use policy_core::{
     error::{PolicyCarryingError, PolicyCarryingResult, StatusCode},
-    pcd_ensures, pcd_ffi_try,
+    pcd_ffi_try,
     types::*,
 };
-use policy_execution::{
-    executor::{
-        evaluate_physical_expr_vec, filter::FilterExec, groupby_partitioned::PartitionGroupByExec,
-        projection::ProjectionExec, scan::DataFrameExec, ExecutionState, Executor,
-        PhysicalExecutor,
-    },
-    trace,
+use policy_execution::executor::{
+    filter::FilterExec, groupby_partitioned::PartitionGroupByExec, projection::ProjectionExec,
+    scan::DataFrameExec, ExecutionState, Executor, PhysicalExecutor,
 };
 use policy_privacy::PrivacyMananger;
 use policy_utils::args_from_raw;
@@ -159,35 +154,7 @@ impl Debug for MyPartitionGroupByExec {
 
 impl PhysicalExecutor for MyDataFrameScanExec {
     fn execute(&mut self, state: &ExecutionState) -> PolicyCarryingResult<DataFrame> {
-        trace!(state, format!("{self:?}"));
-
-        // Check if the dataframe is being used or referenced by other executors.
-        // If there is no other pointers, we can modify the dataframe in-place. Otherwise, we need
-        // to make a clone.
-        let df = std::mem::take(&mut self.0.df);
-        let mut df = Arc::try_unwrap(df.ok_or(PolicyCarryingError::OperationNotAllowed(
-            "data frame is not loaded".into(),
-        ))?)
-        .unwrap_or_else(|df| df.deref().clone());
-
-        // Apply projection and selection at first to reduce the amount of data that should be returned.
-        if let Some(projection) = self.0.projection.as_ref() {
-            df = df.projection(projection)?;
-        }
-
-        // Then apply filter.
-        if let Some(selection) = self.0.selection.as_ref() {
-            let selection = selection.evaluate(&df, state)?;
-
-            pcd_ensures!(
-                !self.0.predicate_has_windows,
-                OperationNotSupported: "window functions are not supported",
-            );
-
-            df = df.filter(selection.as_boolean()?)?;
-        }
-
-        Ok(df)
+        self.0.execute(state)
     }
 
     fn as_any(&self) -> &dyn Any {
@@ -201,10 +168,7 @@ impl PhysicalExecutor for MyDataFrameScanExec {
 
 impl PhysicalExecutor for MyProjectionExec {
     fn execute(&mut self, state: &ExecutionState) -> PolicyCarryingResult<DataFrame> {
-        trace!(state, format!("{self:?}"));
-
-        let df = self.0.input.execute(state)?;
-        evaluate_physical_expr_vec(&df, self.0.expr.as_ref(), state)
+        self.0.execute(state)
     }
 
     fn as_any(&self) -> &dyn Any {
@@ -218,13 +182,7 @@ impl PhysicalExecutor for MyProjectionExec {
 
 impl PhysicalExecutor for MyFilterExec {
     fn execute(&mut self, state: &ExecutionState) -> PolicyCarryingResult<DataFrame> {
-        trace!(state, format!("{self:?}"));
-
-        let df = self.0.input.execute(state)?;
-        let filtered = self.0.predicate.evaluate(&df, state)?;
-        let boolean_array = filtered.as_boolean()?;
-
-        df.filter(&boolean_array)
+        self.0.execute(state)
     }
 
     fn as_any(&self) -> &dyn Any {
@@ -238,16 +196,7 @@ impl PhysicalExecutor for MyFilterExec {
 
 impl PhysicalExecutor for MyPartitionGroupByExec {
     fn execute(&mut self, state: &ExecutionState) -> PolicyCarryingResult<DataFrame> {
-        trace!(state, format!("{self:?}"));
-
-        println!("executing partition group by...");
-
-        let original_df = self.0.input.execute(state)?;
-        let df = self.0.execute_impl(state, original_df)?;
-
-        // Apply any schemes here.
-
-        Ok(df)
+        self.0.execute(state)
     }
 
     fn as_any(&self) -> &dyn Any {

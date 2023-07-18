@@ -224,8 +224,6 @@ impl DataFrame {
         for i in 0..this_column.len() {
             let cur = this_column.index(i)?;
 
-            println!("visiting {cur:?} @ {i}");
-
             match map.entry(cur.clone()) {
                 Entry::Occupied(mut entry) => entry.get_mut().1.push(i),
                 Entry::Vacant(entry) => {

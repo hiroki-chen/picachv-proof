@@ -122,6 +122,19 @@ impl<'a> AggregationContext<'a> {
         }
     }
 
+    /// Applies some function on the inner data.
+    pub(crate) fn with_func<F: Fn(&mut FieldDataRef) -> PolicyCarryingResult<()>>(
+        &mut self,
+        f: F,
+    ) -> PolicyCarryingResult<()> {
+        match &mut self.state {
+            AggState::AggregatedFlat(d)
+            | AggState::AggregatedList(d)
+            | AggState::Literal(d)
+            | AggState::NotAggregated(d) => f(d),
+        }
+    }
+
     pub(crate) fn new(data: FieldDataRef, groups: Cow<'a, GroupsProxy>, aggregated: bool) -> Self {
         let state = match aggregated {
             true => AggState::AggregatedFlat(data),

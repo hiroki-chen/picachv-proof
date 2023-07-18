@@ -417,6 +417,13 @@ impl Expr {
     pub fn mean(self) -> Self {
         Self::Agg(Aggregation::Mean(Box::new(self)))
     }
+
+    pub fn alias(self, alias: &str) -> Self {
+        Self::Alias {
+            expr: Box::new(self),
+            name: alias.into(),
+        }
+    }
 }
 
 /// Constructs an vector of [`Expression::Column`] variant.

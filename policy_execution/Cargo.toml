@@ -5,11 +5,12 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [features]
-default = ["use-sql"]
+default = ["use-sql", "built-in"]
 # Enable support for SQL.
 use-sql = []
 # Support for module-like executor set.
 modular = ["policy_ffi/modular"]
+built-in = []
 
 [dependencies]
 bitflags = "2.3.2"

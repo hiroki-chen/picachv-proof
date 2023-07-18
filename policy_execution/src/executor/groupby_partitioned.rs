@@ -115,7 +115,7 @@ impl PartitionGroupByExec {
     ) -> PolicyCarryingResult<DataFrame> {
         let keys = self.keys(&original_df, state)?;
 
-        println!("get keys => {keys:?}");
+        log::debug!("get keys => {keys:?}");
 
         groupby_helper(
             original_df,

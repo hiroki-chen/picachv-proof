@@ -40,7 +40,7 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         .select(cols!("column_1", "column_2"))
         .filter(col!("column_1").ge(4u32).and(col!("column_2").lt(10000.0)))
         .groupby([col!("column_2")])
-        .agg([col!("column_1").min(), col!("column_1").sum(), count()]);
+        .agg([col!("column_1").min().alias("min value"), col!("column_1").sum(), count()]);
 
     println!("[+] Explaining the plan {}", df.explain());
 

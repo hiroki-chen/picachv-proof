@@ -138,6 +138,13 @@ pub struct CountExpr {
     pub(crate) expr: Expr,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AliasExpr {
+    pub(crate) from: PhysicalExprRef,
+    pub(crate) to: String,
+    pub(crate) expr: Expr,
+}
+
 #[typetag::serde]
 impl PhysicalExpr for FilterExpr {
     fn as_any_ref(&self) -> &dyn Any {
@@ -476,6 +483,50 @@ impl PhysicalExpr for CountExpr {
     }
 }
 
+#[typetag::serde]
+impl PhysicalExpr for AliasExpr {
+    fn as_any_ref(&self) -> &dyn Any {
+        self
+    }
+
+    fn children(&self) -> Vec<PhysicalExprRef> {
+        vec![self.from.clone()]
+    }
+
+    fn expr(&self) -> Option<&Expr> {
+        Some(&self.expr)
+    }
+
+    fn evaluate(
+        &self,
+        df: &DataFrame,
+        state: &ExecutionState,
+    ) -> PolicyCarryingResult<FieldDataRef> {
+        let mut df = self.from.evaluate(df, state)?;
+        let df_mut = Arc::get_mut(&mut df).unwrap();
+        df_mut.rename(&self.to)?;
+
+        Ok(df)
+    }
+
+    fn evaluate_groups<'a>(
+        &self,
+        df: &DataFrame,
+        groups: &'a GroupsProxy,
+        state: &ExecutionState,
+    ) -> PolicyCarryingResult<AggregationContext<'a>> {
+        let mut ac = self.from.evaluate_groups(df, groups, state)?;
+        ac.with_func(|df| {
+            let df_mut = Arc::get_mut(df).ok_or(PolicyCarryingError::OperationNotAllowed(
+                "cannot get `Arc` because it is shared".into(),
+            ))?;
+            df_mut.rename(&self.to)
+        })?;
+
+        Ok(ac)
+    }
+}
+
 impl ApplyExpr {
     /// Given a schema, this function extracts the field from the schema.
     pub fn to_field(&self, schema: &SchemaRef) -> PolicyCarryingResult<FieldRef> {
@@ -631,7 +682,14 @@ pub(crate) fn make_physical_expr(
     let expr = expr_arena.get(aexpr).clone();
 
     match expr {
-        AExpr::Alias(_, _) => todo!(),
+        AExpr::Alias(from, to) => {
+            let from = make_physical_expr(from, expr_arena, schema, state, in_aggregation)?;
+            Ok(Arc::new(AliasExpr {
+                from,
+                to,
+                expr: aexpr_to_expr(aexpr, expr_arena),
+            }))
+        }
         AExpr::Column(name) => Ok(Arc::new(ColumnExpr {
             name,
             expr: aexpr_to_expr(aexpr, expr_arena),

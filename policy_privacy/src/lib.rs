@@ -1,6 +1,7 @@
-#![forbid(unsafe_code)]
-
 //! The privacy module for managing and controlling the privacy schemes.
+
+#![forbid(unsafe_code)]
+#![allow(unused)]
 
 use std::{fmt::Debug, sync::RwLock};
 

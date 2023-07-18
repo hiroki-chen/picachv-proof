@@ -28,6 +28,9 @@ pub mod groupby_partitioned;
 pub mod projection;
 pub mod scan;
 
+#[cfg(feature = "built-in")]
+pub mod built_in;
+
 pub type ExprArena = Arena<AExpr>;
 pub type LogicalPlanArena = Arena<ALogicalPlan>;
 pub type Executor = Box<dyn PhysicalExecutor + Send + Sync>;

@@ -14,6 +14,7 @@ mod ffi {
         pub fn load_data(args: *const u8, args_len: usize) -> StatusCode;
 
         #[allow(unused)]
+        #[linkage = "weak"]
         pub fn rustc_version(buf: *mut u8, len: *mut usize);
 
         #[linkage = "weak"]
