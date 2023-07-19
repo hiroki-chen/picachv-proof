@@ -1,8 +1,7 @@
-use std::borrow::Cow;
+use std::{borrow::Cow, sync::Arc};
 
-use policy_carrying_data::{field::FieldDataRef, group::GroupsProxy, schema::SchemaRef};
+use policy_carrying_data::{field::FieldDataRef, group::GroupsProxy, schema::SchemaRef, DataFrame};
 use policy_core::{
-    args,
     error::{PolicyCarryingError, PolicyCarryingResult},
     types::ExecutorRefId,
 };
@@ -73,13 +72,20 @@ pub struct AggregationContext<'a> {
 
 /// Represents a context for the data analysis on which a policy should be enforced.
 #[derive(Clone, Debug, Default)]
-pub struct AnalysisContext {
+pub struct PcdAnalysisContext {
     /// The executor ID to look up the executor module loaded at runtime.
     executor_ref_id: Option<ExecutorRefId>,
+    inner: AnalysisContext,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct AnalysisContext {
     /// The schema of the data registered in this context.
-    schemas: Option<SchemaRef>,
+    schema: Option<SchemaRef>,
     /// The name.
     name: Option<String>,
+    /// The dataframe only used for *built-in* analysis.
+    df: Option<Arc<DataFrame>>,
 }
 
 impl<'a> AggregationContext<'a> {
@@ -162,20 +168,21 @@ impl<'a> AggregationContext<'a> {
     }
 }
 
-impl IntoLazy for AnalysisContext {
+impl IntoLazy for PcdAnalysisContext {
     fn lazy(&self) -> LazyFrame {
-        match (&self.schemas, self.executor_ref_id) {
-            (Some(schema), Some(executor_ref_id)) => LazyFrame {
-                executor_ref_id,
+        match &self.inner.schema {
+            Some(schema) => LazyFrame {
+                executor_ref_id: self.executor_ref_id,
                 opt_flag: OptFlag::all(),
                 plan: LogicalPlan::DataFrameScan {
+                    df: None,
                     schema: schema.clone(),
                     output_schema: None,
                     projection: None,
                     selection: None,
                 },
             },
-            _ => {
+            None => {
                 let lp = LogicalPlan::StagedError {
                     input: Default::default(),
                     err: PolicyCarryingError::ImpossibleOperation("schema not found".into()),
@@ -191,15 +198,45 @@ impl IntoLazy for AnalysisContext {
     }
 }
 
-impl AnalysisContext {
+impl IntoLazy for AnalysisContext {
+    fn lazy(&self) -> LazyFrame {
+        match &self.schema {
+            Some(schema) => LazyFrame {
+                executor_ref_id: None,
+                opt_flag: OptFlag::all(),
+                plan: LogicalPlan::DataFrameScan {
+                    df: self.df.clone(),
+                    schema: schema.clone(),
+                    output_schema: None,
+                    projection: None,
+                    selection: None,
+                },
+            },
+            None => {
+                let lp = LogicalPlan::StagedError {
+                    input: Default::default(),
+                    err: PolicyCarryingError::ImpossibleOperation("schema not found".into()),
+                };
+
+                LazyFrame {
+                    executor_ref_id: Default::default(),
+                    plan: lp,
+                    opt_flag: OptFlag::all(),
+                }
+            }
+        }
+    }
+}
+
+impl PcdAnalysisContext {
     /// Constructs a new analysis context with reference id not loaded.
     ///
     /// # Examples
     ///
     /// ```
-    /// use policy_execution::context::AnalysisContext;
+    /// use policy_execution::context::PcdAnalysisContext;
     ///
-    /// let ctx = AnalysisContext::new();
+    /// let ctx = PcdAnalysisContext::new();
     /// ```
     #[inline]
     pub fn new() -> Self {
@@ -215,12 +252,12 @@ impl AnalysisContext {
     /// Returns the name of this context.
     #[inline]
     pub fn name(&self) -> Option<&str> {
-        self.name.as_ref().map(|name| name.as_str())
+        self.inner.name()
     }
 
     /// Sets the name of this context.
     pub fn set_name(&mut self, name: &str) {
-        self.name.replace(name.to_string());
+        self.inner.set_name(name);
     }
 
     /// Initializes this context by registering the executor module.
@@ -228,12 +265,13 @@ impl AnalysisContext {
     /// # Examples
     ///
     /// ```
-    /// use policy_execution::context::AnalysisContext;
+    /// use policy_execution::context::PcdAnalysisContext;
     ///
-    /// let mut ctx = AnalysisContext::new();
+    /// let mut ctx = PcdAnalysisContext::new();
     /// ctx.initialize("./foo/bar/libexecutor.so").expect("cannot initialize the context!");
     ///
     /// ```
+    #[cfg(any(feature = "modular", feature = "static"))]
     pub fn initialize(&mut self, path: &str) -> PolicyCarryingResult<()> {
         let executor_ref_id = policy_ffi::load_executor_lib(path, Default::default())?;
         self.executor_ref_id.replace(executor_ref_id);
@@ -247,9 +285,9 @@ impl AnalysisContext {
     ///
     /// ```
     /// use policy_carrying_data::define_schema;
-    /// use policy_execution::context::AnalysisContext;
+    /// use policy_execution::context::PcdAnalysisContext;
     ///
-    /// let mut ctx = AnalysisContext::new();
+    /// let mut ctx = PcdAnalysisContext::new();
     ///
     /// /* Some initialization stuffs. */
     /// let schema = define_schema! {
@@ -258,12 +296,13 @@ impl AnalysisContext {
     ///
     /// ctx.register_data("./foo/bar.csv", schema).expect("cannot register data!");
     /// ```
-    pub fn register_data(
+    #[cfg(any(feature = "modular", feature = "static"))]
+    pub fn register_data_from_path(
         &mut self,
         data_path: &str,
         schema: SchemaRef,
     ) -> PolicyCarryingResult<()> {
-        let args = args! {
+        let args = policy_core::args! {
             "path": data_path,
             "schema": serde_json::to_string(&schema).unwrap(),
         };
@@ -275,8 +314,43 @@ impl AnalysisContext {
         policy_ffi::load_data(id, args)?;
 
         // Insert the schema into the schema map.
-        self.schemas.replace(schema);
+        self.inner.schema.replace(schema);
         Ok(())
+    }
+
+    /// Gets the schema of the current context.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use policy_carrying_data::*;
+    /// use policy_execution::context::PcdAnalysisContext;
+    ///
+    /// let mut ctx = PcdAnalysisContext::new();
+    /// /* Some initialization stuffs. */
+    ///
+    /// let schema = ctx.get_schema().expect("no such schema");
+    ///
+    /// println!("Schema => {schema:?}");
+    /// ```
+    #[inline]
+    pub fn get_schema(&self) -> Option<&SchemaRef> {
+        self.inner.get_schema()
+    }
+}
+
+impl AnalysisContext {
+    /// Creates a new analysi context.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use policy_execution::context::AnalysisContext;
+    ///
+    /// let ctx = AnalysisContext::new();
+    /// ```
+    pub fn new() -> Self {
+        Self::default()
     }
 
     /// Gets the schema of the current context.
@@ -296,6 +370,72 @@ impl AnalysisContext {
     /// ```
     #[inline]
     pub fn get_schema(&self) -> Option<&SchemaRef> {
-        self.schemas.as_ref()
+        self.schema.as_ref()
+    }
+
+    /// Returns the name of this context.
+    #[inline]
+    pub fn name(&self) -> Option<&str> {
+        self.name.as_ref().map(|name| name.as_str())
+    }
+
+    /// Sets the name of this context.
+    pub fn set_name(&mut self, name: &str) {
+        self.name.replace(name.to_string());
+    }
+
+    /// Registers the data (only its schema is visible) to this context.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use policy_carrying_data::define_schema;
+    /// use policy_execution::context::AnalysisContext;
+    ///
+    /// let mut ctx = AnalysisContext::new();
+    ///
+    /// /* Some initialization stuffs. */
+    /// let schema = define_schema! {
+    ///     "baz" => DataType::Int8,
+    /// };
+    ///
+    /// ctx.register_data_from_path("./foo/bar.csv", schema).expect("cannot register data!");
+    /// ```
+    #[cfg(feature = "use-csv")]
+    pub fn register_data_from_path(
+        &mut self,
+        data_path: &str,
+        schema: SchemaRef,
+    ) -> PolicyCarryingResult<()> {
+        self.df.replace(DataFrame::from_json(data_path)?.into());
+        // Insert the schema into the schema map.
+        self.schema.replace(schema);
+        Ok(())
+    }
+
+    /// Registers the data (already somehow loaded) into the context.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use policy_carrying_data::pcd;
+    /// use policy_execution::context::AnalysisContext;
+    ///
+    ///
+    /// let df = pcd! {
+    ///     "foo" => DataType::Int64: [1, 2, 3],
+    /// };
+    ///
+    /// let mut ctx = AnalysisContext::new();
+    /// ctx.register_data(df.into()).expect("cannot register data");
+    /// let df = ctx.lazy().select(col!("foo").collect().expect("cannot collect");
+    ///
+    /// println!("df => {df:?}");
+    /// ```
+    pub fn register_data(&mut self, df: Arc<DataFrame>) -> PolicyCarryingResult<()> {
+        self.schema.replace(df.schema());
+        self.df.replace(df);
+
+        Ok(())
     }
 }

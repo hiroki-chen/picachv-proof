@@ -8,12 +8,12 @@ use std::{
 
 use bitflags::bitflags;
 use hashbrown::{HashMap, HashSet};
-use policy_carrying_data::{field::FieldDataRef, schema::SchemaRef, DataFrame};
+use policy_carrying_data::{field::FieldDataRef, schema::SchemaRef, DataFrame, FunctionArguments};
 use policy_core::{
     error::{PolicyCarryingError, PolicyCarryingResult},
-    expr::{AExpr, GroupByMethod},
+    expr::AExpr,
     get_lock, pcd_ensures,
-    types::{ExecutorRefId, FunctionArguments, OpaquePtr},
+    types::{ExecutorRefId, OpaquePtr},
 };
 
 use crate::plan::{physical_expr::PhysicalExpr, ALogicalPlan};
@@ -60,6 +60,12 @@ bitflags! {
         const TRACE = 1 << 0;
         const HAS_WINDOW = 1 << 1;
     }
+}
+
+#[derive(Clone)]
+pub enum ExecutorHandle {
+    Ptr(OpaquePtr),
+    Owned(Executor),
 }
 
 /// The executor for the physical plan.
@@ -136,45 +142,60 @@ impl ExecutionState {
         }
     }
 
-    pub fn with_executors(executor_ref_id: ExecutorRefId) -> Self {
+    pub fn with_executors(executor_ref_id: Option<ExecutorRefId>) -> Self {
         let mut state = Self::default();
-        state.executor_ref_id = Arc::new(RwLock::new(Some(executor_ref_id)));
+        state.executor_ref_id = Arc::new(RwLock::new(executor_ref_id));
 
         state
     }
 }
 
-/// Returns a [`Box`]-ed function pointer that wrapps around the real function provided by the external library.
-///
-/// # Note
-///
-/// This function should not be called from within an aggregation context (usually combined with `group_by`). If
-/// there is a need to apply functions on groups (a.k.a., the real `aggregation` method),
-#[allow(unused)]
-pub fn get_apply_udf(
-    id: ExecutorRefId,
-    ty: GroupByMethod,
-) -> PolicyCarryingResult<
-    impl Fn(&mut [FieldDataRef]) -> PolicyCarryingResult<Option<FieldDataRef>> + Send + Sync,
-> {
-    let external_udf = policy_ffi::get_udf(id, ty)?;
-
-    // Construct a function closure from `func`.
-    Ok(|fields: &mut [FieldDataRef]| Ok(None))
-}
-
 /// Creates an executor in the external library and returns an opaque handle to that object.
 pub fn create_executor(
-    id: ExecutorRefId,
-    args: FunctionArguments,
-) -> PolicyCarryingResult<OpaquePtr> {
-    policy_ffi::create_executor(id, args)
+    id: Option<ExecutorRefId>,
+    #[allow(unused_variables)] args: FunctionArguments,
+) -> PolicyCarryingResult<ExecutorHandle> {
+    match id {
+        #[cfg(any(feature = "static", feature = "modular"))]
+        Some(id) => Ok(ExecutorHandle::Ptr(policy_ffi::create_executor(id, args)?)),
+        #[cfg(not(any(feature = "static", feature = "modular")))]
+        Some(_) => Err(PolicyCarryingError::OperationNotSupported(
+            "no external executor available".into(),
+        )),
+        None => Err(PolicyCarryingError::InvalidInput(
+            "must set `id` to create external executors".into(),
+        )),
+    }
 }
 
-pub fn execute(id: ExecutorRefId, executor: OpaquePtr) -> PolicyCarryingResult<DataFrame> {
-    let buf = policy_ffi::execute(id, executor)?;
+pub fn execute(
+    id: Option<ExecutorRefId>,
+    executor: ExecutorHandle,
+) -> PolicyCarryingResult<DataFrame> {
+    match (id, executor) {
+        #[cfg_attr(
+            not(any(feature = "modular", feature = "static")),
+            allow(unused_variables)
+        )]
+        (Some(id), ExecutorHandle::Ptr(executor)) => {
+            #[cfg(any(feature = "modular", feature = "static"))]
+            {
+                let buf = policy_ffi::execute(id, executor)?;
 
-    DataFrame::from_json(unsafe { std::str::from_utf8_unchecked(&buf) })
+                DataFrame::from_json(unsafe { std::str::from_utf8_unchecked(&buf) })
+            }
+
+            #[cfg(not(any(feature = "modular", feature = "static")))]
+            return Err(PolicyCarryingError::OperationNotSupported(
+                "only built-in executors are available".into(),
+            ));
+        }
+        (_, ExecutorHandle::Owned(mut executor)) => executor.execute(&Default::default()),
+
+        _ => Err(PolicyCarryingError::OperationNotSupported(
+            "internal logic error: should provide a valid executor id".into(),
+        )),
+    }
 }
 
 /// Given a vector of [`PhysicalExpr`]s, evaluates all of them on a given [`DataFrame`] and

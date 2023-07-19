@@ -18,4 +18,4 @@ The layout of the project:
 ## Known Issues
 
 * rustc will generate different `TypeId`s for generics when crates are not compiled in a bundle, even if the generics have the same type. Thus, `std::any::Any` cannot be downcast in safe Rust. The workaround is simple but a little bit of hacky: we bypass the security check and switch to nightly Rust to enable the feature `downcast_unchecked`.
-* <s>`opendp` causes type mismatch.</s> No. This issue is caused by type confusion when building crates in a separate way, not its dependencies.
+

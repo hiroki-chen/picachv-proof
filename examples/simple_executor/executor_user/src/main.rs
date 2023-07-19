@@ -1,6 +1,6 @@
 use policy_carrying_data::define_schema;
 use policy_core::{col, cols, expr::count};
-use policy_execution::{context::AnalysisContext, lazy::IntoLazy};
+use policy_execution::{context::PcdAnalysisContext, lazy::IntoLazy};
 
 #[cfg(debug_assertions)]
 static LIB_PATH: &str = concat!(
@@ -21,12 +21,12 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     };
 
     print!("[+] Creating new analysis context...");
-    let mut ctx = AnalysisContext::new();
+    let mut ctx = PcdAnalysisContext::new();
     ctx.initialize(LIB_PATH)?;
     println!("\tOK");
 
     print!("[+] Registering data in the analysis context...");
-    ctx.register_data(
+    ctx.register_data_from_path(
         concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/../../../test_data/simple_csv.csv"
@@ -40,7 +40,11 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         .select(cols!("column_1", "column_2"))
         .filter(col!("column_1").ge(4u32).and(col!("column_2").lt(10000.0)))
         .groupby([col!("column_2")])
-        .agg([col!("column_1").min().alias("min value"), col!("column_1").sum(), count()]);
+        .agg([
+            col!("column_1").min().alias("min value"),
+            col!("column_1").sum(),
+            count(),
+        ]);
 
     println!("[+] Explaining the plan {}", df.explain());
 

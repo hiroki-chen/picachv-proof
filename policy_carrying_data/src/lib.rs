@@ -13,7 +13,6 @@ use hashbrown::HashSet;
 use policy_core::{
     error::{PolicyCarryingError, PolicyCarryingResult},
     pcd_ensures,
-    types::*,
 };
 use schema::{Schema, SchemaRef};
 
@@ -28,6 +27,7 @@ mod macros;
 
 pub use comparator::Comparator;
 pub use macros::*;
+pub use policy_core::types::{self, *};
 
 #[cfg(feature = "prettyprint")]
 pub mod pretty;

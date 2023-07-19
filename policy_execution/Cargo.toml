@@ -8,8 +8,10 @@ edition = "2021"
 default = ["use-sql", "built-in"]
 # Enable support for SQL.
 use-sql = []
+use-csv = ["policy_carrying_data/use-csv"]
 # Support for module-like executor set.
 modular = ["policy_ffi/modular"]
+static = ["policy_ffi/static"]
 built-in = []
 
 [dependencies]

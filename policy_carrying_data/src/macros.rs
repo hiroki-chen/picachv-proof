@@ -9,7 +9,7 @@ macro_rules! push_type {
 #[macro_export]
 macro_rules! define_schema {
     ($id:expr, $($name:expr => $ty:path), + $(,)?) => {{
-        use policy_core::types::*;
+        use $crate::types::*;
 
         $crate::schema::SchemaBuilder::new()
             $(.add_field_raw($name, $ty, false))*
@@ -28,7 +28,7 @@ macro_rules! define_schema {
 #[macro_export]
 macro_rules! pcd {
   ($($col_name:expr => $ty:path: $content:expr), + $(,)?) => {{
-        use policy_core::types::*;
+        use $crate::types::*;
 
         let mut fields = Vec::new();
         let mut field_array = Vec::new();

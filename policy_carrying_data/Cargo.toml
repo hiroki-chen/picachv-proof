@@ -5,8 +5,8 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [features]
-default = ["prettyprint", "use_csv"]
-use_csv = ["csv"]
+default = ["prettyprint", "use-csv"]
+use-csv = ["csv"]
 prettyprint = ["tabled"]
 # Enable the generation of FFI-safe Rust-to-Rust trait objects.
 load_module = []

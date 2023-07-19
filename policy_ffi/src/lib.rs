@@ -1,15 +1,20 @@
 #![feature(linkage)]
+#![cfg_attr(not(all(feature = "static", not(feature = "modular"))), allow(unused))]
 
-#[cfg(feature = "modular")]
+#[cfg(all(feature = "modular", feature = "static"))]
+compile_error!("cannot enable both `modular` and `static` features");
+
+#[cfg(all(feature = "modular", not(feature = "static")))]
 mod so_impl;
-#[cfg(not(feature = "modular"))]
+#[cfg(all(feature = "static", not(feature = "modular")))]
 mod static_impl;
 
-use policy_core::{error::StatusCode, types::OpaquePtr};
-#[cfg(feature = "modular")]
+#[cfg(all(feature = "modular", not(feature = "static")))]
 pub use so_impl::*;
-#[cfg(not(feature = "modular"))]
+#[cfg(all(feature = "static", not(feature = "modular")))]
 pub use static_impl::*;
+
+use policy_core::{error::StatusCode, types::OpaquePtr};
 
 // TODO: Unify the signature of the functions.
 

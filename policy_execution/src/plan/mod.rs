@@ -14,14 +14,14 @@ use policy_core::{
     expr::{AAggExpr, AExpr, Aggregation, Expr, Node},
     pcd_ensures,
     policy::Policy,
-    types::{ExecutorRefId, ExecutorType, JoinType, OpaquePtr},
+    types::{ExecutorRefId, ExecutorType, JoinType},
 };
 use serde::{Deserialize, Serialize};
 
 use crate::{
     executor::{
-        create_executor, ExecutionState, ExprArena, LogicalPlanArena, EXPR_ARENA_SIZE,
-        LP_ARENA_SIZE,
+        create_executor, ExecutionState, ExecutorHandle, ExprArena, LogicalPlanArena,
+        EXPR_ARENA_SIZE, LP_ARENA_SIZE,
     },
     plan::physical_expr::{expr_to_name, expressions_to_schema, make_physical_expr},
     udf::UserDefinedFunction,
@@ -29,7 +29,7 @@ use crate::{
 
 pub mod physical_expr;
 
-pub type PhysicalPlan = (ExecutionState, OpaquePtr);
+pub type PhysicalPlan = (ExecutionState, ExecutorHandle);
 
 bitflags! {
     #[derive(Copy, Clone, Debug)]
@@ -117,6 +117,8 @@ pub enum LogicalPlan {
     },
 
     DataFrameScan {
+        #[cfg(feature = "built-in")]
+        df: Option<Arc<DataFrame>>,
         schema: SchemaRef,
         // schema of the projected file
         output_schema: Option<SchemaRef>,
@@ -207,6 +209,8 @@ pub enum ALogicalPlan {
         predicate: Node,
     },
     DataFrameScan {
+        #[cfg(feature = "built-in")]
+        df: Option<Arc<DataFrame>>,
         schema: SchemaRef,
         // schema of the projected file
         output_schema: Option<SchemaRef>,
@@ -333,6 +337,8 @@ impl From<DataFrame> for PlanBuilder {
         let schema = df.schema();
 
         LogicalPlan::DataFrameScan {
+            #[cfg(feature = "built-in")]
+            df: Some(df.into()),
             schema,
             output_schema: None,
             projection: None,
@@ -349,7 +355,6 @@ impl PlanBuilder {
     }
 
     /// Performs aggregation and groupby.
-    /// BUG: FIX
     pub(crate) fn groupby<T: AsRef<[Expr]>>(
         self,
         keys: Vec<Expr>,
@@ -668,11 +673,15 @@ pub(crate) fn lp_to_alp(
         }
 
         LogicalPlan::DataFrameScan {
+            #[cfg(feature = "built-in")]
+            df,
             projection,
             selection,
             schema,
             output_schema,
         } => ALogicalPlan::DataFrameScan {
+            #[cfg(feature = "built-in")]
+            df,
             schema,
             output_schema,
             projection,
@@ -757,7 +766,7 @@ pub(crate) fn lp_to_alp(
 pub(crate) fn make_physical_plan(
     lp: LogicalPlan,
     opt_flag: OptFlag,
-    executor_ref_id: ExecutorRefId,
+    executor_ref_id: Option<ExecutorRefId>,
 ) -> PolicyCarryingResult<PhysicalPlan> {
     // Create two arenas for expressions and logical plans (for their optimizations).
     let mut expr_arena = ExprArena::with_capacity(EXPR_ARENA_SIZE);
@@ -782,8 +791,8 @@ fn do_make_physical_plan(
     root: Node,
     lp_arena: &mut LogicalPlanArena,
     expr_arena: &mut ExprArena,
-    executor_ref_id: ExecutorRefId,
-) -> PolicyCarryingResult<OpaquePtr> {
+    executor_ref_id: Option<ExecutorRefId>,
+) -> PolicyCarryingResult<ExecutorHandle> {
     let node = lp_arena.take(root);
 
     log::debug!("visiting node {node:?}");
@@ -796,16 +805,29 @@ fn do_make_physical_plan(
 
             log::debug!("creating executor: Filter");
 
-            create_executor(
-                executor_ref_id,
-                args! {
-                    "executor_type": serde_json::to_string(&ExecutorType::Filter).unwrap(),
-                    "input": input as usize,
-                    "predicate": serde_json::to_string(&predicate).unwrap(),
-                },
-            )
+            match input {
+                #[cfg(feature = "built-in")]
+                ExecutorHandle::Owned(input) => Ok(ExecutorHandle::Owned(Box::new(
+                    crate::executor::filter::FilterExec::new(predicate, input),
+                ))),
+                #[cfg(not(feature = "built-in"))]
+                ExecutorHandle::Owned(executor) => Err(PolicyCarryingError::OperationNotSupported(
+                    "no built-in executors available".into(),
+                )),
+
+                ExecutorHandle::Ptr(input) => create_executor(
+                    executor_ref_id,
+                    args! {
+                        "executor_type": serde_json::to_string(&ExecutorType::Filter).unwrap(),
+                        "input": input as usize,
+                        "predicate": serde_json::to_string(&predicate).unwrap(),
+                    },
+                ),
+            }
         }
         ALogicalPlan::DataFrameScan {
+            #[cfg(feature = "built-in")]
+            df,
             schema,
             projection,
             selection,
@@ -824,17 +846,29 @@ fn do_make_physical_plan(
             };
 
             log::debug!("creating executor: DataFrameScan");
-            create_executor(
-                executor_ref_id,
-                args! {
-                    "executor_type": serde_json::to_string(&ExecutorType::DataframeScan).unwrap(),
-                    "df_path": "../../test_data/simple_csv.csv",
-                    "schema": serde_json::to_string(&schema).unwrap(),
-                    "projection": projection.map(|proj| proj.deref().clone()),
-                    "predicate_has_windows": false,
-                    "selection": selection.map(|sel| serde_json::to_string(&sel).unwrap()),
-                },
-            )
+
+            if executor_ref_id.is_none() {
+                #[cfg(feature = "built-in")]
+                return Ok(ExecutorHandle::Owned(Box::new(
+                    crate::executor::scan::DataFrameExec::new(df, selection, projection, false),
+                )));
+
+                #[cfg(not(feature = "built-in"))]
+                return Err(PolicyCarryingError::OperationNotSupported(
+                    "no built-in executors available",
+                ));
+            } else {
+                create_executor(
+                    executor_ref_id,
+                    args! {
+                        "executor_type": serde_json::to_string(&ExecutorType::DataframeScan).unwrap(),
+                        "schema": serde_json::to_string(&schema).unwrap(),
+                        "projection": projection.map(|proj| proj.deref().clone()),
+                        "predicate_has_windows": false,
+                        "selection": selection.map(|sel| serde_json::to_string(&sel).unwrap()),
+                    },
+                )
+            }
         }
         ALogicalPlan::Projection { input, expr, .. } => {
             let schema = lp_arena.get(input).schema(lp_arena);
@@ -849,15 +883,25 @@ fn do_make_physical_plan(
 
             log::debug!("creating executor: Projection");
 
-            create_executor(
-                executor_ref_id,
-                args! {
-                    "executor_type": serde_json::to_string(&ExecutorType::Projection).unwrap(),
-                    "input": input as usize,
-                    "expr": serde_json::to_string(&expr).unwrap(),
-                    "input_schema": serde_json::to_string(&schema).unwrap(),
-                },
-            )
+            match input {
+                #[cfg(feature = "built-in")]
+                ExecutorHandle::Owned(input) => Ok(ExecutorHandle::Owned(Box::new(
+                    crate::executor::projection::ProjectionExec::new(input, expr, schema),
+                ))),
+                #[cfg(not(feature = "built-in"))]
+                ExecutorHandle::Owned(executor) => Err(PolicyCarryingError::OperationNotSupported(
+                    "no built-in executors available".into(),
+                )),
+                ExecutorHandle::Ptr(input) => create_executor(
+                    executor_ref_id,
+                    args! {
+                        "executor_type": serde_json::to_string(&ExecutorType::Projection).unwrap(),
+                        "input": input as usize,
+                        "expr": serde_json::to_string(&expr).unwrap(),
+                        "input_schema": serde_json::to_string(&schema).unwrap(),
+                    },
+                ),
+            }
         }
         ALogicalPlan::Aggregate {
             input,
@@ -904,22 +948,46 @@ fn do_make_physical_plan(
 
                 log::debug!("creating executor: PartitionGroupBy");
 
-                create_executor(
-                    executor_ref_id,
-                    args! {
-                        "executor_type": serde_json::to_string(&ExecutorType::PartitionGroupBy).unwrap(),
-                        "input": input as usize,
-                        "phys_keys": serde_json::to_string(&phys_keys).unwrap(),
-                        "phys_aggs": serde_json::to_string(&phys_aggs).unwrap(),
-                        "maintain_order": maintain_order,
-                        "slice": serde_json::to_string(&None::<(i64, usize)>).unwrap(),
-                        "input_schema": serde_json::to_string(&input_schema).unwrap(),
-                        "output_schema": serde_json::to_string(&schema).unwrap(),
-                        // "from_partitioned_ds": false,
-                        "keys": serde_json::to_string(&keys).unwrap(),
-                        "aggs": serde_json::to_string(&aggs).unwrap(),
-                    },
-                )
+                match input {
+                    #[cfg(feature = "built-in")]
+                    ExecutorHandle::Owned(input) => Ok(ExecutorHandle::Owned(Box::new(
+                        crate::executor::groupby_partitioned::PartitionGroupByExec {
+                            input,
+                            phys_keys,
+                            phys_aggs,
+                            maintain_order,
+                            slice: None,
+                            input_schema,
+                            output_schema: schema,
+                            keys,
+                            aggs,
+                            from_partitioned_ds: false,
+                        },
+                    ))),
+                    #[cfg(not(feature = "built-in"))]
+                    ExecutorHandle::Owned(executor) => {
+                        Err(PolicyCarryingError::OperationNotSupported(
+                            "no built-in executors available".into(),
+                        ))
+                    }
+
+                    ExecutorHandle::Ptr(input) => create_executor(
+                        executor_ref_id,
+                        args! {
+                            "executor_type": serde_json::to_string(&ExecutorType::PartitionGroupBy).unwrap(),
+                            "input": input as usize,
+                            "phys_keys": serde_json::to_string(&phys_keys).unwrap(),
+                            "phys_aggs": serde_json::to_string(&phys_aggs).unwrap(),
+                            "maintain_order": maintain_order,
+                            "slice": serde_json::to_string(&None::<(i64, usize)>).unwrap(),
+                            "input_schema": serde_json::to_string(&input_schema).unwrap(),
+                            "output_schema": serde_json::to_string(&schema).unwrap(),
+                            // "from_partitioned_ds": false,
+                            "keys": serde_json::to_string(&keys).unwrap(),
+                            "aggs": serde_json::to_string(&aggs).unwrap(),
+                        },
+                    ),
+                }
             } else {
                 log::debug!("not partitionable!");
                 todo!()

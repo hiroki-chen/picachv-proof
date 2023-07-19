@@ -2,23 +2,21 @@
 
 We want to de-couple the implementation of the data analysis framework and the physical executor set that eventually enforces the policy. Therefore, we move the executors as a seperate pluggable module. By introducing a global manager that keeps track of the active executors, we dispatch the constructed physical plans to thedynamically loadable executors which do the job for us, and the users are completely ignorant of this behavior.
 
-There are, however, several remaining issues left for us to be resolved:
-
-* Rust-to-Rust Foreign Function Interfaces (FFIs) are still unstable. To allow backward compatibility, `abi_stable` can be used, but `std` should be replaced by its standard library.
-
-  Solution: temporarily sacrifice the backward compatibility and make sure that the module and library are built by the same Rust toolchain.
-* Trait object pointer is *fat*, meaning that we need to transfer both the pointer to the object and that to the vtable to the caller. This can be done by passing a `*mut Box<dyn Trait>` pointer. Then the owenership is transferred from creator to the caller.
+The executors that enforce the policy-compliant data access behavior are made as a separate module which the users can manipulate via an opaque pointers created at the first invocation of `create_executor` function. In future design, we will also support the remote process call to invoke necessary executors that may reside inside a TEE that provides stronger security guarantees.
 
 # Layout of an executor library
 
-By default, the data analysis library will try to load the module and find two symbols to create the executors and load the necessary data structures. The first function is called `on_load`, which is called upon the library is loaded. The prototype is
+By default, the data analysis library will try to load the module and find two symbols to create the executors and load the necessary data structures. The first function is called `on_load`, which is called upon the library is loaded. There is also an `on_unload`. The prototypes are
 
 ```rust
 #[no_mangle]
-extern "C" fn on_load(args: *const u8, args_len: usize) -> i32;
+extern "C" fn on_load(args: *const u8, args_len: usize) -> StatusCode;
+
+#[no_mangle]
+extern "C" fn on_unload(args: *const u8, args_len: usize) -> StatusCode;
 ```
 
-This function can be regarded as a prelogue function. Any preparation tasks are fulfilled by this function. Typically, we will want to register data or users when library is initially loaded.
+This function can be regarded as a prelogue function. Any preparation tasks are fulfilled by this function.
 
 Yet there is another function called `create_executor` whose prototype is
 
@@ -28,32 +26,19 @@ extern "C" fn create_executor(
     executor_type: u64,
     args: *const u8,
     args_len: usize,
-    p_executor: *mut usize,
-) -> i64;
+    p_executor: *mut OpaquePtr,
+) -> StatusCode;
 ```
-
-Similarly, if the policy allows for the use of some aggregation functions (e.g., sum, max, etc.), the library should also implement them in the following form
-
-```rust
-#[no_mangle]
-extern "C" fn agg_sum(
-  args: *const u8,
-  args_len: usize,
-) -> i64;
-```
-and note tha the function arguments are serialized using `serde_json` and can be de-serialized back.
 
 This function creates new executors on demand of the data analysis framework when the query is evaluated at the physical level.
 
 ## Examples
 
-The `examples` folder contains the sample usage of compiling the executors into a standalong shared library, which can be later loaded by the program. The `executor_lib` implements the minimal set of executors that can be dynamically loaded to the data analysis framework, and `executor_user` is the application that performs the data analysis job.
+The `examples` folder contains the sample usage of compiling the executors into a standalong shared library, which can be later loaded by the program. The `simple_executor` implements the minimal set of executors (yet no policy enforcement is implemented) that can be dynamically loaded to the data analysis framework, and `executor_user` is the application that performs the data analysis job.
 
-## Thoughts
+## Building Executors for SGX Enclaves
 
-Another design option is to include opague structs in the shared library that exposes only pointers to the caller. All the operations must be performed via the opague handle. This method, however, requires intensive serialization/deserialization of the Rust structs, if they are not `[repr(C)]`. For example, the type-erased field arrays `Vec<Arc<dyn FieldData>>`, but doing so indeed allows for backward compatibility.
+Since there is no official Rust standard library (`std`) for enclave environment, one should only use the Teaclave's Rust SGX SDK to build the default std library and link it against the executors. There are some known issues:
 
-## Links
-
-* <https://adventures.michaelfbryan.com/posts/plugins-in-rust/>
-* <https://nullderef.com/blog/plugin-tech/>
+* Building executors as a standalone static library using custom sysroot (the `std` library built from SGX SDK) and linking it against the enclave will cause duplicate symbols like `__rust_eh_personality`. For this issue, there is no good solution because we cannot "hide" some `std` symbols.
+* Building executors as a shared object and linking it against the enclave (not tested, may work).

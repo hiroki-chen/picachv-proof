@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
+  "examples/builtin_executor",
   "policy_algebra",
   "policy_carrying_data",
   "policy_core",

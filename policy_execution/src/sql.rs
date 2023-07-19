@@ -6,9 +6,9 @@ use policy_core::{
 };
 use sqlparser::ast::Statement;
 
-use crate::{context::AnalysisContext, lazy::LazyFrame};
+use crate::{context::PcdAnalysisContext, lazy::LazyFrame};
 
-impl AnalysisContext {
+impl PcdAnalysisContext {
     /// Tries to parse the SQL language into a logical plan and then returns the [`LazyFrame`] from it.
     ///
     /// # Examples
@@ -63,7 +63,7 @@ mod test {
     use sqlparser::dialect::GenericDialect;
     use sqlparser::parser::Parser;
 
-    use crate::context::AnalysisContext;
+    use crate::context::PcdAnalysisContext;
 
     #[test]
     fn test_sql() {
@@ -72,7 +72,7 @@ mod test {
         WHERE a > b AND b < 100
         ORDER BY a DESC, b"#;
 
-        let ctx = AnalysisContext::new();
+        let ctx = PcdAnalysisContext::new();
         ctx.execute_sql(sql).unwrap();
     }
 }

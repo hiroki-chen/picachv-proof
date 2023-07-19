@@ -14,7 +14,7 @@ use crate::{
 #[must_use = "LazyFrame must be consumed"]
 pub struct LazyFrame {
     /// The executor ID for loading the library.
-    pub(crate) executor_ref_id: ExecutorRefId,
+    pub(crate) executor_ref_id: Option<ExecutorRefId>,
     /// The logical plan.
     pub(crate) plan: LogicalPlan,
     /// The optimization flag.
@@ -26,7 +26,7 @@ pub struct LazyFrame {
 #[must_use = "LazyGroupBy must be consumed"]
 pub struct LazyGroupBy {
     /// The executor ID for loading the library.
-    pub(crate) executor_ref_id: ExecutorRefId,
+    pub(crate) executor_ref_id: Option<ExecutorRefId>,
     /// The logical plan.
     pub(crate) plan: LogicalPlan,
     /// The optimization flag.
