@@ -2,7 +2,7 @@
 
 use std::fmt::{Debug, Formatter};
 
-use policy_carrying_data::{schema::SchemaRef, DataFrame};
+use policy_carrying_data::{schema::SchemaRef, DataFrame, JoinType};
 use policy_core::{col, error::PolicyCarryingResult, expr::Expr, types::ExecutorRefId};
 
 use crate::{
@@ -14,6 +14,7 @@ use crate::{
 #[must_use = "LazyFrame must be consumed"]
 pub struct LazyFrame {
     /// The executor ID for loading the library.
+    /// FIXME: Multiple reference id like join.
     pub(crate) executor_ref_id: Option<ExecutorRefId>,
     /// The logical plan.
     pub(crate) plan: LogicalPlan,
@@ -152,6 +153,45 @@ impl LazyFrame {
     /// Gets the mean value.
     pub fn mean(self) -> Self {
         self.groupby([]).agg([col!("*").mean()])
+    }
+
+    /// Joins two lazy frame.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use policy_carrying_data::*;
+    /// # use policy_execution::{lazy::*, context::*};
+    /// # use policy_core::{types::*, *};
+    ///
+    /// let df = pcd! {
+    ///     "foo" => DataType::Int8: [1i8, 2i8, 3i8],
+    ///     "bar" => DataType::Int8: [1i8, 2i8, 3i8],
+    /// };
+    ///
+    /// let mut ctx = AnalysisContext::new();
+    /// ctx.register_data(df.into()).unwrap();
+    /// let df = ctx.lazy().join(ctx.lazy().clone(), [col!("bar")], [col!("bar")], JoinType::Left).collect();
+    /// println!("df => {df:?}");
+    /// ```
+    pub fn join<T: AsRef<[Expr]>>(
+        self,
+        other: Self,
+        left_on: T,
+        right_on: T,
+        how: JoinType,
+    ) -> Self {
+        let left_on = left_on.as_ref().to_vec();
+        let right_on = right_on.as_ref().to_vec();
+        let lp = PlanBuilder::from(self.plan)
+            .join(other.plan, left_on, right_on, how)
+            .finish();
+
+        Self {
+            plan: lp,
+            opt_flag: self.opt_flag | other.opt_flag,
+            executor_ref_id: self.executor_ref_id,
+        }
     }
 
     /// Executes the query plan, checking the policy if the query can be executed or should be

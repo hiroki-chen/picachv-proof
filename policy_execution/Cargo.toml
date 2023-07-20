@@ -13,6 +13,8 @@ use-csv = ["policy_carrying_data/use-csv"]
 modular = ["policy_ffi/modular"]
 static = ["policy_ffi/static"]
 built-in = []
+# Enable the support for RPC.
+rpc = []
 
 [dependencies]
 bitflags = "2.3.2"

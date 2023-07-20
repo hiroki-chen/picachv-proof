@@ -15,6 +15,14 @@ pub struct SchemaBuilder {
     fields: Vec<FieldRef>,
 }
 
+impl From<SchemaRef> for SchemaBuilder {
+    fn from(value: SchemaRef) -> Self {
+        Self {
+            fields: value.fields.clone(),
+        }
+    }
+}
+
 impl SchemaBuilder {
     pub fn new() -> Self {
         Self::default()
@@ -97,30 +105,6 @@ impl PartialEq for Schema {
     }
 }
 
-// /// This allows us to **join or union** two schemas and returns new one.
-// impl Add for Schema {
-//     type Output = Self;
-
-//     fn add(self, rhs: Self) -> Self::Output {
-//         // We check if two schemas share the same structure using `PartialEq`.
-//         // If yes, we apply the `union` operator; otherwise, a `join` is performed.
-//         //
-//         // Note that the behavior of policy computation varies on these two different branches. Simply speaking:
-//         // * lhs == rhs: r1 join r2  ==> policy_1 \/ policy_2
-//         // * lhs == rhs: r1 union r2 ==> policy_1 /\ policy_2
-//         match self.eq(&rhs) {
-//             true => match self.union(rhs) {
-//                 Ok(res) => res,
-//                 Err(e) => panic!("{e}"),
-//             },
-//             false => match self.join(rhs) {
-//                 Ok(res) => res,
-//                 Err(e) => panic!("{e}"),
-//             },
-//         }
-//     }
-// }
-
 impl Schema {
     /// Constructs a new schema from an array of field descriptions.
     pub fn new(fields: Vec<FieldRef>, metadata: SchemaMetadata) -> Self {
@@ -132,10 +116,16 @@ impl Schema {
         self.fields.extend(other.fields.into_iter())
     }
 
-    /// Gets the column references.
+    /// Gets the column as owned.
     #[inline]
-    pub fn columns(&self) -> Vec<FieldRef> {
+    pub fn fields_owned(&self) -> Vec<FieldRef> {
         self.fields.iter().cloned().collect()
+    }
+
+    /// Gets the column as a reference.
+    #[inline]
+    pub fn fields(&self) -> &[Arc<Field>] {
+        self.fields.as_ref()
     }
 
     #[inline]
@@ -145,9 +135,5 @@ impl Schema {
             .iter()
             .map(|column| new_empty(column.clone()))
             .collect()
-    }
-
-    pub fn fields(&self) -> &[Arc<Field>] {
-        self.fields.as_ref()
     }
 }

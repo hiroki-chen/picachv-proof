@@ -147,7 +147,7 @@ impl DataFrame {
         // If this CSV file has header, we check if this matches (the subset of) the schema.
         let schema = match (reader.headers().cloned(), schema) {
             (Ok(headers), Some(schema)) => {
-                let columns = schema.columns();
+                let columns = schema.fields_owned();
                 pcd_ensures!(headers.len() >= columns.len(),
                     SchemaMismatch: "the given schema is incompatible with the CSV");
 
@@ -247,6 +247,59 @@ impl DataFrame {
             .map(|d| d.to_json())
             .collect::<Vec<_>>()
             .join(";")
+    }
+
+    pub fn join(
+        &self,
+        other: &Self,
+        selected_left: Vec<FieldDataRef>,
+        selected_right: Vec<FieldDataRef>,
+        join_type: JoinType,
+    ) -> PolicyCarryingResult<Self> {
+        pcd_ensures!(
+            selected_left.len() == selected_right.len(),
+            InvalidInput: "the join predicate should share the same length; got {} and {}", selected_right.len(),
+            selected_right.len()
+        );
+
+        // Name and type should match.
+        if let Some((lhs, rhs)) = selected_left
+            .iter()
+            .zip(selected_right.iter())
+            .find(|(lhs, rhs)| lhs.data_type() != rhs.data_type())
+        {
+            return Err(PolicyCarryingError::ImpossibleOperation(
+                format!("but there exist two columns whose names are the same but have different types: {lhs:?} and {rhs:?}")
+            ));
+        }
+
+        if selected_left.len() == 1 {
+            self.join_on_single(other, selected_left, selected_right, join_type)
+        } else {
+            self.join_on_multiple(other, selected_left, selected_right, join_type)
+        }
+    }
+
+    #[allow(unused_variables)]
+    fn join_on_single(
+        &self,
+        other: &Self,
+        selected_left: Vec<FieldDataRef>,
+        selected_right: Vec<FieldDataRef>,
+        join_type: JoinType,
+    ) -> PolicyCarryingResult<Self> {
+        todo!()
+    }
+
+    #[allow(unused_variables)]
+    fn join_on_multiple(
+        &self,
+        other: &Self,
+        selected_left: Vec<FieldDataRef>,
+        selected_right: Vec<FieldDataRef>,
+        join_type: JoinType,
+    ) -> PolicyCarryingResult<Self> {
+        todo!()
     }
 
     pub fn from_json(content: &str) -> PolicyCarryingResult<Self> {

@@ -7,7 +7,10 @@ use std::{
 
 use bitflags::bitflags;
 use hashbrown::HashSet;
-use policy_carrying_data::{schema::SchemaRef, DataFrame};
+use policy_carrying_data::{
+    schema::{SchemaBuilder, SchemaRef},
+    DataFrame,
+};
 use policy_core::{
     args,
     error::{PolicyCarryingError, PolicyCarryingResult},
@@ -23,7 +26,7 @@ use crate::{
         create_executor, ExecutionState, ExecutorHandle, ExprArena, LogicalPlanArena,
         EXPR_ARENA_SIZE, LP_ARENA_SIZE,
     },
-    plan::physical_expr::{expr_to_name, expressions_to_schema, make_physical_expr},
+    plan::physical_expr::{expr_to_field, expr_to_name, expressions_to_schema, make_physical_expr},
     udf::UserDefinedFunction,
 };
 
@@ -99,7 +102,7 @@ pub enum LogicalPlan {
         policy: Option<Box<dyn Policy>>,
     },
 
-    /// Join operation: ADD POLICY?
+    /// Join operation
     Join {
         input_left: Box<LogicalPlan>,
         input_right: Box<LogicalPlan>,
@@ -159,7 +162,7 @@ impl LogicalPlan {
                 selection,
                 ..
             } => {
-                let total_columns = schema.columns().len();
+                let total_columns = schema.fields_owned().len();
                 let mut n_columns = "*".to_string();
                 if let Some(columns) = projection {
                     n_columns = format!("{}", columns.len());
@@ -173,7 +176,7 @@ impl LogicalPlan {
                     "{:indent$}DF {:?}; PROJECT {}/{} COLUMNS; SELECTION: {:?}",
                     "",
                     schema
-                        .columns()
+                        .fields_owned()
                         .into_iter()
                         .map(|field| field.name.clone())
                         .take(4)
@@ -196,7 +199,27 @@ impl LogicalPlan {
                 write!(f, "\n{:indent$}\t{aggs:?} GROUP BY {keys:?} FROM", "")?;
                 write!(f, "\n{:indent$}\t{input:?}", "")
             }
-            _ => write!(f, "unsupported operation"),
+            Self::Join {
+                input_left,
+                input_right,
+                schema,
+                left_on,
+                right_on,
+                options,
+            } => {
+                let fields = schema.fields();
+                write!(f, "{:indent$}{options:?} JOIN:", "")?;
+                write!(f, "\n{:indent$}LEFT ON: {left_on:?}", "")?;
+                write!(f, "\n{:sub_indent$}{input_left:?}", "")?;
+                write!(f, "\n{:indent$}RIGHT ON: {right_on:?}", "")?;
+                write!(f, "\n{:sub_indent$}{input_right:?}", "")?;
+                write!(
+                    f,
+                    "\n{:indent$}OUTPUT SCHEMA:\n{:sub_indent$}{fields:?}",
+                    "", ""
+                )?;
+                write!(f, "\n{:indent$}END {options:?} JOIN", "")
+            }
         }
     }
 }
@@ -386,7 +409,7 @@ impl PlanBuilder {
         log::debug!("{output_schema:?}");
 
         // There contains some duplicate column names.
-        if output_schema.columns().len() < keys.len() + aggs.len() {
+        if output_schema.fields_owned().len() < keys.len() + aggs.len() {
             let mut names = HashSet::new();
             for expr in aggs.iter().chain(keys.iter()) {
                 let name = delayed_err!(expr_to_name(expr), self.plan);
@@ -411,6 +434,47 @@ impl PlanBuilder {
             policy: None,
         }
         .into()
+    }
+
+    /// Joins the dataframe.
+    pub(crate) fn join(
+        self,
+        other: LogicalPlan,
+        left_on: Vec<Expr>,
+        right_on: Vec<Expr>,
+        join_type: JoinType,
+    ) -> Self {
+        // Check alias.
+        for expr in left_on.iter().chain(right_on.iter()) {
+            if matches!(expr, Expr::Alias { .. }) {
+                return Self {
+                    plan: LogicalPlan::StagedError {
+                        input: Some(Box::new(self.plan)),
+                        err: PolicyCarryingError::InvalidInput(
+                            "cannot use `alias` in join predicates".into(),
+                        ),
+                    },
+                };
+            }
+        }
+
+        let schema_left = delayed_err!(self.plan.schema(), self.plan);
+        let schema_right = delayed_err!(other.schema(), other);
+        let output_schema = delayed_err!(
+            schema_join(schema_left, schema_right, &left_on, &right_on, join_type),
+            self.plan
+        );
+
+        Self {
+            plan: LogicalPlan::Join {
+                input_left: Box::new(self.plan),
+                input_right: Box::new(other),
+                schema: output_schema,
+                left_on,
+                right_on,
+                options: join_type,
+            },
+        }
     }
 
     /// Performs projection.
@@ -508,7 +572,7 @@ pub(crate) fn rewrite_projection(
             {
                 result.extend(
                     schema
-                        .columns()
+                        .fields_owned()
                         .into_iter()
                         .map(|c| Expr::Column(c.name.clone())),
                 )
@@ -516,7 +580,7 @@ pub(crate) fn rewrite_projection(
 
             Expr::Exclude(wildcard, columns) => {
                 if matches!(*wildcard, Expr::Wildcard) {
-                    result.extend(schema.columns().into_iter().filter_map(|c| {
+                    result.extend(schema.fields_owned().into_iter().filter_map(|c| {
                         if columns.contains(&c.name) {
                             Some(Expr::Column(c.name.clone()))
                         } else {
@@ -994,7 +1058,6 @@ fn do_make_physical_plan(
             }
         }
 
-        #[allow(unused)]
         ALogicalPlan::Join {
             input_left,
             input_right,
@@ -1002,7 +1065,65 @@ fn do_make_physical_plan(
             left_on,
             right_on,
             options,
-        } => todo!(),
+        } => {
+            // FIXME: Add multiple executor reference IDs?
+            let input_left =
+                do_make_physical_plan(input_left, lp_arena, expr_arena, executor_ref_id)?;
+            let input_right =
+                do_make_physical_plan(input_right, lp_arena, expr_arena, executor_ref_id)?;
+
+            pcd_ensures!(
+                input_left.is_same_type(&input_right),
+                ImpossibleOperation: "the left and right handle have different types {:?} vs {:?} which is not allowed",
+                input_left,
+                input_right,
+            );
+
+            let left_on = left_on
+                .into_iter()
+                .map(|expr| {
+                    make_physical_expr(
+                        expr,
+                        expr_arena,
+                        Some(schema.clone()),
+                        &Default::default(),
+                        false,
+                    )
+                })
+                .collect::<PolicyCarryingResult<Vec<_>>>()?;
+            let right_on = right_on
+                .into_iter()
+                .map(|expr| {
+                    make_physical_expr(
+                        expr,
+                        expr_arena,
+                        Some(schema.clone()),
+                        &Default::default(),
+                        false,
+                    )
+                })
+                .collect::<PolicyCarryingResult<Vec<_>>>()?;
+
+            match (input_left, input_right) {
+                (ExecutorHandle::Ptr(input_left), ExecutorHandle::Ptr(input_right)) => {
+                    create_executor(executor_ref_id, args! {
+                        "input_left": input_left as usize,
+                        "input_right": input_right as usize,
+                    })
+                }
+                (ExecutorHandle::Owned(input_left), ExecutorHandle::Owned(input_right)) => Ok(
+                    ExecutorHandle::Owned(Box::new(crate::executor::join::JoinExec::new(
+                        input_left,
+                        input_right,
+                        left_on,
+                        right_on,
+                        options,
+                    ))),
+                ),
+
+                _ => panic!("logic error"),
+            }
+        }
 
         ALogicalPlan::Nonsense(_) => Err(PolicyCarryingError::InvalidInput(
             "nonsence logical plan encountered".into(),
@@ -1130,4 +1251,54 @@ pub(crate) fn partitionable(keys: &[Node], aggs: &[Node], expr_arena: &ExprArena
         partitionable = keys.is_empty();
     }
     partitionable
+}
+
+/// Given two schemas of the input dataframes, outputs the joined schema.
+fn schema_join(
+    schema_left: SchemaRef,
+    schema_right: SchemaRef,
+    left_on: &[Expr],
+    right_on: &[Expr],
+    _join_type: JoinType,
+) -> PolicyCarryingResult<SchemaRef> {
+    let mut sb = SchemaBuilder::from(schema_left.clone());
+    let mut left_names = HashSet::with_capacity(schema_left.fields().len());
+
+    for field in schema_left.fields() {
+        left_names.insert(field.name.clone());
+    }
+
+    let mut right_names = HashSet::with_capacity(right_on.len());
+    for expr in left_on {
+        let field = expr_to_field(expr, &schema_left, false)?;
+        sb = sb.add_field(field);
+    }
+    for expr in right_on {
+        let field = expr_to_field(expr, &schema_left, false)?;
+        right_names.insert(field.name.clone());
+    }
+
+    for right_field in schema_right.fields() {
+        let right_name = right_field.name.as_str();
+        // We found some field whose name does not appear in the `right_on` but appear in the left schema.
+        // In this case, we need to disambiguify the column names of the left and right schemas.
+        //
+        // For example:
+        //
+        // D B C  JOIN  B C D   ON      lhs.B = rhs.B && lhs.C = rhs.C but lhs.D != rhs.D
+        if !right_names.contains(right_name) {
+            if left_names.contains(right_name) {
+                let right_name = format!("{right_name}_RHS");
+                sb = sb.add_field_raw(&right_name, right_field.data_type, right_field.nullable);
+            } else {
+                // Push.
+                sb = sb.add_field(right_field.clone());
+            }
+        }
+    }
+
+    let schema = sb.finish();
+    log::debug!("The joined schema would be {schema:?}");
+
+    Ok(schema)
 }

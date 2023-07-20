@@ -80,15 +80,19 @@ pub enum DataType {
 }
 
 #[derive(
-    Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Default, FromPrimitive, IntoPrimitive,
+    Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Default, Serialize, Deserialize,
 )]
 #[repr(usize)]
 pub enum JoinType {
+    /// LEFT OUTER JOIN
     Left,
+    /// RIGHT OUTER JOIN
     Right,
+    /// FULL OUTER JOIN
     Full,
     #[default]
-    Natural,
+    /// INNER JOIN
+    Inner,
 }
 
 #[derive(

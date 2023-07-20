@@ -15,8 +15,8 @@ use policy_core::{
 use crate::{executor::evaluate_physical_expr_vec, trace};
 
 use super::{
-    filter::FilterExec, groupby_partitioned::PartitionGroupByExec, projection::ProjectionExec,
-    scan::DataFrameExec, ExecutionState, PhysicalExecutor,
+    filter::FilterExec, groupby_partitioned::PartitionGroupByExec, join::JoinExec,
+    projection::ProjectionExec, scan::DataFrameExec, ExecutionState, PhysicalExecutor,
 };
 
 impl DataFrameExec {
@@ -144,5 +144,42 @@ impl PhysicalExecutor for PartitionGroupByExec {
 
         let original_df = self.input.execute(state)?;
         self.execute_impl(state, original_df)
+    }
+}
+
+impl Debug for JoinExec {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "JoinExec")
+    }
+}
+
+impl PhysicalExecutor for JoinExec {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
+    fn clone_box(&self) -> super::Executor {
+        Box::new(self.clone())
+    }
+
+    fn execute(&mut self, state: &ExecutionState) -> PolicyCarryingResult<DataFrame> {
+        trace!(state, format!("{self:?}"));
+
+        let lhs = self.input_left.execute(state)?;
+        let rhs = self.input_right.execute(state)?;
+        let left_on = self
+            .left_on
+            .iter()
+            .map(|expr| expr.evaluate(&lhs, state))
+            .collect::<PolicyCarryingResult<Vec<_>>>()?;
+        let right_on = self
+            .right_on
+            .iter()
+            .map(|expr| expr.evaluate(&rhs, state))
+            .collect::<PolicyCarryingResult<Vec<_>>>()?;
+
+        println!("left_on => {left_on:?}, right_on => {right_on:?}");
+
+        lhs.join(&rhs, left_on, right_on, self.join_type)
     }
 }

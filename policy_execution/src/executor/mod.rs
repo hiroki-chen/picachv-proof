@@ -30,6 +30,7 @@ pub mod scan;
 
 #[cfg(feature = "built-in")]
 pub mod built_in;
+pub mod join;
 
 pub type ExprArena = Arena<AExpr>;
 pub type LogicalPlanArena = Arena<ALogicalPlan>;
@@ -62,10 +63,27 @@ bitflags! {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum ExecutorHandle {
     Ptr(OpaquePtr),
     Owned(Executor),
+    #[cfg(feature = "rpc")]
+    /// The RPC stub.
+    RpcStub {
+        stub: (),
+        id: usize,
+    },
+}
+
+impl ExecutorHandle {
+    pub fn is_same_type(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Ptr(_), Self::Ptr(_)) | (Self::Owned(_), Self::Owned(_)) => true,
+            #[cfg(feature = "rpc")]
+            (Self::RpcStub(_), Self::RpcStub(_)) => true,
+            _ => false,
+        }
+    }
 }
 
 /// The executor for the physical plan.
@@ -120,6 +138,7 @@ pub struct ExecutionState {
     /// The api set layer for managing the policy compliance.
     /// If executor_ref_id is a [`None`], then we use the built-in executors instead.
     pub executor_ref_id: Arc<RwLock<Option<ExecutorRefId>>>,
+    // TODO: Add policy enforcement check
 }
 
 impl Default for ExecutionState {

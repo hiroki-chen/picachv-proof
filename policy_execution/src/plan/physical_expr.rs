@@ -314,7 +314,7 @@ impl PhysicalExpr for ColumnExpr {
             // We proceed with searching in the schema.
             Some(ref schema) => {
                 match schema
-                    .columns()
+                    .fields_owned()
                     .into_iter()
                     .find(|col| col.name == *self.name)
                 {
@@ -645,7 +645,7 @@ pub(crate) fn make_physical_expr_aaggexpr(
     // Discern `in_aggregation`.
     in_aggregation: bool,
 ) -> PolicyCarryingResult<PhysicalExprRef> {
-    println!("{parent:?}, {aexpr:?}, {schema:?}, {state:?}, {in_aggregation}");
+    log::debug!("{parent:?}, {aexpr:?}, {schema:?}, {state:?}, {in_aggregation}");
 
     let input = make_physical_expr(
         aexpr.get_input().clone(),
