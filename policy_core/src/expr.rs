@@ -99,7 +99,49 @@ impl Aggregation {
     }
 }
 
-/// An expression type.
+/// This enum tells the executor how to perform the distinct operation.
+///
+/// # Examples
+///
+/// ```
+/// # use policy_core::expr::Keep;
+/// # use policy_carrying_data::*;
+///
+/// let keep = Keep::Any;
+/// let expr = unique(Some(vec!["foo".into(), "bar".into()]), keep);
+///
+/// println!("expr => {expr:?}");
+///
+/// ```
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub enum Keep {
+    /// Keeps only the first one of all the duplicate rows.
+    First,
+    /// Keeps only the last one of all the duplicate rows.
+    Last,
+    /// Keeps only one of all the duplicate rows, but the order does not matter at all.
+    Any,
+    /// Removes all duplicate rows.
+    Remove,
+}
+
+/// Some additional options of the distinct operation. This struct will be heavily used in execution module.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct DistinctOptions {
+    pub keep: Keep,
+    /// The columns used to perform the `unique` operation.
+    /// Equivalent to `DISTINCT([col_names]? | *)`
+    pub selected_columns: Option<Vec<String>>,
+    /// Should the result maintains the original order of all rows.
+    pub maintain_order: bool,
+    /// Should the result contains other columns.
+    pub include_non_selected: bool,
+    /// Truncated `distinct` only returns the sliced result where the first `i64` is the
+    /// starting index in the original data frame and `usize` indicates the length.
+    pub sliced: Option<(usize, usize)>,
+}
+
+/// An expression type for describing a node in the query.
 #[derive(Clone, Serialize, Deserialize)]
 pub enum Expr {
     /// Aggregation.

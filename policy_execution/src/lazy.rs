@@ -3,7 +3,12 @@
 use std::fmt::{Debug, Formatter};
 
 use policy_carrying_data::{schema::SchemaRef, DataFrame, JoinType};
-use policy_core::{col, error::PolicyCarryingResult, expr::Expr, types::ExecutorRefId};
+use policy_core::{
+    col,
+    error::PolicyCarryingResult,
+    expr::{DistinctOptions, Expr, Keep},
+    types::ExecutorRefId,
+};
 
 use crate::{
     executor::{self, execution_epilogue},
@@ -191,6 +196,104 @@ impl LazyFrame {
             plan: lp,
             opt_flag: self.opt_flag | other.opt_flag,
             executor_ref_id: self.executor_ref_id,
+        }
+    }
+
+    /// Performs the `DISTINCT` operation that retains unique rows and removes duplicate ones
+    /// according to the given columns.
+    ///
+    /// # Examples
+    ///
+    /// Exclude other columns:
+    /// 
+    /// ```
+    /// # use policy_carrying_data::pcd;
+    /// # use policy_execution::{lazy::*, context::*};
+    /// # use policy_core::{types::*, expr::Keep, *};
+    ///
+    /// let df = pcd! {
+    ///     "foo" => DataType::Int8: [1i8, 2i8, 2i8],
+    ///     "bar" => DataType::Int8: [1i8, 2i8, 3i8],
+    /// };
+    ///
+    /// let mut ctx = AnalysisContext::new();
+    /// ctx.register_data(df.into()).unwrap();
+    /// let df = ctx.lazy().distinct_with(vec!["foo".into()], Keep::Any, false).collect();
+    /// // remove any of the`2i8`.
+    /// println!("df => {df:?}");
+    /// ```
+    /// 
+    /// This is equivalent to the following SQL query:
+    /// 
+    /// ```sql
+    /// SELECT DISTINCT(`foo`) FROM `df`
+    /// ```
+    /// 
+    /// To include other columns, please call `distinct_with(vec!["foo"].into(), Keep::Any, true)`.
+    /// 
+    /// ```sql
+    /// SELECT DISTINCT(`foo`), * FROM `df`
+    /// ```
+    pub fn distinct_with(
+        self,
+        selected_columns: Vec<String>,
+        keep: Keep,
+        include_non_selected: bool,
+    ) -> Self {
+        let options = DistinctOptions {
+            keep,
+            selected_columns: Some(selected_columns),
+            sliced: None,
+            include_non_selected,
+            maintain_order: false,
+        };
+
+        self.distinct_with_options(options)
+    }
+
+    /// Performs the `DISTINCT` operation that retains unique rows and removes duplicate ones
+    /// using *all* columns.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use policy_carrying_data::*;
+    /// # use policy_execution::{lazy::*, context::*};
+    /// # use policy_core::{types::*, *};
+    ///
+    /// let df = pcd! {
+    ///     "foo" => DataType::Int8: [1i8, 2i8, 2i8],
+    ///     "bar" => DataType::Int8: [1i8, 2i8, 3i8],
+    /// };
+    ///
+    /// let mut ctx = AnalysisContext::new();
+    /// ctx.register_data(df.into()).unwrap();
+    /// let df = ctx.lazy().distinct_with(vec!["foo".into()], Keep::Any).collect();
+    /// // nothing is removed.
+    /// println!("df => {df:?}");
+    /// ```
+    pub fn distinct(self, keep: Keep) -> Self {
+        let options = DistinctOptions {
+            keep,
+            selected_columns: None,
+            sliced: None,
+            include_non_selected: false,
+            maintain_order: false,
+        };
+
+        self.distinct_with_options(options)
+    }
+
+    fn distinct_with_options(self, options: DistinctOptions) -> Self {
+        let plan = LogicalPlan::Distinct {
+            input: Box::new(self.plan),
+            options,
+        };
+
+        Self {
+            executor_ref_id: self.executor_ref_id,
+            opt_flag: self.opt_flag,
+            plan,
         }
     }
 

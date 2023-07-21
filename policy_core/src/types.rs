@@ -106,6 +106,8 @@ pub enum ExecutorType {
     Apply,
     Aggregation,
     PartitionGroupBy,
+    Join,
+    Distinct,
     #[default]
     Invalid,
 }

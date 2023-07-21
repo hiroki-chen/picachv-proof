@@ -11,8 +11,8 @@ use policy_core::{
     types::*,
 };
 use policy_execution::executor::{
-    filter::FilterExec, groupby_partitioned::PartitionGroupByExec, projection::ProjectionExec,
-    scan::DataFrameExec, ExecutionState, Executor, PhysicalExecutor,
+    distinct::DistinctExec, filter::FilterExec, groupby_partitioned::PartitionGroupByExec,
+    projection::ProjectionExec, scan::DataFrameExec, ExecutionState, Executor, PhysicalExecutor,
 };
 use policy_privacy::PrivacyMananger;
 use policy_utils::args_from_raw;
@@ -92,6 +92,9 @@ extern "C" fn create_executor(
         ExecutorType::PartitionGroupBy => Box::new(MyPartitionGroupByExec(pcd_ffi_try!(
             PartitionGroupByExec::try_from(args)
         ))),
+        ExecutorType::Distinct => {
+            Box::new(MyDistinctExec(pcd_ffi_try!(DistinctExec::try_from(args))))
+        }
 
         // Not implemented.
         _ => return StatusCode::Unsupported,
@@ -127,6 +130,8 @@ pub struct MyProjectionExec(ProjectionExec);
 pub struct MyFilterExec(FilterExec);
 #[derive(Clone)]
 pub struct MyPartitionGroupByExec(PartitionGroupByExec);
+#[derive(Clone)]
+pub struct MyDistinctExec(DistinctExec);
 
 impl Debug for MyDataFrameScanExec {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -149,6 +154,12 @@ impl Debug for MyFilterExec {
 impl Debug for MyPartitionGroupByExec {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "MyPartitionGroupByExec")
+    }
+}
+
+impl Debug for MyDistinctExec {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "MyDistinctExec")
     }
 }
 
@@ -195,6 +206,20 @@ impl PhysicalExecutor for MyFilterExec {
 }
 
 impl PhysicalExecutor for MyPartitionGroupByExec {
+    fn execute(&mut self, state: &ExecutionState) -> PolicyCarryingResult<DataFrame> {
+        self.0.execute(state)
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn clone_box(&self) -> Executor {
+        Box::new(self.clone())
+    }
+}
+
+impl PhysicalExecutor for MyDistinctExec {
     fn execute(&mut self, state: &ExecutionState) -> PolicyCarryingResult<DataFrame> {
         self.0.execute(state)
     }

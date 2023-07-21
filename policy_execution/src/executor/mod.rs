@@ -31,6 +31,7 @@ pub mod scan;
 #[cfg(feature = "built-in")]
 pub mod built_in;
 pub mod join;
+pub mod distinct;
 
 pub type ExprArena = Arena<AExpr>;
 pub type LogicalPlanArena = Arena<ALogicalPlan>;

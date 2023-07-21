@@ -1,7 +1,10 @@
 use std::error::Error;
 
-use policy_carrying_data::{pcd, JoinType};
-use policy_core::{col, cols, expr::count};
+use policy_carrying_data::pcd;
+use policy_core::{
+    col, cols,
+    expr::{count, Keep},
+};
 use policy_execution::{context::AnalysisContext, lazy::IntoLazy};
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -18,7 +21,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let mut rhs: AnalysisContext = AnalysisContext::new();
     let df = pcd! {
-        "bar" => DataType::Float64: [1.0, 8.3, 2.3, 3.3, 4.3, 2.3, 4.3, 8.5, 233.0, 22.1],
+        "bar" => DataType::Float64: [1.0, 2.3, 2.3, 2.3, 4.3, 2.3, 4.3, 8.5, 233.0, 22.1],
         "foo" => DataType::Int64: [1i64,2,3,4,3,2,1,2,3,4],
     };
     print!("[+] Registering the data for rhs...");
@@ -27,7 +30,6 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let df = lhs
         .lazy()
-        .join(rhs.lazy(), [col!("bar")], [col!("bar")], JoinType::Inner)
         .select(cols!("foo", "bar"))
         .filter(col!("foo").ge(4i64).and(col!("bar").lt(10000.0f64)))
         .groupby([col!("bar")])
@@ -40,6 +42,14 @@ fn main() -> Result<(), Box<dyn Error>> {
     println!("[+] Explaining the plan...\n{}", df.explain());
 
     let df = df.collect().unwrap();
+    println!("[+] Dataframe => {df:?}");
+
+    println!("[+] Testing distinct...");
+
+    let df = rhs
+        .lazy()
+        .distinct_with(vec!["foo".into()], Keep::Any, true)
+        .collect()?;
     println!("[+] Dataframe => {df:?}");
 
     Ok(())

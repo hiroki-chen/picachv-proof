@@ -14,7 +14,7 @@ use policy_carrying_data::{
 use policy_core::{
     args,
     error::{PolicyCarryingError, PolicyCarryingResult},
-    expr::{AAggExpr, AExpr, Aggregation, Expr, Node},
+    expr::{AAggExpr, AExpr, Aggregation, DistinctOptions, Expr, Node},
     pcd_ensures,
     policy::Policy,
     types::{ExecutorRefId, ExecutorType, JoinType},
@@ -79,6 +79,13 @@ pub enum LogicalPlan {
         input: Box<LogicalPlan>,
         predicate: Expr,
         policy: Option<Box<dyn Policy>>,
+    },
+
+    /// The distinct expression.
+    Distinct {
+        input: Box<LogicalPlan>,
+        /// How is this expression performed.
+        options: DistinctOptions,
     },
 
     /// Projection
@@ -154,6 +161,18 @@ impl LogicalPlan {
                 input, expression, ..
             } => {
                 write!(f, "{:indent$} SELECT {expression:?} FROM", "")?;
+                input.fmt_impl(f, sub_indent)
+            }
+            Self::Distinct { input, options } => {
+                write!(
+                    f,
+                    "{:indent$}DISTINCT({})",
+                    "",
+                    match options.selected_columns {
+                        Some(ref vec) => format!("{vec:?}"),
+                        None => "*".into(),
+                    }
+                )?;
                 input.fmt_impl(f, sub_indent)
             }
             Self::DataFrameScan {
@@ -240,6 +259,10 @@ pub enum ALogicalPlan {
         projection: Option<Arc<Vec<String>>>,
         selection: Option<Node>,
     },
+    Distinct {
+        input: Node,
+        options: DistinctOptions,
+    },
     Projection {
         input: Node,
         expr: Vec<Node>,
@@ -291,7 +314,7 @@ impl LogicalPlan {
     /// Returns the schema of the current logical plan.
     pub fn schema(&self) -> PolicyCarryingResult<SchemaRef> {
         match self {
-            Self::Select { input: data, .. } => data.schema(),
+            Self::Distinct { input, .. } | Self::Select { input, .. } => input.schema(),
             Self::Projection { schema, .. } => Ok(schema.clone()),
             Self::Aggregation { schema, .. } => Ok(schema.clone()),
             Self::Join { schema, .. } => Ok(schema.clone()),
@@ -323,6 +346,7 @@ impl ALogicalPlan {
                 output_schema,
                 ..
             } => output_schema.clone().unwrap_or(schema.clone()),
+            ALogicalPlan::Distinct { input, .. } => lp_arena.get(*input).schema(lp_arena).clone(),
             ALogicalPlan::Aggregate { schema, .. } => schema.clone(),
             ALogicalPlan::Join { schema, .. } => schema.clone(),
             ALogicalPlan::Selection { input, .. } => lp_arena.get(*input).schema(lp_arena).clone(),
@@ -335,6 +359,7 @@ impl ALogicalPlan {
     pub fn name(&self) -> &str {
         match self {
             ALogicalPlan::Aggregate { .. } => "Aggregate",
+            ALogicalPlan::Distinct { .. } => "Distinct",
             ALogicalPlan::DataFrameScan { .. } => "Dataframe Scan",
             ALogicalPlan::Join { .. } => "Join",
             ALogicalPlan::Selection { .. } => "Selection",
@@ -718,6 +743,10 @@ pub(crate) fn lp_to_alp(
             let predicate = expr_to_aexpr(predicate, expr_arena)?;
             ALogicalPlan::Selection { input, predicate }
         }
+        LogicalPlan::Distinct { input, options } => {
+            let input = lp_to_alp(*input, expr_arena, lp_arena)?;
+            ALogicalPlan::Distinct { input, options }
+        }
         LogicalPlan::Projection {
             input,
             expression,
@@ -934,6 +963,28 @@ fn do_make_physical_plan(
                 )
             }
         }
+        ALogicalPlan::Distinct { input, options } => {
+            let input = do_make_physical_plan(input, lp_arena, expr_arena, executor_ref_id)?;
+
+            match input {
+                #[cfg(feature = "built-in")]
+                ExecutorHandle::Owned(input) => Ok(ExecutorHandle::Owned(Box::new(
+                    crate::executor::distinct::DistinctExec::new(input, options),
+                ))),
+                #[cfg(not(feature = "built-in"))]
+                ExecutorHandle::Owned(executor) => Err(PolicyCarryingError::OperationNotSupported(
+                    "no built-in executors available".into(),
+                )),
+                ExecutorHandle::Ptr(input) => create_executor(
+                    executor_ref_id,
+                    args! {
+                        "executor_type": serde_json::to_string(&ExecutorType::Projection).unwrap(),
+                        "input": input as usize,
+                        "options": serde_json::to_string(&options).unwrap(),
+                    },
+                ),
+            }
+        }
         ALogicalPlan::Projection { input, expr, .. } => {
             let schema = lp_arena.get(input).schema(lp_arena);
             let input = do_make_physical_plan(input, lp_arena, expr_arena, executor_ref_id)?;
@@ -1106,10 +1157,13 @@ fn do_make_physical_plan(
 
             match (input_left, input_right) {
                 (ExecutorHandle::Ptr(input_left), ExecutorHandle::Ptr(input_right)) => {
-                    create_executor(executor_ref_id, args! {
-                        "input_left": input_left as usize,
-                        "input_right": input_right as usize,
-                    })
+                    create_executor(
+                        executor_ref_id,
+                        args! {
+                            "input_left": input_left as usize,
+                            "input_right": input_right as usize,
+                        },
+                    )
                 }
                 (ExecutorHandle::Owned(input_left), ExecutorHandle::Owned(input_right)) => Ok(
                     ExecutorHandle::Owned(Box::new(crate::executor::join::JoinExec::new(

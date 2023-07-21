@@ -28,6 +28,11 @@ impl GroupsIdx {
     pub fn groupby_with_null(&self) -> bool {
         self.first.len() == 1 && self.first[0] == 0 && self.all.len() == 1
     }
+
+    #[inline]
+    pub fn first(&self) -> &[usize] {
+        &self.first
+    }
 }
 
 /// A group slice since groups are 2-dimensional arrays of the original dataframe.
@@ -146,7 +151,7 @@ impl DataFrame {
             // If the keys are empty, then it means we have explicitly constructed a dummy
             // `groupby` clause to unify the aggregation operation. In this case, we choose
             // a phantom column `index` and group by that column.
-            let height = self.shape().1;
+            let height: usize = self.shape().1;
 
             // The `index` column is phantom since we can just create it from the height.
             // We thus do not need to manunally insert a column into the dataframe.
@@ -187,7 +192,7 @@ impl DataFrame {
             }
 
             let groups = match selected_keys.len() {
-                1 => self.groupby_single_key(&selected_keys[0], maintain_order),
+                1 => self.groupby_single_key(selected_keys[0].name(), maintain_order),
                 len if len != 0 => Err(PolicyCarryingError::OperationNotSupported(
                     "`groupby` with multiple keys are not supported now".into(),
                 )),
@@ -201,21 +206,21 @@ impl DataFrame {
     /// Creates a lazily grouped dataframe using a single key.
     fn groupby_single_key(
         &self,
-        keys: &FieldDataRef,
+        key: &str,
         maintain_order: bool,
     ) -> PolicyCarryingResult<GroupsProxy> {
         // Iterate over the columns and combine the rows with the same keys indicated by `keys`.
         let this_column = match self
             .columns
             .iter()
-            .find(|col| col.name() == keys.name())
+            .find(|col| col.name() == key)
             .cloned()
         {
             Some(this_column) => this_column,
             None => {
                 return Err(PolicyCarryingError::ColumnNotFound(format!(
                     "unable to find the column named {}",
-                    keys.name()
+                    key
                 )))
             }
         };

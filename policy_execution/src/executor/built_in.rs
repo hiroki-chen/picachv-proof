@@ -6,17 +6,19 @@ use std::{
     sync::Arc,
 };
 
-use policy_carrying_data::DataFrame;
+use policy_carrying_data::{group::GroupsProxy, DataFrame};
 use policy_core::{
     error::{PolicyCarryingError, PolicyCarryingResult},
+    expr::Keep,
     pcd_ensures,
 };
 
 use crate::{executor::evaluate_physical_expr_vec, trace};
 
 use super::{
-    filter::FilterExec, groupby_partitioned::PartitionGroupByExec, join::JoinExec,
-    projection::ProjectionExec, scan::DataFrameExec, ExecutionState, PhysicalExecutor,
+    distinct::DistinctExec, filter::FilterExec, groupby_partitioned::PartitionGroupByExec,
+    join::JoinExec, projection::ProjectionExec, scan::DataFrameExec, ExecutionState,
+    PhysicalExecutor,
 };
 
 impl DataFrameExec {
@@ -181,5 +183,76 @@ impl PhysicalExecutor for JoinExec {
         println!("left_on => {left_on:?}, right_on => {right_on:?}");
 
         lhs.join(&rhs, left_on, right_on, self.join_type)
+    }
+}
+
+impl PhysicalExecutor for DistinctExec {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
+    fn clone_box(&self) -> super::Executor {
+        Box::new(self.clone())
+    }
+
+    fn execute(&mut self, state: &ExecutionState) -> PolicyCarryingResult<DataFrame> {
+        trace!(state, format!("{self:?}"));
+
+        let df = self.input.execute(state)?;
+        let selected_columns = self.options.selected_columns.as_ref().map(|v| v.as_slice());
+        let keep = self.options.keep;
+        let maintain_order = self.options.maintain_order;
+
+        // Normalize the column names.
+        let selected_columns = selected_columns
+            .map(|columns| {
+                columns
+                    .into_iter()
+                    .map(|column| column.as_str())
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or(df.columns().iter().map(|field| field.name()).collect());
+
+        let data = match (keep, maintain_order) {
+            // At the point we only do `any` and unstable distinct.
+            (Keep::Any, false) => {
+                let selected = df
+                    .columns()
+                    .into_iter()
+                    .filter_map(|col| {
+                        if selected_columns.contains(&col.name()) {
+                            Some(col.clone())
+                        } else {
+                            None
+                        }
+                    })
+                    .collect::<Vec<_>>();
+
+                let gb = df.groupby_with_keys(selected, false)?;
+                let data = gb.keys_sliced(self.options.sliced);
+                if !self.options.include_non_selected {
+                    data
+                } else {
+                    if let GroupsProxy::Idx(idx) = &gb.proxy {
+                        df.columns()
+                            .into_iter()
+                            .cloned()
+                            .map(|column| column.slice_grouped(idx))
+                            .collect::<Vec<_>>()
+                    } else {
+                        return Err(PolicyCarryingError::ImpossibleOperation(
+                            "cannot perform distinct on slices".into(),
+                        ));
+                    }
+                }
+            }
+            (Keep::Remove, _) => {
+                // remove duplicate!
+                todo!()
+            }
+            _ => unimplemented!("this combination {keep:?} and {maintain_order} not implemented"),
+        };
+
+        Ok(DataFrame::new_with_cols(data))
     }
 }

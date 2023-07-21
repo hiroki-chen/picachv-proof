@@ -15,7 +15,10 @@ use policy_core::{
 use roaring::RoaringTreemap as Bitmap;
 use serde::{Deserialize, Serialize};
 
-use crate::{arithmetic::do_aggregate, group::GroupsProxy};
+use crate::{
+    arithmetic::do_aggregate,
+    group::{GroupsIdx, GroupsProxy},
+};
 
 pub type FieldRef = Arc<Field>;
 pub type FieldDataRef = Arc<dyn FieldData>;
@@ -71,6 +74,9 @@ pub trait FieldData: Aggregate + Debug + Send + Sync {
 
     /// Returns the length of the data.
     fn len(&self) -> usize;
+
+    /// Slices using groups.
+    fn slice_grouped(&self, idx: &GroupsIdx) -> FieldDataRef;
 
     /// Reshapes according to dimension.
     fn reshape(&self, dims: (i64, i64)) -> PolicyCarryingResult<FieldDataRef>;
@@ -387,6 +393,25 @@ where
 
     fn len(&self) -> usize {
         self.inner.len()
+    }
+
+    fn slice_grouped(&self, idx: &GroupsIdx) -> FieldDataRef {
+        let inner = self
+            .inner
+            .iter()
+            .enumerate()
+            .filter(|(index, _)| idx.first().contains(index))
+            .map(|(_, data)| data.clone())
+            .collect::<Vec<_>>();
+
+        let mut bitmap = Bitmap::new();
+        bitmap.insert_range(0..inner.len() as u64);
+
+        Arc::new(FieldDataArray {
+            field: self.field.clone(),
+            inner,
+            bitmap,
+        })
     }
 
     fn data_type(&self) -> DataType {
