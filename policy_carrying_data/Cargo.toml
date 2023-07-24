@@ -5,14 +5,14 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [features]
-default = ["prettyprint", "use-csv"]
-use-csv = ["csv"]
+default = ["prettyprint", "read-fs"]
+read-fs = []
 prettyprint = ["tabled"]
 # Enable the generation of FFI-safe Rust-to-Rust trait objects.
 load_module = []
 
 [dependencies]
-csv = { version = "1.2.2", optional = true }
+csv = { version = "1.2.2" }
 hashbrown = { version = "0.14.0", features = ["serde"] }
 policy_core = { path = "../policy_core" }
 roaring = { version = "0.10.1", features = ["serde"] }

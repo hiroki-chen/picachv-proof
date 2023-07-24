@@ -140,9 +140,8 @@ impl DataFrame {
     }
 
     /// Loads the CSV file into the dataframe with its schema specified by `schema`.
-    pub fn load_csv(path: &str, schema: Option<SchemaRef>) -> PolicyCarryingResult<Self> {
-        let mut reader =
-            Reader::from_path(path).map_err(|e| PolicyCarryingError::FsError(e.to_string()))?;
+    pub fn load_csv(buf: &[u8], schema: Option<SchemaRef>) -> PolicyCarryingResult<Self> {
+        let mut reader = Reader::from_reader(buf);
 
         // If this CSV file has header, we check if this matches (the subset of) the schema.
         let schema = match (reader.headers().cloned(), schema) {
@@ -430,6 +429,7 @@ impl DataFrame {
     }
 }
 
+#[cfg(feature = "read-fs")]
 impl TryFrom<FunctionArguments> for DataFrame {
     type Error = PolicyCarryingError;
 
@@ -441,12 +441,17 @@ impl TryFrom<FunctionArguments> for DataFrame {
             })?
             .unwrap();
 
-        Self::load_csv(&df_path, Some(schema.into()))
+        let buf = std::fs::read_to_string(&df_path)
+            .map_err(|e| PolicyCarryingError::FsError(e.to_string()))?;
+        let buf = buf.as_bytes();
+        Self::load_csv(buf, Some(schema.into()))
     }
 }
 
 #[cfg(test)]
 mod test {
+    use std::fs;
+
     use crate::schema::SchemaBuilder;
 
     use super::*;
@@ -458,7 +463,9 @@ mod test {
             "column_2" => DataType::Float64,
         };
 
-        let pcd = DataFrame::load_csv("../test_data/simple_csv.csv", Some(schema));
+        let buf = fs::read_to_string("../test_dsimple_csvata/nasdaq_data.csv").unwrap();
+        let buf = buf.as_bytes();
+        let pcd = DataFrame::load_csv(buf, Some(schema));
 
         assert!(pcd.is_ok());
 
@@ -475,7 +482,9 @@ mod test {
             "serialid" => DataType::UInt64,
         };
 
-        let pcd = DataFrame::load_csv("../test_data/nasdaq_data.csv", Some(schema));
+        let buf = fs::read_to_string("../test_data/nasdaq_data.csv").unwrap();
+        let buf = buf.as_bytes();
+        let pcd = DataFrame::load_csv(buf, Some(schema));
 
         assert!(pcd.is_ok());
     }

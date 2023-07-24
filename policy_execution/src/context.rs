@@ -271,7 +271,7 @@ impl PcdAnalysisContext {
     /// ctx.initialize("./foo/bar/libexecutor.so").expect("cannot initialize the context!");
     ///
     /// ```
-    #[cfg(any(feature = "modular", feature = "static"))]
+    #[cfg(all(any(feature = "modular", feature = "static"), feature = "read-fs"))]
     pub fn initialize(&mut self, path: &str) -> PolicyCarryingResult<()> {
         let executor_ref_id = policy_ffi::load_executor_lib(path, Default::default())?;
         self.executor_ref_id.replace(executor_ref_id);
@@ -296,7 +296,7 @@ impl PcdAnalysisContext {
     ///
     /// ctx.register_data("./foo/bar.csv", schema).expect("cannot register data!");
     /// ```
-    #[cfg(any(feature = "modular", feature = "static"))]
+    #[cfg(all(any(feature = "modular", feature = "static"), feature = "read-fs"))]
     pub fn register_data_from_path(
         &mut self,
         data_path: &str,
@@ -401,13 +401,18 @@ impl AnalysisContext {
     ///
     /// ctx.register_data_from_path("./foo/bar.csv", schema).expect("cannot register data!");
     /// ```
-    #[cfg(feature = "use-csv")]
+    #[cfg(feature = "read-fs")]
     pub fn register_data_from_path(
         &mut self,
         data_path: &str,
         schema: SchemaRef,
     ) -> PolicyCarryingResult<()> {
-        self.df.replace(DataFrame::from_json(data_path)?.into());
+        let buf = std::fs::read_to_string(data_path)
+            .map_err(|e| PolicyCarryingError::FsError(e.to_string()))?;
+        let buf = buf.as_bytes();
+
+        self.df
+            .replace(DataFrame::load_csv(buf, schema.clone().into())?.into());
         // Insert the schema into the schema map.
         self.schema.replace(schema);
         Ok(())

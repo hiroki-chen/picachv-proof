@@ -8,5 +8,5 @@ edition = "2021"
 [dependencies]
 policy_core = { path = "../../policy_core" }
 policy_carrying_data = { path = "../../policy_carrying_data" }
-policy_execution = { path = "../../policy_execution", features = ["use-csv"] }
+policy_execution = { path = "../../policy_execution" }
 simple_logger = "4.2.0"
