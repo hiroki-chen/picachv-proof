@@ -8,12 +8,12 @@ use std::{
 
 use bitflags::bitflags;
 use hashbrown::{HashMap, HashSet};
-use policy_carrying_data::{field::FieldDataRef, schema::SchemaRef, DataFrame, FunctionArguments};
+use policy_carrying_data::{field::FieldDataRef, schema::SchemaRef, DataFrame};
 use policy_core::{
     error::{PolicyCarryingError, PolicyCarryingResult},
     expr::AExpr,
     get_lock, pcd_ensures,
-    types::{ExecutorRefId, OpaquePtr},
+    types::{ExecutorRefId, FunctionArguments, OpaquePtr, RowMetaRef},
 };
 
 use crate::plan::{physical_expr::PhysicalExpr, ALogicalPlan};
@@ -30,8 +30,8 @@ pub mod scan;
 
 #[cfg(feature = "built-in")]
 pub mod built_in;
-pub mod join;
 pub mod distinct;
+pub mod join;
 
 pub type ExprArena = Arena<AExpr>;
 pub type LogicalPlanArena = Arena<ALogicalPlan>;
@@ -235,13 +235,18 @@ pub fn evaluate_physical_expr_vec(
         .collect::<PolicyCarryingResult<Vec<_>>>()?;
     state.clear_expr();
 
-    expand_projection_literal(selected_columns, df.columns().is_empty())
+    expand_projection_literal(
+        selected_columns,
+        df.metadata().cloned(),
+        df.columns().is_empty(),
+    )
 }
 
 /// Sometimes the projected columns do not represent anything and are just a bunch of literals.
 /// We need to expand literals to fill the shape of the dataframe.
 pub fn expand_projection_literal(
     mut selected_columns: Vec<FieldDataRef>,
+    metadata: Option<Vec<RowMetaRef>>,
     empty: bool,
 ) -> PolicyCarryingResult<DataFrame> {
     // Check if all columns have the same length and there is no duplicate element.
@@ -285,7 +290,7 @@ pub fn expand_projection_literal(
             .collect::<PolicyCarryingResult<Vec<_>>>()?;
     }
 
-    let df = DataFrame::new_with_cols(selected_columns);
+    let df = DataFrame::new_with_cols(selected_columns, metadata);
 
     // If we are projecting on an empty data frame, we just take the common part of
     // the literals and then make it a data frame.

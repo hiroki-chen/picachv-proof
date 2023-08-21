@@ -1,7 +1,9 @@
 //! The join executor
 
-use policy_carrying_data::{FunctionArguments, JoinType};
-use policy_core::error::PolicyCarryingError;
+use policy_core::{
+    error::PolicyCarryingError,
+    types::{FunctionArguments, JoinType},
+};
 use policy_utils::move_box_ptr;
 
 use crate::plan::physical_expr::PhysicalExprRef;

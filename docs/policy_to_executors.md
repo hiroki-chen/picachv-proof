@@ -1,6 +1,6 @@
 # Building Executors from Policy
 
-We want to de-couple the implementation of the data analysis framework and the physical executor set that eventually enforces the policy. Therefore, we move the executors as a seperate pluggable module. By introducing a global manager that keeps track of the active executors, we dispatch the constructed physical plans to thedynamically loadable executors which do the job for us, and the users are completely ignorant of this behavior.
+We want to de-couple the implementation of the data analysis framework and the physical executor set that eventually enforces the policy. This has two major benefits. First, we reduce the codebase that should be verified, making verification simpler and more concise. Second, we reduce the code that will be included in the TCB. Therefore, we move the executors as a seperate pluggable module (if implemented as a dynamic loadable library) or a seperate served TEE container. By introducing a global manager that keeps track of the active executors, we dispatch the constructed physical plans to thedynamically loadable executors which do the job for us, and the users are completely ignorant of this behavior.
 
 The executors that enforce the policy-compliant data access behavior are made as a separate module which the users can manipulate via an opaque pointers created at the first invocation of `create_executor` function. In future design, we will also support the remote process call to invoke necessary executors that may reside inside a TEE that provides stronger security guarantees.
 

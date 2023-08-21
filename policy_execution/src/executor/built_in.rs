@@ -253,6 +253,6 @@ impl PhysicalExecutor for DistinctExec {
             _ => unimplemented!("this combination {keep:?} and {maintain_order} not implemented"),
         };
 
-        Ok(DataFrame::new_with_cols(data))
+        Ok(DataFrame::new_with_cols(data, df.metadata().cloned()))
     }
 }

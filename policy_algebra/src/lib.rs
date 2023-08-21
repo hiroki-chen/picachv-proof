@@ -15,7 +15,12 @@ use std::{
 };
 
 #[cfg(test)]
-mod test {}
+mod test {
+    #[test]
+    fn play() {
+        
+    }
+}
 
 /// Defines an additive identity element for `Self`.
 ///
@@ -91,6 +96,61 @@ pub trait Monoid:
     /// The identity element.
     const ZERO: Self;
 }
+
+/// A semigroup is a quasigroup that is **associative**.
+///
+/// A semigroup is a set equipped with a closed associative binary operation and that has the divisibility property.
+pub trait SemiGroup {}
+
+macro_rules! impl_zero {
+    ($ty:ident, $zero:tt) => {
+        impl Zero for $ty {
+            fn zero() -> Self {
+                $zero
+            }
+
+            fn is_zero(&self) -> bool {
+                self == &$zero
+            }
+        }
+    };
+}
+
+macro_rules! impl_one {
+    ($ty:ident, $one:tt) => {
+        impl One for $ty {
+            fn one() -> Self {
+                $one
+            }
+
+            fn is_one(&self) -> bool {
+                self == &$one
+            }
+        }
+    };
+}
+
+impl_zero!(i8, 0);
+impl_zero!(i16, 0);
+impl_zero!(i32, 0);
+impl_zero!(i64, 0);
+impl_zero!(u8, 0);
+impl_zero!(u16, 0);
+impl_zero!(u32, 0);
+impl_zero!(u64, 0);
+impl_zero!(f32, 0.0);
+impl_zero!(f64, 0.0);
+
+impl_one!(i8, 1);
+impl_one!(i16, 1);
+impl_one!(i32, 1);
+impl_one!(i64, 1);
+impl_one!(u8, 1);
+impl_one!(u16, 1);
+impl_one!(u32, 1);
+impl_one!(u64, 1);
+impl_one!(f32, 1.0);
+impl_one!(f64, 1.0);
 
 pub trait SemiRing:
     'static

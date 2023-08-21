@@ -130,7 +130,6 @@ impl PartitionGroupByExec {
 }
 
 /// The default hash aggregation algorithm.
-/// BUG.
 pub(crate) fn groupby_helper(
     df: DataFrame,
     keys: Vec<FieldDataRef>,
@@ -156,5 +155,7 @@ pub(crate) fn groupby_helper(
     get_lock!(state.expr_cache, lock).clear();
 
     columns.extend_from_slice(aggs.as_slice());
-    Ok(DataFrame::new_with_cols(columns))
+
+    // FIXME: Add metadata to the dataframe.
+    Ok(DataFrame::new_with_cols(columns, None))
 }

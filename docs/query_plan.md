@@ -14,12 +14,11 @@ Thoughts: The optimizations may be implemented using the egg.
 
 # Physical Plans
 
-The logical plan will first be optimized, and then we can generate the physical plans (i.e., the executors, so to speak) that perform the actual data retrieval. In the implementation of policy-carrying data, executors will eventually call the API sets offered by it. Because executors can be chained, we aim to eliminate the type of each executor. In Rust, this can be done using trait object `dyn TraitObject` wrapped in an atomic reference counter `std::sync::Arc<T>` or a box `Box<T>`. In this proof-of-concept framwork, we want to offer the following executors:
+The logical plan will first be optimized, and then we can generate the physical plans (i.e., the executors, so to speak) that perform the actual data retrieval. In the implementation of policy-carrying data, executors will eventually call the API sets offered by it. Because executors can be chained, we aim to eliminate the type of each executor. In Rust, this can be done using trait object `dyn TraitObject` wrapped in an atomic reference counter `std::sync::Arc<T>` or a box `Box<T>`. In this proof-of-concept framwork, we provide with the following the executors:
 
-* Filter.
-* Join: this may require some online computation on policies.
-* Groupby.
-* Projection.
-* Scan.
-* Custom transformation functions (e.g., the zip code must be redacted according to HIPAA). These functions can be abstracted as `fn(array) -> array`.
+* Filter `FilterExec` which filters out the desired rows from the table.
+* Join `JoinExec` which joins two tables given a set of keys.
+* Groupby and aggregation which perform the common aggregate operations like `sum`, `max`, etc.
+* Projection `ProjectionExec` which 'select's the given columns.
+* Custom transformation functions (e.g., the zip code must be redacted according to HIPAA). These functions can be abstracted as `fn(array) -> array` using function traits in Rust. This is still under developement.
 

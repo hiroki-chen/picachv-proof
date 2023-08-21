@@ -4,6 +4,7 @@ use std::{
     ffi::c_void,
     fmt::{Debug, Display, Formatter},
     hash::{Hash, Hasher},
+    sync::Arc,
 };
 
 use num_enum::{FromPrimitive, IntoPrimitive};
@@ -14,6 +15,7 @@ use serde::{Deserialize, Serialize};
 use crate::error::{PolicyCarryingError, PolicyCarryingResult};
 
 pub type OpaquePtr = *mut c_void;
+pub type RowMetaRef = Arc<RowMeta>;
 
 /// A wrapper ID for bookkeeping the executor sets.
 #[derive(
@@ -26,6 +28,17 @@ impl Display for ExecutorRefId {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0)
     }
+}
+
+/// The metadata for the row. By its design, this struct should be invisible to the users and can be used only
+/// in the internal implementations.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+pub struct RowMeta {
+    /// A unique identifier for this row.
+    pub id: u64,
+    /// The algebraic structure this row is embedded with.
+    /// TODO: Design this one.
+    pub embedded_structure: (),
 }
 
 /// The set of datatypes that are supported. Typically, this enum is used to describe the type of a column.

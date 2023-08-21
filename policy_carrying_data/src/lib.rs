@@ -13,6 +13,7 @@ use hashbrown::HashSet;
 use policy_core::{
     error::{PolicyCarryingError, PolicyCarryingResult},
     pcd_ensures,
+    types::*,
 };
 use schema::{Schema, SchemaRef};
 
@@ -27,7 +28,6 @@ mod macros;
 
 pub use comparator::Comparator;
 pub use macros::*;
-pub use policy_core::types::{self, *};
 
 #[cfg(feature = "prettyprint")]
 pub mod pretty;
@@ -86,6 +86,8 @@ pub mod pretty;
 pub struct DataFrame {
     /// The concrete data.
     pub(crate) columns: Vec<FieldDataRef>,
+    /// The metadata of the data.
+    pub(crate) metadata: Option<Vec<RowMetaRef>>,
 }
 
 impl Display for DataFrame {
@@ -121,8 +123,19 @@ impl DataFrame {
     }
 
     #[inline]
+    pub fn metadata(&self) -> Option<&Vec<RowMetaRef>> {
+        self.metadata.as_ref()
+    }
+
+    #[inline]
     pub fn is_empty(&self) -> bool {
         !self.columns.is_empty()
+    }
+
+    /// Inserts an invisible column to the dataframe.
+    #[inline]
+    pub fn finalize_with_meta(&mut self, meta: Vec<RowMetaRef>) {
+        self.metadata.replace(meta);
     }
 
     /// Do projection.
@@ -136,6 +149,9 @@ impl DataFrame {
                 .filter(|column| names.contains(&column.name()))
                 .cloned()
                 .collect(),
+
+            // Projection will not change the metadata.
+            metadata: self.metadata.clone(),
         })
     }
 
@@ -226,11 +242,12 @@ impl DataFrame {
                 .into_iter()
                 .map(|column| Arc::from(column))
                 .collect(),
+            None,
         ))
     }
 
-    pub fn new_with_cols(columns: Vec<FieldDataRef>) -> Self {
-        Self { columns }
+    pub fn new_with_cols(columns: Vec<FieldDataRef>, metadata: Option<Vec<RowMetaRef>>) -> Self {
+        Self { columns, metadata }
     }
 
     pub fn schema(&self) -> SchemaRef {
@@ -241,11 +258,19 @@ impl DataFrame {
     }
 
     pub fn to_json(&self) -> String {
-        self.columns
+        let mut ans = self
+            .columns
             .iter()
             .map(|d| d.to_json())
             .collect::<Vec<_>>()
-            .join(";")
+            .join(";");
+        ans.push(';');
+        ans.push_str(
+            serde_json::to_string(&self.metadata)
+                .unwrap_or_default()
+                .as_str(),
+        );
+        ans
     }
 
     pub fn join(
@@ -305,7 +330,7 @@ impl DataFrame {
         let arr = content.split(";").collect::<Vec<_>>();
         let mut columns = Vec::new();
 
-        for element in arr {
+        for element in &arr[..arr.len() - 1] {
             let value = serde_json::from_str::<serde_json::Value>(element).map_err(|_| {
                 PolicyCarryingError::InvalidInput("cannot recover from json".into())
             })?;
@@ -377,7 +402,13 @@ impl DataFrame {
             columns.push(column);
         }
 
-        Ok(Self { columns })
+        Ok(Self {
+            columns,
+            metadata: match serde_json::from_str(arr.last().unwrap()) {
+                Ok(metadata) => metadata,
+                Err(e) => return Err(PolicyCarryingError::SerializeError(e.to_string())),
+            },
+        })
     }
 
     /// Takes the [..head] range of the data frame.
@@ -385,6 +416,7 @@ impl DataFrame {
     pub fn take_head(&self, head: usize) -> Self {
         Self {
             columns: self.columns.iter().map(|c| c.slice(0..head)).collect(),
+            metadata: self.metadata.clone(),
         }
     }
 
@@ -397,22 +429,43 @@ impl DataFrame {
                 .iter()
                 .map(|c| c.slice(tail..c.len()))
                 .collect(),
+            metadata: self.metadata.clone(),
         }
     }
 
     /// Applies a boolean filter array on this dataframe and returns a new one.
     #[must_use]
     pub fn filter(&self, boolean: &FieldDataArray<bool>) -> PolicyCarryingResult<Self> {
+        pcd_ensures!(self.metadata.is_none() || self.metadata.as_ref().unwrap().len() == self.columns.len(),
+            InvalidInput: "the metadata is not compatible with the dataframe");
+
+        let mut index = Vec::new();
         let data = self
             .columns
             .iter()
-            .map(|v| match v.filter(boolean) {
-                Ok(d) => Ok(d),
+            .enumerate()
+            .map(|(idx, v)| match v.filter(boolean) {
+                Ok(d) => {
+                    index.push(idx);
+                    Ok(d)
+                }
                 Err(e) => Err(e),
             })
             .collect::<PolicyCarryingResult<_>>()?;
 
-        Ok(Self::new_with_cols(data))
+        Ok(Self::new_with_cols(
+            data,
+            match &self.metadata {
+                Some(metadata) => {
+                    let mut new_metadata = Vec::new();
+                    for idx in index {
+                        new_metadata.push(metadata[idx].clone());
+                    }
+                    Some(new_metadata)
+                }
+                None => None,
+            },
+        ))
     }
 
     /// Finds a column name in the schema of this dataframe.
@@ -497,6 +550,7 @@ mod test {
         };
 
         let json = pcd_old.to_json();
+        println!("to json => {json}",);
         let pcd = DataFrame::from_json(&json);
 
         assert!(pcd.is_ok_and(|inner| inner == pcd_old));

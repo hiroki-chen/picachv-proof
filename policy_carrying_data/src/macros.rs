@@ -28,7 +28,7 @@ macro_rules! define_schema {
 #[macro_export]
 macro_rules! pcd {
   ($($col_name:expr => $ty:path: $content:expr), + $(,)?) => {{
-        use $crate::types::*;
+        use policy_core::types::*;
 
         let mut fields = Vec::new();
         let mut field_array = Vec::new();
@@ -41,6 +41,6 @@ macro_rules! pcd {
             fields.push(field);
         )*
 
-      $crate::DataFrame::new_with_cols(field_array)
+      $crate::DataFrame::new_with_cols(field_array, None)
   }};
 }

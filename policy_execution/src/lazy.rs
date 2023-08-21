@@ -2,12 +2,12 @@
 
 use std::fmt::{Debug, Formatter};
 
-use policy_carrying_data::{schema::SchemaRef, DataFrame, JoinType};
+use policy_carrying_data::{schema::SchemaRef, DataFrame};
 use policy_core::{
     col,
     error::PolicyCarryingResult,
     expr::{DistinctOptions, Expr, Keep},
-    types::ExecutorRefId,
+    types::{ExecutorRefId, JoinType},
 };
 
 use crate::{
@@ -205,7 +205,7 @@ impl LazyFrame {
     /// # Examples
     ///
     /// Exclude other columns:
-    /// 
+    ///
     /// ```
     /// # use policy_carrying_data::pcd;
     /// # use policy_execution::{lazy::*, context::*};
@@ -222,15 +222,15 @@ impl LazyFrame {
     /// // remove any of the`2i8`.
     /// println!("df => {df:?}");
     /// ```
-    /// 
+    ///
     /// This is equivalent to the following SQL query:
-    /// 
+    ///
     /// ```sql
     /// SELECT DISTINCT(`foo`) FROM `df`
     /// ```
-    /// 
+    ///
     /// To include other columns, please call `distinct_with(vec!["foo"].into(), Keep::Any, true)`.
-    /// 
+    ///
     /// ```sql
     /// SELECT DISTINCT(`foo`), * FROM `df`
     /// ```

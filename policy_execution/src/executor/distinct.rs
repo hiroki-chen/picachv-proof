@@ -1,7 +1,6 @@
 use std::fmt::{Debug, Formatter};
 
-use policy_carrying_data::FunctionArguments;
-use policy_core::{error::PolicyCarryingError, expr::DistinctOptions};
+use policy_core::{error::PolicyCarryingError, expr::DistinctOptions, types::FunctionArguments};
 use policy_utils::move_box_ptr;
 
 use super::Executor;

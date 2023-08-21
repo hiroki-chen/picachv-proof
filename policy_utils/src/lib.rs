@@ -15,6 +15,7 @@ pub fn move_arc_ptr<T: ?Sized>(box_ptr: *mut Arc<T>) -> Arc<T> {
     unsafe { *Box::from_raw(box_ptr) }
 }
 
+/// Deserializes the arguments from the raw bytes.
 pub fn args_from_raw(args: *const u8, args_len: usize) -> PolicyCarryingResult<FunctionArguments> {
     // Deserialize the arguments.
     let args = unsafe {
@@ -23,4 +24,9 @@ pub fn args_from_raw(args: *const u8, args_len: usize) -> PolicyCarryingResult<F
     };
     serde_json::from_str::<FunctionArguments>(args)
         .map_err(|e| PolicyCarryingError::SerializeError(e.to_string()))
+}
+
+/// Generates a random `u64` number.
+pub fn random_u64() -> u64 {
+    rand::random::<u64>()
 }
