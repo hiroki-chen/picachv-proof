@@ -13,8 +13,9 @@ use policy_core::{
     error::{PolicyCarryingError, PolicyCarryingResult},
     expr::AExpr,
     get_lock, pcd_ensures,
-    types::{ExecutorRefId, FunctionArguments, OpaquePtr, RowMetaRef},
+    types::{ExecutorRefId, ExecutorType, FunctionArguments, OpaquePtr, RowMetaRef},
 };
+use serde::{Deserialize, Serialize};
 
 use crate::plan::{physical_expr::PhysicalExpr, ALogicalPlan};
 
@@ -93,6 +94,9 @@ pub trait PhysicalExecutor: Debug {
     fn execute(&mut self, state: &ExecutionState) -> PolicyCarryingResult<DataFrame>;
     fn as_any(&self) -> &dyn Any;
     fn clone_box(&self) -> Executor;
+    fn ty(&self) -> ExecutorType {
+        ExecutorType::Invalid
+    }
 }
 
 #[derive(Debug, Clone)]

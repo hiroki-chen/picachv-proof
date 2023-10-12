@@ -1,4 +1,10 @@
 //! The privacy module for managing and controlling the privacy schemes.
+//! 
+//! # TODOs
+//! - [ ] Add data generalization techniques.
+//! - [ ] Add data suppression techniques (removal of some atribute values, often called
+//!       redaction).
+//! - [ ] Add data perturbation techniques.
 
 #![forbid(unsafe_code)]
 #![allow(unused)]

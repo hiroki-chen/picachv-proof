@@ -11,6 +11,7 @@ use policy_core::{
     error::{PolicyCarryingError, PolicyCarryingResult},
     expr::Keep,
     pcd_ensures,
+    types::ExecutorType,
 };
 
 use crate::{executor::evaluate_physical_expr_vec, trace};
@@ -75,6 +76,10 @@ impl PhysicalExecutor for DataFrameExec {
     fn clone_box(&self) -> super::Executor {
         Box::new(self.clone())
     }
+
+    fn ty(&self) -> ExecutorType {
+        ExecutorType::DataframeScan
+    }
 }
 
 impl Debug for FilterExec {
@@ -101,6 +106,10 @@ impl PhysicalExecutor for FilterExec {
 
         df.filter(&boolean_array)
     }
+
+    fn ty(&self) -> ExecutorType {
+        ExecutorType::Filter
+    }
 }
 
 impl Debug for ProjectionExec {
@@ -124,6 +133,10 @@ impl PhysicalExecutor for ProjectionExec {
         let df = self.input.execute(state)?;
         evaluate_physical_expr_vec(&df, self.expr.as_ref(), state)
     }
+
+    fn ty(&self) -> ExecutorType {
+        ExecutorType::Projection
+    }
 }
 
 impl Debug for PartitionGroupByExec {
@@ -146,6 +159,10 @@ impl PhysicalExecutor for PartitionGroupByExec {
 
         let original_df = self.input.execute(state)?;
         self.execute_impl(state, original_df)
+    }
+
+    fn ty(&self) -> ExecutorType {
+        ExecutorType::PartitionGroupBy
     }
 }
 
@@ -183,6 +200,10 @@ impl PhysicalExecutor for JoinExec {
         println!("left_on => {left_on:?}, right_on => {right_on:?}");
 
         lhs.join(&rhs, left_on, right_on, self.join_type)
+    }
+
+    fn ty(&self) -> ExecutorType {
+        ExecutorType::Join
     }
 }
 
@@ -254,5 +275,9 @@ impl PhysicalExecutor for DistinctExec {
         };
 
         Ok(DataFrame::new_with_cols(data, df.metadata().cloned()))
+    }
+
+    fn ty(&self) -> ExecutorType {
+        ExecutorType::Distinct
     }
 }

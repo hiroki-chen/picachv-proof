@@ -10,3 +10,12 @@ build
 test
 log
 lib
+
+# Coq auxiliary files.
+*.vo
+*.vok
+*.vos
+*,glob
+*.d
+*.conf
+*.aux
