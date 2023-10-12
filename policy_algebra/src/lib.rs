@@ -14,14 +14,6 @@ use std::{
     ops::{Add, Mul},
 };
 
-#[cfg(test)]
-mod test {
-    #[test]
-    fn play() {
-        
-    }
-}
-
 /// Defines an additive identity element for `Self`.
 ///
 /// # Laws

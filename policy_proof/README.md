@@ -1,3 +1,3 @@
 # Core Proofs for the Policy-Carrying Data Implementation and Policy-Compliance
 
-To be continued... This proof would require the use of Coq/Lean/Agda ?...
+We utilize Coq to formalize the relational algebra and core implementation of our data analysis framework to perform the verification.

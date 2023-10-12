@@ -15,7 +15,6 @@ use policy_core::{
     get_lock, pcd_ensures,
     types::{ExecutorRefId, ExecutorType, FunctionArguments, OpaquePtr, RowMetaRef},
 };
-use serde::{Deserialize, Serialize};
 
 use crate::plan::{physical_expr::PhysicalExpr, ALogicalPlan};
 
