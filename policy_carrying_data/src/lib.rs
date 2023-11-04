@@ -18,6 +18,7 @@ use policy_core::{
 use schema::{Schema, SchemaRef};
 
 pub mod arithmetic;
+pub mod cell;
 pub mod field;
 pub mod row;
 pub mod schema;

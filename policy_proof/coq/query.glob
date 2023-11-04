@@ -1,0 +1,27 @@
+DIGEST 9254ad521187fb5e503db83f18aa46e2
+FPolicyCarryingData.query
+R15:32 Coq.Strings.String <> <> lib
+R50:54 PolicyCarryingData.types <> <> lib
+ind 68:72 <> Query
+constr 104:111 <> QueryRel
+constr 149:158 <> QueryUnion
+constr 213:221 <> QueryJoin
+constr 285:296 <> QueryGroupBy
+R121:124 Coq.Init.Logic <> ::type_scope:x_'->'_x not
+R115:120 Coq.Strings.String <> string ind
+R125:129 PolicyCarryingData.query <> Query:1 ind
+R167:170 Coq.Init.Logic <> ::type_scope:x_'->'_x not
+R162:166 PolicyCarryingData.query <> Query:1 ind
+R176:179 Coq.Init.Logic <> ::type_scope:x_'->'_x not
+R171:175 PolicyCarryingData.query <> Query:1 ind
+R180:184 PolicyCarryingData.query <> Query:1 ind
+R230:233 Coq.Init.Logic <> ::type_scope:x_'->'_x not
+R225:229 PolicyCarryingData.query <> Query:1 ind
+R239:242 Coq.Init.Logic <> ::type_scope:x_'->'_x not
+R234:238 PolicyCarryingData.query <> Query:1 ind
+R243:247 PolicyCarryingData.query <> Query:1 ind
+R305:308 Coq.Init.Logic <> ::type_scope:x_'->'_x not
+R300:304 PolicyCarryingData.query <> Query:1 ind
+R314:317 Coq.Init.Logic <> ::type_scope:x_'->'_x not
+R309:313 PolicyCarryingData.query <> Query:1 ind
+R318:322 PolicyCarryingData.query <> Query:1 ind

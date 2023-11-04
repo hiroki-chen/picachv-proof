@@ -1,0 +1,67 @@
+DIGEST 7a6ea911d3ff8ded9e2057799d75811a
+FPolicyCarryingData.types
+R15:53 MathClasses.interfaces.abstract_algebra <> <> lib
+R71:88 Coq.Strings.String <> <> lib
+R106:119 Coq.Lists.List <> <> lib
+ind 150:154 <> dtype
+constr 226:228 <> Nat
+constr 241:244 <> Bool
+constr 257:259 <> Str
+constr 272:277 <> Option
+R231:235 PolicyCarryingData.types <> dtype:1 ind
+R247:251 PolicyCarryingData.types <> dtype:1 ind
+R262:266 PolicyCarryingData.types <> dtype:1 ind
+R285:288 Coq.Init.Logic <> ::type_scope:x_'->'_x not
+R280:284 PolicyCarryingData.types <> dtype:1 ind
+R289:293 PolicyCarryingData.types <> dtype:1 ind
+ind 351:361 <> PolicyLevel
+constr 375:378 <> Deny
+constr 397:415 <> AllowWithConstraint
+constr 449:453 <> Allow
+R381:391 PolicyCarryingData.types <> PolicyLevel:3 ind
+R429:432 Coq.Init.Logic <> ::type_scope:x_'->'_x not
+R418:428 PolicyCarryingData.types <> PolicyLevel:3 ind
+R433:443 PolicyCarryingData.types <> PolicyLevel:3 ind
+R456:466 PolicyCarryingData.types <> PolicyLevel:3 ind
+ind 532:545 <> PolicySemiring
+def 604:609 <> Schema
+R619:622 Coq.Init.Datatypes <> list ind
+R624:628 PolicyCarryingData.types <> dtype ind
+def 642:656 <> AnnotatedSchema
+R671:673 Coq.Init.Datatypes <> ::type_scope:x_'*'_x not
+R666:670 PolicyCarryingData.types <> dtype ind
+R674:687 PolicyCarryingData.types <> PolicySemiring ind
+def 761:777 <> dtype_to_coq_type
+R783:787 PolicyCarryingData.types <> dtype ind
+binder 780:780 <> t:7
+R807:807 PolicyCarryingData.types <> t:7 var
+R818:820 PolicyCarryingData.types <> Nat constr
+R825:827 Coq.Init.Datatypes <> nat ind
+R833:836 PolicyCarryingData.types <> Bool constr
+R841:844 Coq.Init.Datatypes <> bool ind
+R850:852 PolicyCarryingData.types <> Str constr
+R857:862 Coq.Strings.String <> string ind
+R868:873 PolicyCarryingData.types <> Option constr
+R881:886 Coq.Init.Datatypes <> option ind
+R889:905 PolicyCarryingData.types <> dtype_to_coq_type:8 def
+def 1050:1054 <> Tuple
+R1060:1065 PolicyCarryingData.types <> Schema def
+binder 1057:1057 <> s:10
+R1085:1085 PolicyCarryingData.types <> s:10 var
+R1157:1159 Coq.Init.Datatypes <> nil constr
+R1164:1167 Coq.Init.Datatypes <> unit ind
+R1174:1177 Coq.Init.Datatypes <> ::list_scope:x_'::'_x not
+R1202:1204 Coq.Init.Datatypes <> ::type_scope:x_'*'_x not
+R1183:1199 PolicyCarryingData.types <> dtype_to_coq_type def
+R1205:1209 PolicyCarryingData.types <> Tuple:11 def
+def 1232:1244 <> sample_schema
+R1248:1253 PolicyCarryingData.types <> Schema def
+R1261:1264 Coq.Init.Datatypes <> ::list_scope:x_'::'_x not
+R1258:1260 PolicyCarryingData.types <> Nat constr
+R1269:1272 Coq.Init.Datatypes <> ::list_scope:x_'::'_x not
+R1265:1268 PolicyCarryingData.types <> Bool constr
+R1276:1279 Coq.Init.Datatypes <> ::list_scope:x_'::'_x not
+R1273:1275 PolicyCarryingData.types <> Nat constr
+R1280:1282 Coq.Init.Datatypes <> nil constr
+R1292:1296 PolicyCarryingData.types <> Tuple def
+R1298:1310 PolicyCarryingData.types <> sample_schema def

@@ -14,13 +14,13 @@ pub type KParam = f64;
 pub type Schema = Vec<(String, DataType)>;
 
 /// Denotes the level of the policy that enables direct partial ordering on it.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum PolicyLevel {
-    /// Indicates a top-level policy.
     Top,
-    /// Indicates all policies other than top- or bottom-level policy.
-    Mid,
-    /// Indicates a bottom-level policy.
+    Select,
+    Project,
+    Agg,
+    Noise,
     Bottom,
 }
 
