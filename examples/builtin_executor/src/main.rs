@@ -10,25 +10,17 @@ use policy_execution::{context::AnalysisContext, lazy::IntoLazy};
 fn main() -> Result<(), Box<dyn Error>> {
     simple_logger::SimpleLogger::new().env().init().unwrap();
 
-    let mut lhs: AnalysisContext = AnalysisContext::new();
-    let df = pcd! {
-        "foo" => DataType::Int64: [1i64,2,3,4,3,2,1,2,3,4],
-        "bar" => DataType::Float64: [1.0, 8.3, 2.3, 3.3, 4.3, 2.3, 4.3, 8.5, 233.0, 22.1],
-    };
-    print!("[+] Registering the data for lhs...");
-    lhs.register_data(df.into())?;
-    println!("\tok");
-
-    let mut rhs: AnalysisContext = AnalysisContext::new();
+    let mut ctx: AnalysisContext = AnalysisContext::new();
     let df = pcd! {
         "bar" => DataType::Float64: [1.0, 2.3, 2.3, 2.3, 4.3, 2.3, 4.3, 8.5, 233.0, 22.1],
         "foo" => DataType::Int64: [1i64,2,3,4,3,2,1,2,3,4],
+        "baz" => DataType::Utf8Str: ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j"].into_iter().map(|s| s.to_string()).collect::<Vec<_>>(),
     };
     print!("[+] Registering the data for rhs...");
-    rhs.register_data(df.into())?;
+    ctx.register_data(df.into())?;
     println!("\tok");
 
-    let df = lhs
+    let df = ctx
         .lazy()
         .select(cols!("foo", "bar"))
         .filter(col!("foo").ge(4i64).and(col!("bar").lt(10000.0f64)))
@@ -46,7 +38,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     println!("[+] Testing distinct...");
 
-    let df = rhs
+    let df = ctx
         .lazy()
         .distinct_with(vec!["foo".into()], Keep::Any, true)
         .collect()?;

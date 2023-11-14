@@ -11,4 +11,3 @@ Inductive Query: Type :=
   (* GroupBy and Aggregation *)
   | QueryGroupBy : Query -> Query -> Query
   (* Selection *).
-  

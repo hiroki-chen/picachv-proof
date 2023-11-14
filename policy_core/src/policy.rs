@@ -18,7 +18,7 @@ pub type Schema = Vec<(String, DataType)>;
 pub enum PolicyLevel {
     Top,
     Select,
-    Project,
+    Transform,
     Agg,
     Noise,
     Bottom,

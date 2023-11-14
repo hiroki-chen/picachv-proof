@@ -36,9 +36,6 @@ impl Display for ExecutorRefId {
 pub struct RowMeta {
     /// A unique identifier for this row.
     pub id: u64,
-    /// The algebraic structure this row is embedded with.
-    /// TODO: Design this one.
-    pub embedded_structure: (),
 }
 
 /// The set of datatypes that are supported. Typically, this enum is used to describe the type of a column.
@@ -241,6 +238,12 @@ pub trait TypeCoerce {
     fn try_coerce(&self, to: DataType) -> PolicyCarryingResult<Box<dyn PrimitiveDataType>> {
         unimplemented!("cannot coerce to {to:?}")
     }
+
+    fn get_compatible_type(&self, _other: &Box<dyn TypeCoerce>) -> PolicyCarryingResult<DataType> {
+        Err(PolicyCarryingError::OperationNotSupported(
+            "incompatible types cannot be coerced".into(),
+        ))
+    }
 }
 
 /// This trait is a workaround for getting the concrete type of a primitive type that we store
@@ -390,6 +393,49 @@ macro_rules! impl_type {
     };
 }
 
+impl<'a> TypeCoerce for &'a str {
+    fn try_coerce(&self, to: DataType) -> PolicyCarryingResult<Box<dyn PrimitiveDataType>> {
+        match to {
+            DataType::Utf8Str => Ok(Box::new(self.to_string())),
+            DataType::Float32 => Ok(Box::new(self.parse::<f32>().map_err(|_| {
+                PolicyCarryingError::TypeMismatch(format!("cannot cast {self} to {to:?}"))
+            })?)),
+            DataType::Float64 => Ok(Box::new(self.parse::<f64>().map_err(|_| {
+                PolicyCarryingError::TypeMismatch(format!("cannot cast {self} to {to:?}"))
+            })?)),
+            DataType::Int8 => Ok(Box::new(self.parse::<i8>().map_err(|_| {
+                PolicyCarryingError::TypeMismatch(format!("cannot cast {self} to {to:?}"))
+            })?)),
+            DataType::Int16 => Ok(Box::new(self.parse::<i16>().map_err(|_| {
+                PolicyCarryingError::TypeMismatch(format!("cannot cast {self} to {to:?}"))
+            })?)),
+            DataType::Int32 => Ok(Box::new(self.parse::<i32>().map_err(|_| {
+                PolicyCarryingError::TypeMismatch(format!("cannot cast {self} to {to:?}"))
+            })?)),
+            DataType::Int64 => Ok(Box::new(self.parse::<i64>().map_err(|_| {
+                PolicyCarryingError::TypeMismatch(format!("cannot cast {self} to {to:?}"))
+            })?)),
+            DataType::UInt8 => Ok(Box::new(self.parse::<u8>().map_err(|_| {
+                PolicyCarryingError::TypeMismatch(format!("cannot cast {self} to {to:?}"))
+            })?)),
+            DataType::UInt16 => Ok(Box::new(self.parse::<u16>().map_err(|_| {
+                PolicyCarryingError::TypeMismatch(format!("cannot cast {self} to {to:?}"))
+            })?)),
+            DataType::UInt32 => Ok(Box::new(self.parse::<u32>().map_err(|_| {
+                PolicyCarryingError::TypeMismatch(format!("cannot cast {self} to {to:?}"))
+            })?)),
+            DataType::UInt64 => Ok(Box::new(self.parse::<u64>().map_err(|_| {
+                PolicyCarryingError::TypeMismatch(format!("cannot cast {self} to {to:?}"))
+            })?)),
+            // Ignored.
+            ty => Err(PolicyCarryingError::OperationNotSupported(format!(
+                "cannot cast {:?} to {:?}",
+                ty, to,
+            ))),
+        }
+    }
+}
+
 macro_rules! impl_numeric {
     ($name:ty) => {
         impl TypeCoerce for $name {
@@ -463,8 +509,35 @@ impl_numeric!(u64);
 impl_numeric!(f32);
 impl_numeric!(f64);
 
-impl TypeCoerce for bool {}
-impl TypeCoerce for String {}
+impl TypeCoerce for bool {
+    fn try_coerce(&self, to: DataType) -> PolicyCarryingResult<Box<dyn PrimitiveDataType>> {
+        match to {
+            DataType::Boolean => Ok(Box::new(*self)),
+            DataType::Int8 => Ok(Box::new(*self as i8)),
+            DataType::Int16 => Ok(Box::new(*self as i16)),
+            DataType::Int32 => Ok(Box::new(*self as i32)),
+            DataType::Int64 => Ok(Box::new(*self as i64)),
+            DataType::UInt8 => Ok(Box::new(*self as u8)),
+            DataType::UInt16 => Ok(Box::new(*self as u16)),
+            DataType::UInt32 => Ok(Box::new(*self as u32)),
+            DataType::UInt64 => Ok(Box::new(*self as u64)),
+            DataType::Float32 => Ok(Box::new(*self as i32 as f32)),
+            DataType::Float64 => Ok(Box::new(*self as i32 as f64)),
+            DataType::Utf8Str => Ok(Box::new(self.to_string())),
+            // Ignored.
+            ty => Err(PolicyCarryingError::OperationNotSupported(format!(
+                "cannot cast {:?} to {:?}",
+                self.data_type(),
+                ty
+            ))),
+        }
+    }
+}
+impl TypeCoerce for String {
+    fn try_coerce(&self, to: DataType) -> PolicyCarryingResult<Box<dyn PrimitiveDataType>> {
+        self.as_str().try_coerce(to)
+    }
+}
 
 impl Arithmetic for bool {
     fn zero() -> Self {
@@ -506,6 +579,37 @@ mod test {
         assert_eq!(
             r#"{"primitive_data":"String","value":"0"}"#,
             &serialized_str
+        );
+    }
+
+    #[test]
+    fn can_coerce() {
+        let str_data: Box<dyn PrimitiveDataType> = Box::new("0".to_string());
+        let bool_data: Box<dyn PrimitiveDataType> = Box::new(false);
+        let int8_data: Box<dyn PrimitiveDataType> = Box::new(0i8);
+        let int16_data: Box<dyn PrimitiveDataType> = Box::new(0i16);
+        let int32_data: Box<dyn PrimitiveDataType> = Box::new(0i32);
+        let int64_data: Box<dyn PrimitiveDataType> = Box::new(0i64);
+
+        assert_eq!(
+            *str_data.try_coerce(DataType::Int8).unwrap(),
+            *int8_data.try_coerce(DataType::Int8).unwrap()
+        );
+        assert_eq!(
+            *str_data.try_coerce(DataType::Int16).unwrap(),
+            *int16_data.try_coerce(DataType::Int16).unwrap()
+        );
+        assert_eq!(
+            *str_data.try_coerce(DataType::Int32).unwrap(),
+            *int32_data.try_coerce(DataType::Int32).unwrap()
+        );
+        assert_eq!(
+            *str_data.try_coerce(DataType::Int64).unwrap(),
+            *int64_data.try_coerce(DataType::Int64).unwrap()
+        );
+        assert_eq!(
+            *bool_data.try_coerce(DataType::Int8).unwrap(),
+            *int8_data.try_coerce(DataType::Int8).unwrap()
         );
     }
 }
