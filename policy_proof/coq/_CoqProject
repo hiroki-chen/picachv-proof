@@ -2,3 +2,4 @@
 types.v
 query.v
 lattice.v
+policy.v

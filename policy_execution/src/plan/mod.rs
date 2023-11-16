@@ -16,7 +16,7 @@ use policy_core::{
     error::{PolicyCarryingError, PolicyCarryingResult},
     expr::{AAggExpr, AExpr, Aggregation, DistinctOptions, Expr, Node},
     pcd_ensures,
-    policy::Policy,
+    // policy::Policy,
     types::{ExecutorRefId, ExecutorType, JoinType},
 };
 use serde::{Deserialize, Serialize};
@@ -78,7 +78,6 @@ pub enum LogicalPlan {
     Select {
         input: Box<LogicalPlan>,
         predicate: Expr,
-        policy: Option<Box<dyn Policy>>,
     },
 
     /// The distinct expression.
@@ -94,7 +93,6 @@ pub enum LogicalPlan {
         /// Column 'names' as we may apply some transformation on columns.
         expression: Vec<Expr>,
         schema: SchemaRef,
-        policy: Option<Box<dyn Policy>>,
     },
 
     /// Aggregate and group by
@@ -106,7 +104,6 @@ pub enum LogicalPlan {
         aggs: Vec<Expr>,
         apply: Option<Arc<dyn UserDefinedFunction>>,
         maintain_order: bool,
-        policy: Option<Box<dyn Policy>>,
     },
 
     /// Join operation
@@ -327,14 +324,6 @@ impl LogicalPlan {
     pub fn into_builder(self) -> PlanBuilder {
         PlanBuilder::from(self)
     }
-
-    /// Gets the inner policy.
-    pub fn peek_policy(&self) -> Option<&Box<dyn Policy>> {
-        match self {
-            Self::Projection { policy, .. } => policy.as_ref(),
-            _ => None,
-        }
-    }
 }
 
 impl ALogicalPlan {
@@ -456,7 +445,6 @@ impl PlanBuilder {
             aggs,
             apply: None,
             maintain_order,
-            policy: None,
         }
         .into()
     }
@@ -519,7 +507,6 @@ impl PlanBuilder {
             input: Box::new(self.plan),
             expression: expr,
             schema,
-            policy: None,
         }
         .into()
     }
@@ -568,7 +555,6 @@ impl PlanBuilder {
             plan: LogicalPlan::Select {
                 input: Box::new(self.plan),
                 predicate,
-                policy: None, // FIXME.
             },
         }
     }

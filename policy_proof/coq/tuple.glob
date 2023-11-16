@@ -1,0 +1,28 @@
+DIGEST 550f878e738e141c14b55eaf9ac20800
+FPolicyCarryingData.tuple
+R62:66 PolicyCarryingData.types <> <> lib
+R84:89 PolicyCarryingData.policy <> <> lib
+R107:125 Coq.Numbers.BinNums <> <> lib
+mod 136:139 <> Cell
+def 154:163 Cell clean_cell
+R168:172 PolicyCarryingData.types <> Value ind
+def 193:196 Cell cell
+R207:209 Coq.Init.Datatypes <> ::type_scope:x_'*'_x not
+R202:206 PolicyCarryingData.types <> Value ind
+R210:222 PolicyCarryingData.policy Policy Policy indrec
+R238:241 PolicyCarryingData.tuple Cell <> mod
+mod 252:256 <> Tuple
+ind 270:274 Tuple tuple
+constr 289:297 Tuple tuple_nil
+constr 311:320 Tuple tuple_cons
+R300:304 PolicyCarryingData.tuple <> tuple:1 ind
+R332:335 Coq.Init.Logic <> ::type_scope:x_'->'_x not
+R323:331 PolicyCarryingData.tuple Cell cell def
+R341:344 Coq.Init.Logic <> ::type_scope:x_'->'_x not
+R336:340 PolicyCarryingData.tuple <> tuple:1 ind
+R345:349 PolicyCarryingData.tuple <> tuple:1 ind
+scheme 270:274 Tuple tuple_rect
+scheme 270:274 Tuple tuple_ind
+scheme 270:274 Tuple tuple_rec
+scheme 270:274 Tuple tuple_sind
+R358:362 PolicyCarryingData.tuple Tuple <> mod

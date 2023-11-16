@@ -1,4 +1,4 @@
-DIGEST 9254ad521187fb5e503db83f18aa46e2
+DIGEST 4e354b877a8f8b06cfcba33307066993
 FPolicyCarryingData.query
 R15:32 Coq.Strings.String <> <> lib
 R50:54 PolicyCarryingData.types <> <> lib
@@ -25,3 +25,7 @@ R300:304 PolicyCarryingData.query <> Query:1 ind
 R314:317 Coq.Init.Logic <> ::type_scope:x_'->'_x not
 R309:313 PolicyCarryingData.query <> Query:1 ind
 R318:322 PolicyCarryingData.query <> Query:1 ind
+scheme 68:72 <> Query_rect
+scheme 68:72 <> Query_ind
+scheme 68:72 <> Query_rec
+scheme 68:72 <> Query_sind

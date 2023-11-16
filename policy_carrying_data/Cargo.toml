@@ -15,6 +15,7 @@ load_module = []
 csv = { version = "1.2.2" }
 hashbrown = { version = "0.14.0", features = ["serde"] }
 policy_core = { path = "../policy_core" }
+policy_utils = { path = "../policy_utils" }
 roaring = { version = "0.10.1", features = ["serde"] }
 serde = { version = "1.0.164", features = ["derive", "rc"] }
 serde_json = "1.0.99"

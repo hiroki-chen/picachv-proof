@@ -1,5 +1,5 @@
 Require Import Coq.Strings.String.
-Require Import PolicyCarryingData.types.
+Require Import types.
 
 Inductive Query: Type :=
   (* Relation *)

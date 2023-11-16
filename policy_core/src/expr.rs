@@ -43,7 +43,7 @@ impl Display for Aggregation {
     }
 }
 
-#[derive(Copy, Clone, Debug, Serialize, Deserialize)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum GroupByMethod {
     Min,
     Max,

@@ -1,0 +1,13 @@
+DIGEST 8a81cbcd98972af3779b60c5a0ab9836
+FPolicyCarryingData.policy
+ind 86:91 <> policy
+constr 106:117 <> policy_empty
+constr 132:144 <> policy_select
+constr 158:167 <> policy_top
+R121:126 PolicyCarryingData.policy <> policy:1 ind
+R147:152 PolicyCarryingData.policy <> policy:1 ind
+R171:176 PolicyCarryingData.policy <> policy:1 ind
+scheme 86:91 <> policy_rect
+scheme 86:91 <> policy_ind
+scheme 86:91 <> policy_rec
+scheme 86:91 <> policy_sind

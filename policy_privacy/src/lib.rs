@@ -47,7 +47,7 @@ impl PrivacyMananger {
         let dp_manager = get_lock!(self.dp_manager, read);
 
         match dp_manager.as_ref() {
-            Some(manager) => Ok(manager.dp_budget().0),
+            Some(manager) => Ok(manager.dp_budget().epsilon()),
             None => Err(PolicyCarryingError::OperationNotSupported(
                 "differential privacy not enabled".into(),
             )),

@@ -185,7 +185,7 @@ impl DpManager {
         T: PrimitiveData + PartialOrd + Debug + Default + Send + Sync + Clone + 'static,
         F: Fn() -> T,
     {
-        let epsilon = self.dp_budget.0;
+        let epsilon = self.dp_budget.epsilon();
 
         // Some key problems:
         //     1. How to determine the global sensitivity s?
