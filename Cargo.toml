@@ -1,0 +1,15 @@
+[workspace]
+resolver = "2"
+members = [
+  "examples/builtin_executor",
+  "policy_algebra",
+  "policy_carrying_data",
+  "policy_core",
+  "policy_execution",
+  "policy_ffi",
+  "policy_function",
+  "policy_generator",
+  "policy_privacy",
+  "policy_proc_macro",
+  "policy_utils",
+]
