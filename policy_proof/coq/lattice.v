@@ -41,7 +41,7 @@ Notation "x '=/=' y" := (complement eq x y) (at level 70, no associativity).
 Notation "⊤" := top.
 Notation "⊥" := bot.
 
-Definition flowsto {A : Set} `{lattice A} (a b : A) := a ⊔ b === b.
+Definition flowsto {A : Set} `{lattice A} (a b : A): Prop := a ⊔ b === b.
 Notation "X '⊑' Y" := (flowsto X Y) (at level 70, no associativity).
 
 Arguments flowsto _ _ : simpl nomatch.
@@ -49,3 +49,63 @@ Arguments join _ _ : simpl nomatch.
 Arguments meet _ _ : simpl nomatch.
 
 Hint Resolve meet_symmetry join_symmetry join_assoc meet_assoc meet_absorp join_absorp join_top join_bot meet_top meet_bot eq_equiv.
+
+
+Section LatticeProperties.
+  Context {A : Set} `{lattice A}.
+
+  Global Add Parametric Relation : A eq
+      reflexivity proved by (@Equivalence_Reflexive A eq eq_equiv)
+      symmetry proved by (@Equivalence_Symmetric A eq eq_equiv)
+      transitivity proved by (@Equivalence_Transitive A eq eq_equiv)
+        as eq_rel.
+  Hint Resolve eq_rel : typeclass_instances.
+
+  Class Morphism2 (f : A -> A -> A) :=
+    {
+      compat2: forall (x1 y1 x2 y2 : A), x1 === x2 -> y1 === y2 -> f x1 y1 === f x2 y2
+    }.
+  
+  Class MorphismR (f : A -> A -> Prop) :=
+    {
+      compatR: forall (x1 y1 x2 y2 : A), x1 === x2 -> y1 === y2 -> f x1 y1 <-> f x2 y2
+    }.
+
+
+Global Instance eq_rewrite2_Proper (f : A -> A -> A) `{Morphism2 f}:
+  Proper (eq ==> eq ==> eq) f.
+Proof.
+  intros x1 y1 H_eq1 x2 y2 H_eq2.
+  eapply compat2; eassumption.
+Qed.
+Hint Resolve eq_rewrite2_Proper : typeclass_instances.
+
+Global Instance eq_rewrite3_Proper (f : A -> A -> Prop) `{MorphismR f}:
+  Proper (eq ==> eq ==> flip impl) f.
+Proof.
+  intros x1 y1 H_eq1 x2 y2 H_eq2.
+  unfold flip.
+  intro.
+  eapply compatR; eassumption.
+Qed.
+Hint Resolve eq_rewrite3_Proper : typeclass_instances.
+
+
+Global Instance join_inst: Morphism2 join := { compat2 := join_compat }.
+Global Instance meet_inst: Morphism2 meet := { compat2 := meet_compat }.
+Hint Resolve join_inst : typeclass_instances.
+Hint Resolve meet_inst : typeclass_instances.
+
+Lemma join_idem: forall a, a ⊔ a === a.
+Proof.
+  intros. rewrite <- (meet_absorp a a) at 2. auto.
+Qed.
+Hint Resolve join_idem.
+
+Lemma meet_idem: forall a, a ⊓ a === a.
+Proof.
+  intros. rewrite <- (join_absorp a a) at 2. auto.
+Qed.
+Hint Resolve meet_idem.
+
+End LatticeProperties.

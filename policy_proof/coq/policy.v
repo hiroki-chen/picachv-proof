@@ -8,6 +8,7 @@ Require Import Lia.
 (* TODO: Wrap more information? *)
 Inductive policy : Set :=
   | policy_bot : policy
+  (* Should be something like `pred -> policy` *)
   | policy_select: policy
   | policy_transform: policy
   | policy_agg: policy
@@ -122,4 +123,10 @@ Proof.
   - intros. simpl. induction a; reflexivity.
   - intros. simpl. reflexivity.
   - intros. simpl in *.
-Abort.
+    destruct x1; destruct x2; destruct y1; destruct y2; simpl; apply policy_eq_eqv; try inversion H0; try inversion H.
+  - intros. simpl in *.
+    destruct x1; destruct x2; destruct y1; destruct y2; simpl; apply policy_eq_eqv; try inversion H0; try inversion H.
+  - intros. simpl in *. destruct x; destruct y; destruct z; simpl; apply policy_eq_eqv; try inversion H0; try inversion H.
+  - intros. simpl in *. destruct x; destruct y; destruct z; simpl; apply policy_eq_eqv; try inversion H0; try inversion H.  
+Qed.
+Hint Resolve policy_lattice : typeclass_instances.

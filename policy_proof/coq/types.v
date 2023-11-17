@@ -1,6 +1,9 @@
 Require Import Coq.Strings.String.
 Require Import Coq.Lists.List.
 Require Import policy.
+Require Import SetoidDec.
+Require Import SetoidClass.
+Require Import Lia.
 
 (* A setoid is a set (X, ~) with an equivalence relation. *)
 (* We can derive three properties from an equivalence class:
@@ -11,10 +14,14 @@ Require Import policy.
 Require Import SetoidClass.
 Require Import RelationClasses.
 
-Inductive Conjuction: Type := And | Or.
-Inductive Comparison: Type := Gt | Lt | Ge | Le | Eq | Neq.
-Inductive BinaryOp: Type := Add | Sub | Mul | Div | Mod.
+(* Logical connections. *)
+Inductive LogOp: Type := And | Or.
+(* Comparison operators. *)
+Inductive ComOp: Type := Gt | Lt | Ge | Le | Eq | Neq.
+(* Binary arithmetic operators. *)
+Inductive BinOp: Type := Add | Sub | Mul | Div | Mod.
 
+(* Basic types in our column types. *)
 Inductive basic_type: Set :=
   | IntegerType
   | BoolType
@@ -42,31 +49,11 @@ Definition Aggregate := string.
 
 Inductive transform_func : Set.
 Inductive aggregate_func : Set.
-Definition transform_list := list transform_func%type.
-Definition aggregate_list := list transform_func%type.
-
-(* Something that will appear in `where` or filter. *)
-Inductive predicate (domain: Type): Type :=
-  (* Constant true *)
-  | predicate_true: predicate domain
-  | predicate_false: predicate domain
-  (* Negation *)
-  | predicate_not: predicate domain -> predicate domain
-  (* A conjuction *)
-  | predicate_conj: Conjuction -> predicate domain -> predicate domain -> predicate domain
+Inductive func: Set :=
+  | transform: transform_func -> func
+  | aggregate: aggregate_func -> func
 .
-
-Definition true_to_coq_true (domain: Type) (p: predicate domain): bool :=
-  match p with
-  | predicate_true _ => true
-  | _ => false
-  end.
-
-Definition coq_true_to_true (domain: Type) (b: bool): predicate domain :=
-  match b with
-  | true => predicate_true domain
-  | false => predicate_not domain (predicate_true domain)
-  end.
+Definition func_list: Set := list func%type.
 
 Module Cell.
 
@@ -74,6 +61,9 @@ Module Cell.
 Definition clean_cell: Set := basic_type % type.
 (* A cell that carries policies . *)
 Definition cell: Set := (clean_cell * policy) % type.
+Definition cell_denote (c: cell): Set := (type_to_coq_type (fst c) * policy) % type.
+
+(* Cast the type of the cell, if needed. *)
 
 End Cell.
 
@@ -161,6 +151,36 @@ Proof.
       simpl in *; intuition; try rewrite H1; try rewrite H; try rewrite H0; try rewrite H4; auto.
 Qed.
 
+Definition nth: forall (ty: tuple_type) (n: nat) (extract: n < length ty), Cell.cell.
+refine
+(fix nth' (ty: tuple_type) (n: nat):
+  n < length ty -> Cell.cell :=
+     match ty as ty' , n as n' return ty = ty' -> n = n' -> n' < length ty' -> Cell.cell with
+      | x :: y , 0 => fun _ _ _ => x
+      | x :: y , S n' => fun _ _ _ => nth' y n' _
+      | _ , _ => fun _ _ _ => False_rec _ _
+    end (refl_equal _) (refl_equal _)).
+Proof.
+  - simpl in *. lia.
+  - simpl in *. lia.
+Defined.
+
+Definition nth_col_tuple:
+  forall (ty: tuple_type) (n : nat), forall (extract: n < length ty),
+    tuple ty -> tuple ((nth ty n extract) :: nil).
+refine (
+  fix nth_col_tuple' (ty: tuple_type) (n : nat):
+    forall (extract: n < length ty), tuple ty -> tuple ((nth ty n extract) :: nil) :=
+      match ty as ty', n as n' return ty = ty' -> n = n' -> 
+            forall (extract: n' < length ty'), tuple ty' -> tuple ((nth ty' n' extract) :: nil) with
+        | (bt, p) :: l', 0 => fun _ _ _ t => ((fst t), tt)
+        | (bt, p) :: l', S n' => fun _ _ _ t => nth_col_tuple' l' n' _ (snd t)
+        | _, _ => fun _ _ _ => fun _ => False_rec _ _
+      end (refl_equal _) (refl_equal _)).
+Proof.
+  simpl in *. lia.
+Defined.
+
 Definition tuple_is_setoid (ty: tuple_type): Setoid (tuple ty).
 Proof.
   exists (tuple_eq ty).
@@ -176,3 +196,29 @@ Proof.
 Qed.
 
 End Tuple.
+
+Module Formula.
+
+Inductive atomic_expression (t: Tuple.tuple_type) : Cell.cell -> Set :=
+  (* v *)
+  | atomic_expression_const:
+      forall (c: Cell.cell) (c': type_to_coq_type (fst c)), atomic_expression t c
+  (* a *)
+  | atomic_column:
+      forall (n: nat) (extract: n < length t), atomic_expression t (Tuple.nth t n extract)
+.
+
+Inductive predicate (t: Tuple.tuple_type) (c: Cell.cell): Type :=
+  | predicate_true: predicate t c
+  | predicate_false: predicate t c
+  | predicate_expression: atomic_expression t c -> predicate t c
+  | predicate_com: ComOp -> predicate t c -> predicate t c -> predicate t c
+  | predicate_not: predicate t c -> predicate t c
+.
+
+Inductive formula (t: Tuple.tuple_type): Type :=
+  | formula_con: LogOp -> formula t -> formula t -> formula t
+  | formula_predicate: forall c, predicate t c -> formula t
+.
+
+End Formula.
