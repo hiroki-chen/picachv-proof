@@ -1,5 +1,6 @@
 Require Import Coq.Strings.String.
 Require Import Coq.Lists.List.
+Require Import Bool.
 Require Import policy.
 Require Import SetoidDec.
 Require Import SetoidClass.
@@ -63,7 +64,7 @@ Definition clean_cell: Set := basic_type % type.
 Definition cell: Set := (clean_cell * policy) % type.
 Definition cell_denote (c: cell): Set := (type_to_coq_type (fst c) * policy) % type.
 
-(* Cast the type of the cell, if needed. *)
+Definition cell_inject_policy (c: clean_cell) (p: policy): cell := (c, p).
 
 End Cell.
 
@@ -82,6 +83,7 @@ Module Tuple.
 
 (* A tuple is a list of cells of different values. *)
 Definition tuple_type: Set := (list Cell.cell)%type.
+Definition tuple_type_np: Set := (list Cell.clean_cell)%type.
 
 (* A tuple is, in essence, an interpretation of abstract values to their
 concrete values. Thus it is a dependent type of `tuple_type`. We also
@@ -91,6 +93,20 @@ Fixpoint tuple (ty: tuple_type): Set :=
   | nil => unit
   | (bt, _) :: t' => (type_to_coq_type bt * policy) * tuple t'
   end%type.
+
+Fixpoint tuple_np (ty: tuple_type_np): Set :=
+  match ty with
+    | nil => unit
+    | bt :: t' => (type_to_coq_type bt) * tuple_np t'
+  end%type.
+
+(* todo. *)
+Definition inject_policy (p: list policy) (ty: tuple_type_np) (length_match: length p = length ty): tuple_type.
+Admitted.
+
+(* Revoves policies. *)
+Definition extract_types (ty: tuple_type): tuple_type_np.
+Admitted.
 
 Definition example_tuple_ty : tuple_type := (StringType, policy_bot) :: (BoolType, policy_bot) :: nil.
 Definition example_tuple: tuple example_tuple_ty := (("abcd"%string, policy_bot), ((true, policy_bot), tt)).
@@ -138,7 +154,6 @@ Fixpoint tuple_eq (ty: tuple_type): forall (lhs rhs: tuple ty), Prop :=
   end. 
 
 Definition tuple_eq_eqv (ty: tuple_type): Equivalence (tuple_eq ty).
-Proof.
   (* Note that `Equivalence` is a class. *)
   split. 
   - induction ty; simpl; auto.
@@ -149,7 +164,7 @@ Proof.
     + auto.
     + destruct a. destruct c;
       simpl in *; intuition; try rewrite H1; try rewrite H; try rewrite H0; try rewrite H4; auto.
-Qed.
+Defined.
 
 Definition nth: forall (ty: tuple_type) (n: nat) (extract: n < length ty), Cell.cell.
 refine
@@ -165,12 +180,10 @@ Proof.
   - simpl in *. lia.
 Defined.
 
-Definition nth_col_tuple:
-  forall (ty: tuple_type) (n : nat), forall (extract: n < length ty),
-    tuple ty -> tuple ((nth ty n extract) :: nil).
+Definition nth_col_tuple: forall (ty: tuple_type) (n : nat) (extract: n < length ty), tuple ty -> tuple ((nth ty n extract) :: nil).
 refine (
-  fix nth_col_tuple' (ty: tuple_type) (n : nat):
-    forall (extract: n < length ty), tuple ty -> tuple ((nth ty n extract) :: nil) :=
+  fix nth_col_tuple' (ty: tuple_type) (n : nat): forall (extract: n < length ty),
+    tuple ty -> tuple ((nth ty n extract) :: nil) :=
       match ty as ty', n as n' return ty = ty' -> n = n' -> 
             forall (extract: n' < length ty'), tuple ty' -> tuple ((nth ty' n' extract) :: nil) with
         | (bt, p) :: l', 0 => fun _ _ _ t => ((fst t), tt)
@@ -181,11 +194,31 @@ Proof.
   simpl in *. lia.
 Defined.
 
+(* Without `policy` extracted! *)
+Definition nth_np: forall (ty: tuple_type) (n: nat) (extract: n < length ty), basic_type.
+  intros.
+  exact (fst (nth ty n extract)).
+Defined.
+
+(* Without `policy` extracted! *)
+Definition nth_col_tuple_np: forall (ty: tuple_type) (n : nat) (extract: n < length ty), tuple ty -> tuple_np ((nth_np ty n extract) :: nil).
+refine (
+  fix nth_col_tuple_np' (ty: tuple_type) (n : nat): forall (extract: n < length ty),
+    tuple ty -> tuple_np ((nth_np ty n extract) :: nil) :=
+      match ty as ty', n as n' return ty = ty' -> n = n' -> 
+            forall (extract: n' < length ty'), tuple ty' -> tuple_np ((nth_np ty' n' extract) :: nil) with
+        | (bt, p) :: l', 0 => fun _ _ _ t => ((fst (fst t)), tt)
+        | (bt, p) :: l', S n' => fun _ _ _ t => nth_col_tuple_np' l' n' _ (snd t)
+        | _, _ => fun _ _ _ => fun _ => False_rec _ _
+      end (refl_equal _) (refl_equal _)).
+simpl in *. lia.
+Defined.
+
 Definition tuple_is_setoid (ty: tuple_type): Setoid (tuple ty).
 Proof.
   exists (tuple_eq ty).
   apply tuple_eq_eqv.
-Qed.
+Defined.
 
 Definition example_tuple_lhs : tuple example_tuple_ty := (("abcd"%string, policy_bot), ((true, policy_bot), tt)).
 Definition example_tuple_rhs : tuple example_tuple_ty := (("abcd"%string, policy_bot), ((true, policy_bot), tt)).
@@ -199,26 +232,53 @@ End Tuple.
 
 Module Formula.
 
-Inductive atomic_expression (t: Tuple.tuple_type) : Cell.cell -> Set :=
+Inductive atomic_expression (ty: Tuple.tuple_type) : basic_type -> Set :=
   (* v *)
   | atomic_expression_const:
-      forall (c: Cell.cell) (c': type_to_coq_type (fst c)), atomic_expression t c
+      forall bt (c : type_to_coq_type bt), atomic_expression ty bt
   (* a *)
   | atomic_column:
-      forall (n: nat) (extract: n < length t), atomic_expression t (Tuple.nth t n extract)
+      forall n (extract: n < length ty), atomic_expression ty (Tuple.nth_np ty n extract)
 .
 
-Inductive predicate (t: Tuple.tuple_type) (c: Cell.cell): Type :=
-  | predicate_true: predicate t c
-  | predicate_false: predicate t c
-  | predicate_expression: atomic_expression t c -> predicate t c
-  | predicate_com: ComOp -> predicate t c -> predicate t c -> predicate t c
-  | predicate_not: predicate t c -> predicate t c
+Inductive predicate (ty: Tuple.tuple_type) (t: basic_type): Type :=
+  | predicate_true: predicate ty t
+  | predicate_false: predicate ty t
+  | predicate_expression: atomic_expression ty t -> predicate ty t
+  | predicate_com: ComOp -> predicate ty t -> predicate ty t -> predicate ty t
+  | predicate_not: predicate ty t -> predicate ty t
 .
 
-Inductive formula (t: Tuple.tuple_type): Type :=
-  | formula_con: LogOp -> formula t -> formula t -> formula t
-  | formula_predicate: forall c, predicate t c -> formula t
+Inductive formula (ty: Tuple.tuple_type) :=
+  | formula_con: LogOp -> formula ty -> formula ty -> formula ty
+  | formula_predicate: forall bt, predicate ty bt -> formula ty
 .
+
+Definition atomic_expression_denote (ty: Tuple.tuple_type) (t: basic_type) (a: atomic_expression ty t):
+  Tuple.tuple ty -> type_to_coq_type t.
+  refine (
+    match a in atomic_expression _ t' return Tuple.tuple ty -> type_to_coq_type t' with
+      | atomic_expression_const _ _ v => fun _ => v
+      | atomic_column _ _ v  => fun x => _
+    end
+  ).
+  pose (Tuple.nth_col_tuple_np ty n v x).
+  simpl in t0.
+  exact (fst t0).
+Defined.
+
+Definition predicate_denote (bt: basic_type) (ty: Tuple.tuple_type) (p: predicate ty bt):
+  Tuple.tuple ty -> bool :=
+    fun x => false.
+
+Fixpoint formula_denote (ty: Tuple.tuple_type) (f: formula ty) {struct f}: Tuple.tuple ty -> bool :=
+match f with
+  | formula_predicate _ c pred => predicate_denote c ty pred
+  | formula_con _ op lhs rhs =>
+    match op with
+      | And => fun t => andb (formula_denote ty lhs t) (formula_denote ty rhs t)
+      | Or => fun t => orb (formula_denote ty lhs t) (formula_denote ty rhs t)
+    end
+end.
 
 End Formula.
