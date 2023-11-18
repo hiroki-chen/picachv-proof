@@ -1,19 +1,13 @@
-Require Import Coq.Strings.String.
-Require Import Coq.Lists.List.
+Require Import String.
+Require Import List.
 Require Import Bool.
-Require Import policy.
 Require Import SetoidDec.
 Require Import SetoidClass.
 Require Import Lia.
+Require Import Decidable.
 
-(* A setoid is a set (X, ~) with an equivalence relation. *)
-(* We can derive three properties from an equivalence class:
-  1. Reflexivity.
-  2. Symmetry.
-  3. Transitivity.
-*)
-Require Import SetoidClass.
-Require Import RelationClasses.
+Require Import ordering.
+Require Import policy.
 
 (* Logical connections. *)
 Inductive LogOp: Type := And | Or.
@@ -42,6 +36,18 @@ Definition type_to_coq_type (t: basic_type): Set :=
   | BoolType => bool
   | StringType => string
   end.
+
+(* A helper instance that allows us to perform ordering, equivalence check on types
+   that are wrapped by a another layer called `type_to_coq_type`.
+
+   It is able to:
+   * Compare two types.
+   * Check if two types are equivalent.
+
+   See the type class definition in `ordering.v` for more details.
+ *)
+Instance can_order (t: basic_type): Ordered (type_to_coq_type t).
+Admitted.
 
 (* Attributes are themselves string representation of the name. *)
 Definition Attribute := (basic_type * string)%type.
@@ -244,8 +250,7 @@ Inductive atomic_expression (ty: Tuple.tuple_type) : basic_type -> Set :=
 Inductive predicate (ty: Tuple.tuple_type) (t: basic_type): Type :=
   | predicate_true: predicate ty t
   | predicate_false: predicate ty t
-  | predicate_expression: atomic_expression ty t -> predicate ty t
-  | predicate_com: ComOp -> predicate ty t -> predicate ty t -> predicate ty t
+  | predicate_com: ComOp -> atomic_expression ty t -> atomic_expression ty t -> predicate ty t
   | predicate_not: predicate ty t -> predicate ty t
 .
 
@@ -256,6 +261,7 @@ Inductive formula (ty: Tuple.tuple_type) :=
 
 Definition atomic_expression_denote (ty: Tuple.tuple_type) (t: basic_type) (a: atomic_expression ty t):
   Tuple.tuple ty -> type_to_coq_type t.
+Proof.
   refine (
     match a in atomic_expression _ t' return Tuple.tuple ty -> type_to_coq_type t' with
       | atomic_expression_const _ _ v => fun _ => v
@@ -268,8 +274,17 @@ Definition atomic_expression_denote (ty: Tuple.tuple_type) (t: basic_type) (a: a
 Defined.
 
 Definition predicate_denote (bt: basic_type) (ty: Tuple.tuple_type) (p: predicate ty bt):
-  Tuple.tuple ty -> bool :=
-    fun x => false.
+  Tuple.tuple ty -> bool.
+Proof.
+  destruct p; intros.
+  - exact true.
+  - exact false.
+  - destruct (cmp (atomic_expression_denote ty bt a H) (atomic_expression_denote ty bt a0 H)).
+    + exact true.
+    + exact false.
+    + exact false.
+
+Admitted.
 
 Fixpoint formula_denote (ty: Tuple.tuple_type) (f: formula ty) {struct f}: Tuple.tuple ty -> bool :=
 match f with
