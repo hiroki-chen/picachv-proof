@@ -100,9 +100,9 @@ refine (
     (* Directly destrucing on ascii itself is not doable. *)
   - intros. destruct (nat_dec (nat_of_ascii (to_lower lhs)) (nat_of_ascii (to_lower rhs))).
     + destruct s.
-      * refine (LT _ ). unfold char_lt. auto.
-      * refine (EQ _ ). unfold equiv. simpl. unfold char_eq. auto.
-    + refine (GT _ ). unfold char_lt. auto.
+      * apply LT. unfold char_lt. auto.
+      * apply EQ. unfold equiv. simpl. unfold char_eq. auto.
+    + apply GT. unfold char_lt. auto.
 Defined.
 
 Definition string_eq (lhs rhs: string): Prop := lhs = rhs.
