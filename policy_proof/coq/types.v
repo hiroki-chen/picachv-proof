@@ -273,18 +273,41 @@ Proof.
   exact (fst t0).
 Defined.
 
-Definition predicate_denote (bt: basic_type) (ty: Tuple.tuple_type) (p: predicate ty bt):
+Fixpoint predicate_denote (bt: basic_type) (ty: Tuple.tuple_type) (p: predicate ty bt):
   Tuple.tuple ty -> bool.
-Proof.
-  destruct p; intros.
+  intros. destruct p as [ | |op lhs rhs| ].
   - exact true.
   - exact false.
-  - destruct (cmp (atomic_expression_denote ty bt a H) (atomic_expression_denote ty bt a0 H)).
-    + exact true.
-    + exact false.
-    + exact false.
-
-Admitted.
+  - rename H into tp. destruct op.
+  (* Determined by the operator type. *)
+  (* Inductive ComOp: Type := Gt | Lt | Ge | Le | Eq | Neq.*)
+  (* We are actually doing a match between `lt lhs rhs` and `com_op`. *)
+    + destruct (cmp (atomic_expression_denote ty bt lhs tp) (atomic_expression_denote ty bt rhs tp)).
+      * exact false.
+      * exact false.
+      * exact true.
+    + destruct (cmp (atomic_expression_denote ty bt lhs tp) (atomic_expression_denote ty bt rhs tp)).
+      * exact true.
+      * exact false.
+      * exact false.
+    + destruct (cmp (atomic_expression_denote ty bt lhs tp) (atomic_expression_denote ty bt rhs tp)).
+      * exact false.
+      * exact true.
+      * exact true.
+    + destruct (cmp (atomic_expression_denote ty bt lhs tp) (atomic_expression_denote ty bt rhs tp)).
+      * exact true.
+      * exact true.
+      * exact false.
+    + destruct (cmp (atomic_expression_denote ty bt lhs tp) (atomic_expression_denote ty bt rhs tp)).
+      * exact false.
+      * exact true.
+      * exact false.
+    + destruct (cmp (atomic_expression_denote ty bt lhs tp) (atomic_expression_denote ty bt rhs tp)).
+      * exact true.
+      * exact false.
+      * exact true.
+  - rename H into tp. exact (negb (predicate_denote bt ty p tp)).
+Defined.
 
 Fixpoint formula_denote (ty: Tuple.tuple_type) (f: formula ty) {struct f}: Tuple.tuple ty -> bool :=
 match f with

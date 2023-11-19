@@ -23,7 +23,7 @@ Qed.
 
 Definition nat_eq (a b: nat): Prop := a = b.
 Definition nat_lt (a b: nat): Prop := a < b.
-Definition nat_trans: Transitive nat_lt.
+Definition nat_lt_trans: Transitive nat_lt.
 Proof.
   unfold Transitive.
   intros.
@@ -33,7 +33,7 @@ Qed.
 
 Global Instance nat_ordered: Ordered nat.
 refine (
-  @Build_Ordered nat (eq_setoid nat) nat_lt nat_trans _ _
+  @Build_Ordered nat (eq_setoid nat) nat_lt nat_lt_trans _ _
 ).
   unfold nat_lt, Transitive, complement;
   intros; simpl in *; try lia.
@@ -77,7 +77,7 @@ Definition char_eq (lhs rhs: ascii): Prop :=
   (nat_of_ascii (to_lower lhs)) = (nat_of_ascii (to_lower rhs)).
 Definition char_lt (lhs rhs: ascii): Prop :=
   (nat_of_ascii (to_lower lhs)) < (nat_of_ascii (to_lower rhs)).
-Definition char_trans: Transitive char_lt.
+Definition char_lt_trans: Transitive char_lt.
   unfold Transitive.
   intros. unfold char_lt in *. lia.
 Defined.
@@ -92,7 +92,7 @@ Defined.
 
 Global Instance char_ordered: Ordered ascii.
 refine (
-  @Build_Ordered ascii char_eq_setoid char_lt char_trans _ _
+  @Build_Ordered ascii char_eq_setoid char_lt char_lt_trans _ _
 ).
   intros. simpl.
   - unfold char_lt in H. unfold complement. intros.
@@ -105,6 +105,84 @@ refine (
     + apply GT. unfold char_lt. auto.
 Defined.
 
-Definition string_eq (lhs rhs: string): Prop := lhs = rhs.
-Definition string_lt (lhs rhs: string): Prop :=
-  String.compare lhs rhs = Lt.
+(* Using String.eq makes everything obsecure and hard to prove. *)
+Fixpoint string_eq (lhs rhs: string): Prop := 
+  match lhs, rhs with
+    | EmptyString, EmptyString => True
+    | String l lhs', String r rhs' => char_eq l r /\ string_eq lhs' rhs'
+    | _, _ => False
+  end.
+
+Fixpoint string_lt (lhs rhs: string): Prop := 
+  match lhs, rhs with
+    | EmptyString, String _ _ => True
+    | String l lhs', String r rhs' => char_lt l r \/ (char_eq l r /\ string_lt lhs' rhs')
+    | _, _ => False
+  end.
+
+Definition string_eq_trans: Transitive string_eq.
+  unfold Transitive.
+  (* Intros y z makes y, z dependent but they should remain universal. *)
+  induction x; destruct y; destruct z; try auto with *.
+  simpl in *.
+  intros. destruct H. destruct H0.
+  split.
+  - unfold char_eq in *. lia.
+  - specialize (IHx _ _ H1 H2). trivial.
+Defined.
+
+Definition string_lt_trans: Transitive string_lt.
+  unfold Transitive.
+  induction x; destruct y; destruct z; try auto with *; simpl in *; intros;
+    try destruct H0; try destruct H.
+  - left. unfold char_lt in *. lia.
+  - left. destruct H. unfold char_eq in *. unfold char_lt in *. rewrite <- H in H0. assumption.
+  - left. destruct H0. unfold char_eq in *. unfold char_lt in *. rewrite H0 in H. assumption.
+  - destruct H, H0. right. split.
+    + unfold char_eq in *. lia.
+    + specialize (IHx _ _ H1 H2). assumption.
+Defined.
+
+Lemma string_eq_two_parts: forall (lhs rhs: string) (a b: ascii),
+  String a lhs = String b rhs -> a = b /\ lhs = rhs.
+Proof.
+  induction a.
+  intros. split. inversion H. auto.
+  inversion H. reflexivity.
+Qed.
+
+Definition string_eq_setoid: Setoid string.
+refine (@Build_Setoid _ string_eq _).
+  constructor.
+  - unfold Reflexive. unfold string_eq. induction x.
+    + auto.
+    + intuition auto with *.
+  -  unfold string_eq. unfold Symmetric. induction x; destruct y; intuition auto with *.
+    unfold char_eq. auto. specialize (IHx _ H1). auto.
+  - unfold string_eq. unfold Transitive.
+    induction x; destruct y; destruct z; intuition auto with *.
+    + unfold char_eq in *. lia.
+    + specialize (IHx y z H2). apply IHx. assumption.
+Defined.
+
+Global Instance string_ordered: Ordered string.
+refine (
+  @Build_Ordered string string_eq_setoid string_lt string_lt_trans _ _
+);
+  simpl; unfold complement.
+  - induction lhs; destruct rhs. intros; intuition auto with *. intros. inversion H0.
+    + intros. inversion H0.
+    + induction a; destruct a0. simpl. intros. unfold char_lt in *. unfold char_eq in *.
+      destruct H, H0. lia. destruct H. specialize (IHlhs rhs). apply IHlhs; assumption.
+  - induction lhs; destruct rhs; intros.
+    + apply EQ. unfold equiv. simpl. auto.
+    + apply LT. unfold string_lt. simpl. auto.
+    + apply GT. unfold string_lt. simpl. auto.
+    + pose char_ordered. destruct (cmp a a0).
+      * apply LT. simpl in *. left. assumption.
+      * destruct (IHlhs rhs).
+        -- apply LT. simpl in *. right. split. assumption. assumption.
+        -- apply EQ. simpl in *. split. assumption. assumption.
+        -- apply GT. simpl in *. right. split. unfold equiv in *. unfold char_eq in *. lia. assumption.
+      * apply GT. simpl in *. left. assumption.
+Defined.
