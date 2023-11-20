@@ -1,6 +1,4 @@
-(* Set Printing Coercions.
-Set Printing Implicit.
-Set Printing Projections. *)
+(* TODO: Make cells identifiable with some id. *)
 
 Require Import String.
 Require Import List.
@@ -164,15 +162,36 @@ Proof.
     simpl in *. destruct a; destruct lhs; constructor; auto.
 Defined.
 
-(* A tuple must equal *)
-Fixpoint tuple_eq (ty: tuple_type): forall (lhs rhs: tuple ty), Prop :=
+
+Fixpoint tuple_value_eq (ty: tuple_type): forall (lhs rhs: tuple ty), Prop :=
   match ty return (forall (lhs rhs: tuple ty), Prop) with
     | nil => fun _ _ => True
     | (h, p) :: tl => fun lhs rhs => 
-      (fst lhs) = (fst rhs) /\ (snd lhs) = (snd rhs) /\ tuple_eq tl (snd lhs) (snd rhs)
+      (fst lhs) = (fst rhs) /\ tuple_value_eq tl (snd lhs) (snd rhs)
   end. 
 
-Definition tuple_eq_eqv (ty: tuple_type): Equivalence (tuple_eq ty).
+Fixpoint tuple_total_eq (ty: tuple_type): forall (lhs rhs: tuple ty), Prop :=
+  match ty return (forall (lhs rhs: tuple ty), Prop) with
+    | nil => fun _ _ => True
+    | (h, p) :: tl => fun lhs rhs => 
+      (fst lhs) = (fst rhs) /\ (snd lhs) = (snd rhs) /\ tuple_total_eq tl (snd lhs) (snd rhs)
+  end. 
+
+Definition tuple_value_eq_eqv (ty: tuple_type): Equivalence (tuple_value_eq ty).
+  (* Note that `Equivalence` is a class. *)
+  split. 
+  - induction ty; simpl; auto.
+    destruct a. destruct c; simpl in *; auto.
+  - induction ty; simpl; auto. destruct a.
+    destruct c; simpl; split; destruct H; try rewrite H; intuition.
+  - unfold Transitive. intros. induction ty.
+    + auto.
+    + destruct a. destruct c;
+      simpl in *; intuition; try rewrite H1; try rewrite H; try reflexivity;
+      try eapply IHty; try eassumption.
+Defined.
+
+Definition tuple_total_eq_eqv (ty: tuple_type): Equivalence (tuple_total_eq ty).
   (* Note that `Equivalence` is a class. *)
   split. 
   - induction ty; simpl; auto.
@@ -235,14 +254,14 @@ Defined.
 
 Definition tuple_is_setoid (ty: tuple_type): Setoid (tuple ty).
 Proof.
-  exists (tuple_eq ty).
-  apply tuple_eq_eqv.
+  exists (tuple_total_eq ty).
+  apply tuple_total_eq_eqv.
 Defined.
 
 Definition example_tuple_lhs : tuple example_tuple_ty := (("abcd"%string, policy_bot), ((true, policy_bot), tt)).
 Definition example_tuple_rhs : tuple example_tuple_ty := (("abcd"%string, policy_bot), ((true, policy_bot), tt)).
 
-Example example_tuple_eq: tuple_eq example_tuple_ty example_tuple_lhs example_tuple_lhs.
+Example example_tuple_total_eq: tuple_total_eq example_tuple_ty example_tuple_lhs example_tuple_lhs.
 Proof.
   simpl. repeat split.
 Qed.

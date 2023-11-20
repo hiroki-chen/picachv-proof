@@ -3,6 +3,11 @@
 Require Import lattice.
 Require Import RelationClasses.
 Require Import Lia.
+Require Import SetoidDec.
+Require Import SetoidClass.
+Require Import List.
+
+Require Import ordering.
 
 (* For now, the policy is just a placeholder. *)
 (* TODO: Wrap more information? *)
@@ -40,6 +45,13 @@ Definition policy_join (lhs rhs: policy): policy :=
     | _, _ => policy_top
   end.
 
+Definition policy_option_join (lhs rhs: option policy): option policy :=
+  match lhs, rhs with
+    | None, _ => rhs
+    | _, None => lhs
+    | Some lhs', Some rhs' => Some (policy_join lhs' rhs')
+  end.
+
 (* Meets two policy labels. *)
 Definition policy_meet (lhs rhs: policy): policy :=
   match lhs, rhs with
@@ -65,18 +77,43 @@ Definition policy_meet (lhs rhs: policy): policy :=
     | policy_noise, policy_noise => lhs
   end.
 
+Definition policy_option_meet (lhs rhs: option policy): option policy :=
+  match lhs, rhs with
+    | None, _ => None
+    | _, None => None
+    | Some lhs', Some rhs' => Some (policy_meet lhs' rhs')
+  end.
+
 (* Returns the top policy label. *)
 
 Definition policy_eq (lhs rhs: policy): Prop :=
   lhs = rhs.
+Definition policy_option_eq (lhs rhs: option policy): Prop :=
+  match lhs, rhs with
+    | None, None => True
+    | Some lhs', Some rhs' => policy_eq lhs' rhs'
+    | _, _ => False
+  end.
 
 Definition policy_eq_eqv: Equivalence policy_eq.
-Proof.
   constructor.
   - unfold Reflexive. intros. reflexivity.
   - unfold Symmetric. intros. induction H. reflexivity.
   - unfold Transitive. intros. induction H. assumption.
-Qed.
+Defined.
+
+Definition policy_option_eq_eqv: Equivalence policy_option_eq.
+refine (
+  @Build_Equivalence _ _ _ _ _
+).
+  - unfold Reflexive. intros. unfold policy_option_eq.
+    destruct x; try reflexivity.
+  - unfold Symmetric. intros. unfold policy_option_eq in *.
+    destruct x; destruct y; try reflexivity; try contradiction.
+    apply policy_eq_eqv. assumption.
+  - unfold Transitive. intros. induction x; induction y; induction z; try intuition auto with *.
+    simpl in *. eapply transitivity; eassumption.
+Defined.
 
 Lemma policy_join_comm: forall (lhs rhs: policy),
   policy_join lhs rhs = policy_join rhs lhs.
@@ -108,8 +145,7 @@ Proof.
   intros. destruct a; destruct b; destruct c; reflexivity.
 Qed.
 
-Definition policy_lattice: lattice policy.
-Proof.
+Global Instance policy_lattice: lattice policy.
   econstructor.
   - eapply policy_eq_eqv.
   - intros. eapply policy_meet_comm.
@@ -128,5 +164,27 @@ Proof.
     destruct x1; destruct x2; destruct y1; destruct y2; simpl; apply policy_eq_eqv; try inversion H0; try inversion H.
   - intros. simpl in *. destruct x; destruct y; destruct z; simpl; apply policy_eq_eqv; try inversion H0; try inversion H.
   - intros. simpl in *. destruct x; destruct y; destruct z; simpl; apply policy_eq_eqv; try inversion H0; try inversion H.  
-Qed.
+Defined.
 Hint Resolve policy_lattice : typeclass_instances.
+
+Global Instance policy_option_lattice: lattice (option policy).
+Admitted.
+
+Global Instance policy_setoid: Setoid policy.
+refine (
+  @Build_Setoid policy policy_eq policy_eq_eqv
+).
+Defined.
+
+(* The active policy context. *)
+Definition policy_encoding := (option policy * option policy)%type.
+Definition context := list (nat * policy_encoding)%type.
+Definition can_release (p: policy_encoding): Prop := flowsto (fst p) (snd p).
+(* Lookup the policy context and check if the cell has been associated with an active policy. *)
+Fixpoint label_lookup (id: nat) (ctx: context):
+  option policy_encoding :=
+    match ctx with
+      | nil => None
+      | (id', (cur, disc)) :: l' =>
+          if id == id' then Some (cur, disc) else label_lookup id l'
+    end.

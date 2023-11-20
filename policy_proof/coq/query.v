@@ -1,4 +1,4 @@
-Require Import Coq.Strings.String.
+Require Import String.
 Require Import types.
 
 Inductive Query: Type :=

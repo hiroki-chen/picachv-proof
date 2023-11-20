@@ -12,7 +12,7 @@ Require Import Compare_dec.
    These structures are often equipped with ad-hoc equivalence relations meant to behave as equalities.
    See also: https://coq.inria.fr/refman/addendum/generalized-rewriting.html
 *)
-
+(* Strict order. *)
 Class Ordered (A: Set) := {
   eq :: Setoid A;
 
@@ -32,6 +32,10 @@ Defined.
 Global Instance eq_dec_setoid {A: Set} {ord: Ordered A}: DecidableSetoid eq.
   red. intros.
   unfold Decidable.decidable. unfold complement.
+  destruct (equiv_dec x y).
+  left. assumption.
+  right. unfold not. intros. intuition.
+Defined.
 
 (*   Class Irreflexive (R : relation A) :=
     irreflexivity : Reflexive (complement R). *)
@@ -122,8 +126,6 @@ refine (@Build_Setoid _ char_eq _).
   - unfold Symmetric. intros. unfold char_eq in *. auto.
   - unfold Transitive. intros. unfold char_eq in *. lia.
 Defined.
-
-
 
 Global Instance char_ordered: Ordered ascii.
 refine (

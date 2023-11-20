@@ -50,7 +50,6 @@ Arguments meet _ _ : simpl nomatch.
 
 Hint Resolve meet_symmetry join_symmetry join_assoc meet_assoc meet_absorp join_absorp join_top join_bot meet_top meet_bot eq_equiv.
 
-
 Section LatticeProperties.
   Context {A : Set} `{lattice A}.
 
@@ -108,4 +107,12 @@ Proof.
 Qed.
 Hint Resolve meet_idem.
 
+Global Instance flowsto_trans: Transitive flowsto.
+  unfold Transitive. intros.
+  unfold flowsto in *.  rewrite <- H1. rewrite <- H0.
+  assert (x ⊔ (x ⊔ y ⊔ z) === (x ⊔ x) ⊔ y ⊔ z).
+  - rewrite <- join_assoc. auto. rewrite H1. rewrite <- join_assoc. rewrite join_idem.
+    rewrite join_assoc. rewrite H1. rewrite join_idem. reflexivity.
+  - rewrite H2. rewrite join_idem. reflexivity.
+Defined.
 End LatticeProperties.
