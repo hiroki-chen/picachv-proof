@@ -1,4 +1,6 @@
-Set Printing All.
+(* Set Printing Coercions.
+Set Printing Implicit.
+Set Printing Projections. *)
 
 Require Import String.
 Require Import List.
@@ -48,8 +50,15 @@ Definition type_to_coq_type (t: basic_type): Set :=
 
    See the type class definition in `ordering.v` for more details.
  *)
-Instance can_order (t: basic_type): Ordered (type_to_coq_type t).
-Admitted.
+Global Instance can_order (t: basic_type): Ordered (type_to_coq_type t).
+  refine (
+    match t as t' return Ordered (type_to_coq_type t') with
+      | IntegerType => _
+      | BoolType => _
+      | StringType => _
+    end
+  ).
+Defined.
 
 (* Attributes are themselves string representation of the name. *)
 Definition Attribute := (basic_type * string)%type.
@@ -357,26 +366,23 @@ Proof.
   simpl.
   destruct (cmp 1 1).
   - apply order_is_irreflexive in l. contradiction.
-  - reflexivity.
+  - destruct (nat_dec 1 1).
+    destruct s. inversion l. inversion H0.
+    reflexivity. inversion l.
+    inversion H0.
   - apply order_is_irreflexive in l. contradiction.
 Qed.
-
-Axiom abcd: forall lhs rhs: string, lhs = rhs -> Equivalence.equiv lhs rhs.
 
 Definition foo': bool := ((formula_denote Tuple.example_tuple_ty example_formula'') Tuple.example_tuple_lhs).
 Lemma foo'_is_false: foo' = false.
 Proof.
-  refine (
-    match foo' as foo'' return foo' = foo'' -> foo'' = false with
-      | true => fun _ => False_rec _ _
-      | false => fun _ => refl_equal false
-    end (refl_equal foo')
-  ).
+  unfold foo'.
+  simpl.
+  destruct (nat_dec _ _).
+  destruct s.
+  - reflexivity.
+  - inversion e.
+  - reflexivity.
+Qed.
 
-  unfold foo' in e.
-  simpl in e.
-  destruct (cmp "abcd"%string "233"%string).
-  - inversion e. 
-
-Admitted.
 End Formula.
