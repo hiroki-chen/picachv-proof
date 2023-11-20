@@ -7,6 +7,12 @@ Require Import Ascii.
 Require Import String.
 Require Import Compare_dec.
 
+(*
+   Working on user-defined structures that behave like setoids require some special rewriting techniques.
+   These structures are often equipped with ad-hoc equivalence relations meant to behave as equalities.
+   See also: https://coq.inria.fr/refman/addendum/generalized-rewriting.html
+*)
+
 Class Ordered (A: Set) := {
   eq :: Setoid A;
 
@@ -15,6 +21,33 @@ Class Ordered (A: Set) := {
   neq: forall lhs rhs: A, lt lhs rhs -> lhs =/= rhs;
   cmp: forall lhs rhs: A, Compare lt equiv lhs rhs;
 }.
+
+Global Instance eq_dec {A: Set} {ord: Ordered A}: EqDec eq.
+  red.
+  intros. destruct (cmp x y); intuition.
+  - right. apply neq. assumption.
+  - right. symmetry. apply neq. assumption.
+Defined.
+
+Global Instance eq_dec_setoid {A: Set} {ord: Ordered A}: DecidableSetoid eq.
+  red. intros.
+  unfold Decidable.decidable. unfold complement.
+
+(*   Class Irreflexive (R : relation A) :=
+    irreflexivity : Reflexive (complement R). *)
+
+Lemma order_is_irreflexive: forall {A: Set} {ord: Ordered A} (a: A),
+  ~ lt a a.
+Proof.
+  intros. unfold "~". intros.
+  apply neq in H. intuition auto with *.
+Qed.
+
+Global Instance order_irreflexive: forall {A: Set} {ord: Ordered A} (a: A),
+  Irreflexive lt.
+  intros. unfold Irreflexive. unfold complement. unfold Reflexive. intros.
+  apply order_is_irreflexive in H. assumption.
+Defined.
 
 Definition nat_dec : forall (a b: nat), {a < b} + {a = b} + {b < a}.
  intros. pose (lt_eq_lt_dec a b).
@@ -82,13 +115,15 @@ Definition char_lt_trans: Transitive char_lt.
   intros. unfold char_lt in *. lia.
 Defined.
 
-Instance char_eq_setoid : Setoid ascii.
+Global Instance char_eq_setoid : Setoid ascii.
 refine (@Build_Setoid _ char_eq _).
   econstructor.
   - unfold Reflexive. intros. unfold char_eq. auto.
   - unfold Symmetric. intros. unfold char_eq in *. auto.
   - unfold Transitive. intros. unfold char_eq in *. lia.
 Defined.
+
+
 
 Global Instance char_ordered: Ordered ascii.
 refine (
@@ -164,6 +199,10 @@ refine (@Build_Setoid _ string_eq _).
     + unfold char_eq in *. lia.
     + specialize (IHx y z H2). apply IHx. assumption.
 Defined.
+
+Global Instance string_eq_equiv: Equivalence string_eq.
+  apply string_eq_setoid.
+Qed.
 
 Global Instance string_ordered: Ordered string.
 refine (

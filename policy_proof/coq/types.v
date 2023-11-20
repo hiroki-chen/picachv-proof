@@ -1,3 +1,5 @@
+Set Printing All.
+
 Require Import String.
 Require Import List.
 Require Import Bool.
@@ -76,9 +78,11 @@ End Cell.
 
 Module Schema.
 
-(* A distinction is made between the database schema, which specifies the structure
-of the database, and the database instance, which specifies its actual content:
-sets of tuples. *)
+(*
+  A distinction is made between the database schema, which specifies the structure
+  of the database, and the database instance, which specifies its actual content:
+  sets of tuples.
+*)
 
 (* A schema is a list of attributes. *)
 Definition schema: Set := (list Attribute)%type.
@@ -185,7 +189,7 @@ Proof.
   - simpl in *. lia.
   - simpl in *. lia.
 Defined.
-
+  
 Definition nth_col_tuple: forall (ty: tuple_type) (n : nat) (extract: n < length ty), tuple ty -> tuple ((nth ty n extract) :: nil).
 refine (
   fix nth_col_tuple' (ty: tuple_type) (n : nat): forall (extract: n < length ty),
@@ -243,7 +247,7 @@ Inductive atomic_expression (ty: Tuple.tuple_type) : basic_type -> Set :=
   | atomic_expression_const:
       forall bt (c : type_to_coq_type bt), atomic_expression ty bt
   (* a *)
-  | atomic_column:
+  | atomic_expression_column:
       forall n (extract: n < length ty), atomic_expression ty (Tuple.nth_np ty n extract)
 .
 
@@ -265,7 +269,7 @@ Proof.
   refine (
     match a in atomic_expression _ t' return Tuple.tuple ty -> type_to_coq_type t' with
       | atomic_expression_const _ _ v => fun _ => v
-      | atomic_column _ _ v  => fun x => _
+      | atomic_expression_column _ _ v  => fun x => _
     end
   ).
   pose (Tuple.nth_col_tuple_np ty n v x).
@@ -319,4 +323,60 @@ match f with
     end
 end.
 
+
+(* Some tests. *)
+Example example_formula: formula Tuple.example_tuple_ty :=
+    (formula_predicate Tuple.example_tuple_ty BoolType (predicate_true Tuple.example_tuple_ty BoolType)).
+Example example_formula': formula Tuple.example_tuple_ty :=
+    (formula_predicate Tuple.example_tuple_ty IntegerType
+      (predicate_com Tuple.example_tuple_ty IntegerType Eq
+        (atomic_expression_const Tuple.example_tuple_ty IntegerType 1)
+        (atomic_expression_const Tuple.example_tuple_ty IntegerType 1)
+      )
+    ).
+
+Example can_index: 0 < length Tuple.example_tuple_ty.
+Proof.
+  simpl. lia.
+Qed.
+Example example_formula'': formula Tuple.example_tuple_ty :=
+    (formula_predicate Tuple.example_tuple_ty StringType
+      (predicate_com Tuple.example_tuple_ty StringType Eq
+        (atomic_expression_column Tuple.example_tuple_ty 0 can_index)
+        (atomic_expression_const Tuple.example_tuple_ty StringType "233"%string)
+      )
+    ).
+
+(* fun _ : Tuple.tuple Tuple.example_tuple_ty => true *)
+Compute ((formula_denote Tuple.example_tuple_ty example_formula) Tuple.example_tuple_lhs).
+(* fun _ : Tuple.tuple Tuple.example_tuple_ty => false *)
+Definition foo: bool := ((formula_denote Tuple.example_tuple_ty example_formula') Tuple.example_tuple_lhs).
+Lemma foo_is_true: foo = true.
+Proof.
+  unfold foo.
+  simpl.
+  destruct (cmp 1 1).
+  - apply order_is_irreflexive in l. contradiction.
+  - reflexivity.
+  - apply order_is_irreflexive in l. contradiction.
+Qed.
+
+Axiom abcd: forall lhs rhs: string, lhs = rhs -> Equivalence.equiv lhs rhs.
+
+Definition foo': bool := ((formula_denote Tuple.example_tuple_ty example_formula'') Tuple.example_tuple_lhs).
+Lemma foo'_is_false: foo' = false.
+Proof.
+  refine (
+    match foo' as foo'' return foo' = foo'' -> foo'' = false with
+      | true => fun _ => False_rec _ _
+      | false => fun _ => refl_equal false
+    end (refl_equal foo')
+  ).
+
+  unfold foo' in e.
+  simpl in e.
+  destruct (cmp "abcd"%string "233"%string).
+  - inversion e. 
+
+Admitted.
 End Formula.
