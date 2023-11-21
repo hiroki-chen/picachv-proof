@@ -179,7 +179,7 @@ Defined.
 (* The active policy context. *)
 Definition policy_encoding := (option policy * option policy)%type.
 Definition context := list (nat * policy_encoding)%type.
-Definition can_release (p: policy_encoding): Prop := flowsto (fst p) (snd p).
+Definition can_release (p: policy_encoding): Prop := (fst p) = (snd p).
 (* Lookup the policy context and check if the cell has been associated with an active policy. *)
 Fixpoint label_lookup (id: nat) (ctx: context):
   option policy_encoding :=
