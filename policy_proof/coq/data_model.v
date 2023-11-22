@@ -228,13 +228,26 @@ Fixpoint tuple_np (ty: tuple_type_np): Set :=
     | bt :: t' => (type_to_coq_type bt) * tuple_np t'
   end%type.
 
+Fixpoint tuple_lt (ty: tuple_type): forall (lhs rhs: tuple ty), Prop :=
+  match ty return forall (lhs rhs: tuple ty), Prop with
+    | nil => fun _ _ => True
+    | (bt, _) :: t' => fun lhs rhs => lt (fst (fst lhs)) (fst (fst rhs)) \/
+      (fst (fst lhs)) == (fst (fst rhs)) /\ tuple_lt t' (snd lhs) (snd rhs)
+  end.
+
 (* todo. *)
-Definition inject_policy (p: list Policy.policy) (ty: tuple_type_np) (length_match: length p = length ty): tuple_type.
-Admitted.
+Fixpoint inject_policy (p: list Policy.policy) (ty: tuple_type_np): tuple_type :=
+  match p, ty with
+    | nil, nil => nil
+    | p' :: p'', bt :: t' => (bt, p') :: inject_policy p'' t'
+    | _, _ => nil
+  end.
 
 (* Revoves policies. *)
-Definition extract_types (ty: tuple_type): tuple_type_np.
-Admitted.
+Definition extract_types (ty: tuple_type): tuple_type_np :=
+  List.map (fun x => fst x) ty.
+
+(* A tuple type is a list of basic types. *)
 
 Definition example_tuple_ty : tuple_type := (StringType, Policy.policy_bot) :: (BoolType, Policy.policy_bot) :: nil.
 Definition example_tuple: tuple example_tuple_ty := (("abcd"%string, Policy.policy_bot), ((true, Policy.policy_bot), tt)).
@@ -273,33 +286,34 @@ Proof.
     simpl in *. destruct a; destruct lhs; constructor; auto.
 Defined.
 
-
 Fixpoint tuple_value_eq (ty: tuple_type): forall (lhs rhs: tuple ty), Prop :=
   match ty return (forall (lhs rhs: tuple ty), Prop) with
     | nil => fun _ _ => True
     | (h, p) :: tl => fun lhs rhs => 
-      (fst lhs) = (fst rhs) /\ tuple_value_eq tl (snd lhs) (snd rhs)
+      (fst (fst lhs)) == (fst (fst rhs)) /\ tuple_value_eq tl (snd lhs) (snd rhs)
   end. 
 
 Fixpoint tuple_total_eq (ty: tuple_type): forall (lhs rhs: tuple ty), Prop :=
   match ty return (forall (lhs rhs: tuple ty), Prop) with
     | nil => fun _ _ => True
     | (h, p) :: tl => fun lhs rhs => 
-      (fst lhs) = (fst rhs) /\ (snd lhs) = (snd rhs) /\ tuple_total_eq tl (snd lhs) (snd rhs)
+      (fst lhs) == (fst rhs) /\ (snd lhs) == (snd rhs) /\ tuple_total_eq tl (snd lhs) (snd rhs)
   end. 
 
-Definition tuple_value_eq_eqv (ty: tuple_type): Equivalence (tuple_value_eq ty).
+Global Instance tuple_value_eq_eqv (ty: tuple_type): Equivalence (tuple_value_eq ty).
   (* Note that `Equivalence` is a class. *)
-  split. 
-  - induction ty; simpl; auto.
-    destruct a. destruct c; simpl in *; auto.
-  - induction ty; simpl; auto. destruct a.
-    destruct c; simpl; split; destruct H; try rewrite H; intuition.
-  - unfold Transitive. intros. induction ty.
-    + auto.
-    + destruct a. destruct c;
-      simpl in *; intuition; try rewrite H1; try rewrite H; try reflexivity;
-      try eapply IHty; try eassumption.
+  constructor.
+  - unfold Reflexive.
+    intros. induction ty; intuition auto with *. destruct a; destruct c; simpl in *; auto. split; try reflexivity; auto.
+  - unfold Symmetric.
+    intros. induction ty; intuition auto with *. destruct a; destruct c; simpl in *; intuition auto with *.
+  - unfold Transitive.
+    induction ty; intuition auto with *. destruct a; destruct c; simpl in *; intuition auto with *.
+    specialize (IHty _ _ _ H2 H3). assumption.
+    eapply transitivity; eauto.
+    specialize (IHty _ _ _ H2 H3). assumption.
+    eapply transitivity; eauto.
+    specialize (IHty _ _ _ H2 H3). assumption.    
 Defined.
 
 Definition tuple_total_eq_eqv (ty: tuple_type): Equivalence (tuple_total_eq ty).
@@ -363,11 +377,37 @@ refine (
 simpl in *. lia.
 Defined.
 
-Definition tuple_is_setoid (ty: tuple_type): Setoid (tuple ty).
-Proof.
+Global Instance tuple_is_setoid (ty: tuple_type): Setoid (tuple ty).
   exists (tuple_total_eq ty).
   apply tuple_total_eq_eqv.
 Defined.
+
+Global Instance tuple_is_ordered (ty: tuple_type): Ordered (tuple ty).
+refine(
+  @Build_Ordered (tuple ty) (tuple_is_setoid ty) (tuple_lt ty) _ _ _
+).
+  - unfold Transitive. induction ty.
+    + intros. auto.
+    + destruct a; destruct c. simpl in *.
+      (* Integer. *)
+      intuition auto with *. left. eapply transitivity; eauto. simpl in *.
+      subst. left. assumption.
+      simpl in *. subst. left. assumption.
+      simpl in *. subst.
+      specialize (IHty _ _ _ H2 H3). right. split. reflexivity. assumption.
+
+      (* Boolean *)
+      intros. simpl in *. intuition. left. eapply transitivity; eauto.
+      left. rewrite <- H0. assumption.
+      left. rewrite H. assumption.
+      right. split; eapply transitivity; eauto.
+
+      (* String *)
+      intros. simpl in *. intuition.
+      left. eapply transitivity; eauto.
+      left. subst.
+
+A
 
 Definition example_tuple_lhs : tuple example_tuple_ty := (("abcd"%string, Policy.policy_bot), ((true, Policy.policy_bot), tt)).
 Definition example_tuple_rhs : tuple example_tuple_ty := (("abcd"%string, Policy.policy_bot), ((true, Policy.policy_bot), tt)).
@@ -384,5 +424,18 @@ Module Configuration.
 
 Definition privacy: Set := float.
 
+(* TODO: The third one should be the operator. *)
+Definition config:= (Policy.label_lookup, privacy, unit)%type.
 End Configuration.
 
+Ltac str_eq:= auto; simpl in *; unfold char_eq in *; unfold char_lt in *; lia.
+
+Require Import finite_bags.
+
+Module Relation.
+
+Definition relation: Set := fbag Tuple.tuple_type.
+
+(* Global Instance relation_is_fbag: FiniteBag Tuple.tuple_type. *)
+
+End Relation.

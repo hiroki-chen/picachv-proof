@@ -1,5 +1,6 @@
 Require Import SetoidDec.
 Require Import SetoidClass.
+Require Import Decidable.
 Require Import OrderedType.
 Require Import Equivalence.
 Require Import Lia.
@@ -37,36 +38,75 @@ Global Instance eq_dec_setoid {A: Set} {ord: Ordered A}: DecidableSetoid eq.
   right. unfold not. intros. intuition.
 Defined.
 
-(*   Class Irreflexive (R : relation A) :=
-    irreflexivity : Reflexive (complement R). *)
-
-Lemma order_is_irreflexive: forall {A: Set} {ord: Ordered A} (a: A),
+Theorem order_is_irreflexive: forall {A: Set} {ord: Ordered A} (a: A),
   ~ lt a a.
 Proof.
   intros. unfold "~". intros.
-  apply neq in H. intuition auto with *.
+  apply neq in H. auto with *.
+Qed.
+ 
+Global Instance order_antisym {A: Set} {ord: Ordered A}: Asymmetric lt.
+Proof.
+  repeat red. intros. 
+  rewrite H0 in H.
+  apply order_is_irreflexive in H. assumption.
+Qed.
+
+(*
+    This instance ensures that the 'lt' relation is proper with respect to the equivalence relation 'equiv'. 
+    In other words, if two elements are equivalent to two others (under 'equiv'), then the truth of 'lt' should be preserved between the pairs.
+
+    With this instance defined, we can use the 'rewrite' tactic to rewrite 'lt' relations.
+*)
+Global Instance ord_lt_proper_eq {A: Set} {ord: Ordered A}:
+  Proper (equiv ==> equiv ==> iff) lt.
+Proof.
+  repeat red. intros.
+  red in H, H0. split; intros.
+  - destruct (cmp y y0); intuition; try red in e.
+    + assert (x == x0). eapply transitivity. eauto. symmetry in e. eapply transitivity; eauto.
+      symmetry in e. eauto. symmetry in H0. assumption.
+      apply neq in H1. intuition auto with *.
+    + destruct (cmp x y0). 
+      assert (lt x y) by (eapply transitivity; eauto). apply neq in H2. auto with *.
+      red in e. rewrite H in e. apply neq in l. auto with *.
+      assert (lt y0 x0) by (eapply transitivity; eauto). apply neq in H2. auto with *.
+  - destruct (cmp x x0); intuition; try red in e.
+    + rewrite H in e. rewrite H0 in e. apply neq in H1. auto with *.
+    + destruct (cmp y x0).
+      assert (lt y x) by (eapply transitivity; eauto). apply neq in H2. auto with *.
+      red in e. rewrite H0 in e. apply neq in H1. auto with *.
+      assert (lt x0 y0) by (eapply transitivity; eauto). apply neq in H2. auto with *.
+Qed.
+Hint Resolve ord_lt_proper_eq.
+
+(* Now we can apply rewrite on `lt`. *)
+Example rewrite_lt: forall {A: Set} {ord: Ordered A} (a b c d: A),
+  a == b -> c == d -> lt a c -> lt b d.
+Proof.
+  intros. rewrite H, H0 in H1. assumption.
 Qed.
 
 Global Instance order_irreflexive: forall {A: Set} {ord: Ordered A} (a: A),
   Irreflexive lt.
   intros. unfold Irreflexive. unfold complement. unfold Reflexive. intros.
   apply order_is_irreflexive in H. assumption.
-Defined.
+Qed.
 
 Definition nat_dec : forall (a b: nat), {a < b} + {a = b} + {b < a}.
+Proof.
  intros. pose (lt_eq_lt_dec a b).
  destruct s; auto; destruct s; auto.
 Qed.
 
 Definition nat_eq (a b: nat): Prop := a = b.
 Definition nat_lt (a b: nat): Prop := a < b.
-Definition nat_lt_trans: Transitive nat_lt.
-Proof.
+Global Instance nat_lt_trans: Transitive nat_lt.
   unfold Transitive.
   intros.
   unfold nat_lt in *.
   lia.
-Qed.
+Defined.
 
 Global Instance nat_ordered: Ordered nat.
 refine (
@@ -187,6 +227,17 @@ Proof.
   intros. split. inversion H. auto.
   inversion H. reflexivity.
 Qed.
+Hint Resolve string_eq_two_parts.
+
+Lemma ord_dec {A: Set} {O: Ordered A} : forall (lhs rhs: A), decidable (lt lhs rhs).
+Proof.
+  intros. red. destruct (cmp lhs rhs).
+  - left. assumption.
+  - red in e. right. unfold not. intros. apply neq in H. intuition.
+  - right. unfold not. intros. assert (lt lhs lhs) by (eapply transitivity in l; eauto).
+    apply order_is_irreflexive in H0. assumption.
+Qed.
+(* Hint Resolve ord_dec. *)
 
 Definition string_eq_setoid: Setoid string.
 refine (@Build_Setoid _ string_eq _).
@@ -204,7 +255,7 @@ Defined.
 
 Global Instance string_eq_equiv: Equivalence string_eq.
   apply string_eq_setoid.
-Qed.
+Defined.
 
 Global Instance string_ordered: Ordered string.
 refine (

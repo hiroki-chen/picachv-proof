@@ -9,7 +9,6 @@ Require Import Lia.
 Require Import Decidable.
 
 Require Import ordering.
-Require Import policy.
 
 (* Logical connections. *)
 Inductive LogOp: Type := And | Or.

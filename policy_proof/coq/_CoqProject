@@ -1,8 +1,8 @@
 -R . PolicyCarryingData
+lattice.v
 finite_bags.v
 types.v
 query.v
-lattice.v
 ordering.v
 data_model.v
 formula.v

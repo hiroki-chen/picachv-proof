@@ -22,6 +22,8 @@
      In CPP'19.
 *)
 
+Require Import RelationClasses.
+Require Import SetoidClass.
 Require Import List.
 
 Require Import ordering.
@@ -257,14 +259,27 @@ Section FB.
 
   Definition elements' (b: fbag): list elt := b.
 
-  Global Instance fbag_is_ordered: Ordered fbag.
+  Global Instance fbag_eq_setoid: Setoid fbag.
   refine (
-    @Build_Ordered fbag _ _ _ _ _
+    @Build_Setoid _ equal' _
   ).
-  Admitted.
-
-  Global Instance fbag_is_finite_bag: FiniteBag fbag fbag_is_ordered.
-    econstructor.
-  Admitted.
+    constructor.
+    - unfold Reflexive. intros. induction x; try intuition auto with *.
+      simpl in *. destruct (cmp a a); intuition; apply neq in l; intuition auto with *.
+    - unfold Symmetric. induction x; destruct y; auto. intros.
+      simpl in *. destruct (cmp e a); destruct (cmp a e);
+      try assumption; try red in e0; try apply neq in l; auto with *.
+    - unfold Transitive. induction x; destruct y; destruct z; auto with *.
+      intuition. simpl in *.
+      destruct (cmp a e); destruct (cmp e e0); destruct (cmp a e0);
+      try intuition auto with *.
+      + apply neq in l. red in e1. red in e2. eapply transitivity in e2. eauto. assumption.
+      + specialize (IHx _ _ H H0). assumption.
+      + destruct (SetoidDec.equiv_dec e0 a).
+        * apply neq in l. intuition.
+        * apply neq in l. intuition.
+          red in e1. red in e2. assert (a == e0). eapply transitivity. eauto. assumption.
+          symmetry in H1. intuition.
+Defined.
 
 End FB.

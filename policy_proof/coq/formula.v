@@ -18,9 +18,22 @@ Inductive predicate (ty: Tuple.tuple_type) (t: basic_type): Type :=
   | predicate_not: predicate ty t -> predicate ty t
 .
 
+Inductive simple_predicate (bt: basic_type): Set :=
+  | simple_predicate_true: simple_predicate bt
+  | simple_predicate_false: simple_predicate bt
+  (* cell ? basic_type *)
+  | simple_predicate_com: ComOp -> (type_to_coq_type bt) -> simple_predicate bt
+  | simple_predicate_not: simple_predicate bt -> simple_predicate bt
+.
+
 Inductive formula (ty: Tuple.tuple_type) :=
   | formula_con: LogOp -> formula ty -> formula ty -> formula ty
   | formula_predicate: forall bt, predicate ty bt -> formula ty
+.
+
+Inductive simple_formula (bt: basic_type) :=
+  | simple_formula_con: LogOp -> simple_formula bt -> simple_formula bt -> simple_formula bt
+  | simple_formula_predicate: simple_predicate bt -> simple_formula bt
 .
 
 Definition atomic_expression_denote (ty: Tuple.tuple_type) (t: basic_type) (a: atomic_expression ty t):
@@ -71,6 +84,38 @@ Fixpoint predicate_denote (bt: basic_type) (ty: Tuple.tuple_type) (p: predicate 
       * exact false.
       * exact true.
   - rename H into tp. exact (negb (predicate_denote bt ty p tp)).
+Defined.
+
+Fixpoint simple_predicate_denote (bt: basic_type) (p: simple_predicate bt): type_to_coq_type bt -> bool.
+  intros. destruct p.
+  - exact true.
+  - exact false.
+  (* Inductive ComOp: Type := Gt | Lt | Ge | Le | Eq | Neq.*)
+  - destruct c; rename t into lhs; rename H into rhs; destruct (cmp lhs rhs).
+      * exact false.
+      * exact false.
+      * exact true.
+
+      * exact true.
+      * exact false.
+      * exact false.
+
+      * exact false.
+      * exact true.
+      * exact true.
+
+      * exact true.
+      * exact true.
+      * exact false.
+
+      * exact false.
+      * exact true.
+      * exact false.
+
+      * exact true.
+      * exact false.
+      * exact true.
+  - exact (negb (simple_predicate_denote bt p H)).
 Defined.
 
 Fixpoint formula_denote (ty: Tuple.tuple_type) (f: formula ty) {struct f}: Tuple.tuple ty -> bool :=
@@ -136,4 +181,17 @@ Proof.
   - reflexivity.
   - inversion e.
   - reflexivity.
+Qed.
+
+Require Import ordering.
+Example simple_cell := ("abcd"%string, Policy.policy_bot).
+Example simple_predicate': simple_predicate StringType :=
+  simple_predicate_com StringType Eq "abcd"%string.
+
+Definition result:= simple_predicate_denote StringType simple_predicate'.
+
+Lemma result_is_true: result (fst simple_cell) = true.
+Proof.
+  simpl. unfold result. unfold simple_predicate'. unfold simple_predicate_denote.
+  destruct (cmp _ _); str_eq.
 Qed.
