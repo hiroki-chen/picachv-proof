@@ -180,6 +180,12 @@ refine (
 ).
 Defined.
 
+Global Instance policy_ordered: Ordered policy.
+refine (
+  @Build_Ordered policy policy_setoid flowsto _ _ _
+).
+Admitted.
+
 (* The active policy context. *)
 Definition policy_encoding := (option policy * option policy)%type.
 Definition context := list (nat * policy_encoding)%type.
@@ -230,7 +236,7 @@ Fixpoint tuple_np (ty: tuple_type_np): Set :=
 
 Fixpoint tuple_lt (ty: tuple_type): forall (lhs rhs: tuple ty), Prop :=
   match ty return forall (lhs rhs: tuple ty), Prop with
-    | nil => fun _ _ => True
+    | nil => fun _ _ => False
     | (bt, _) :: t' => fun lhs rhs => lt (fst (fst lhs)) (fst (fst rhs)) \/
       (fst (fst lhs)) == (fst (fst rhs)) /\ tuple_lt t' (snd lhs) (snd rhs)
   end.
@@ -285,6 +291,14 @@ Proof.
     (* Just use existing component to construct the given type. *)
     simpl in *. destruct a; destruct lhs; constructor; auto.
 Defined.
+
+Global Instance tuple_concat_proper_eq (ty1 ty2: tuple_type):
+  Proper (equiv ==> equiv ==> equiv) (tuple_concat ty1 ty2).
+Proof.
+  unfold Proper, respectful. induction ty1; destruct ty2; auto.
+  - simpl in IHty1. intros. rewrite H0. rewrite H. reflexivity.
+  - simpl in IHty1. intros. rewrite H0. rewrite H. reflexivity.
+Qed.
 
 Fixpoint tuple_value_eq (ty: tuple_type): forall (lhs rhs: tuple ty), Prop :=
   match ty return (forall (lhs rhs: tuple ty), Prop) with
@@ -342,7 +356,7 @@ Proof.
   - simpl in *. lia.
   - simpl in *. lia.
 Defined.
-  
+
 Definition nth_col_tuple: forall (ty: tuple_type) (n : nat) (extract: n < length ty), tuple ty -> tuple ((nth ty n extract) :: nil).
 refine (
   fix nth_col_tuple' (ty: tuple_type) (n : nat): forall (extract: n < length ty),
@@ -356,6 +370,13 @@ refine (
 Proof.
   simpl in *. lia.
 Defined.
+
+Global Instance nth_col_tuple_proper_eq
+(ty: tuple_type) (n: nat) (extract: n < length ty):
+  Proper (equiv ==> equiv) (nth_col_tuple ty n extract).
+Proof.
+  unfold Proper, respectful. intros. rewrite H. reflexivity.
+Qed.
 
 (* Without `policy` extracted! *)
 Definition nth_np: forall (ty: tuple_type) (n: nat) (extract: n < length ty), basic_type.
@@ -377,6 +398,13 @@ refine (
 simpl in *. lia.
 Defined.
 
+Global Instance nth_col_tuple_np_proper_eq
+(ty: tuple_type) (n: nat) (extract: n < length ty):
+  Proper (equiv ==> equiv) (nth_col_tuple_np ty n extract).
+Proof.
+  unfold Proper, respectful. intros. rewrite H. reflexivity.
+Qed.
+
 Global Instance tuple_is_setoid (ty: tuple_type): Setoid (tuple ty).
   exists (tuple_total_eq ty).
   apply tuple_total_eq_eqv.
@@ -397,17 +425,42 @@ refine(
       specialize (IHty _ _ _ H2 H3). right. split. reflexivity. assumption.
 
       (* Boolean *)
-      intros. simpl in *. intuition. left. eapply transitivity; eauto.
-      left. rewrite <- H0. assumption.
-      left. rewrite H. assumption.
-      right. split; eapply transitivity; eauto.
+      intros. simpl in *. intuition.
+      left. eapply transitivity; eauto.
+      left. rewrite H0 in H1. assumption.
+      left. rewrite <- H in H1. assumption.
+      right. rewrite <- H0. split. auto.
+      specialize (IHty _ _ _ H2 H3). assumption.
 
       (* String *)
       intros. simpl in *. intuition.
       left. eapply transitivity; eauto.
-      left. subst.
+      left. rewrite H0 in H1. assumption.
+      left. rewrite <- H in H1. assumption.
+      right. rewrite <- H0. split. auto.
+      specialize (IHty _ _ _ H2 H3). assumption.
 
-A
+  - intros. simpl. unfold complement.
+    induction ty.
+    + simpl in H. exfalso. assumption.
+    + intros. destruct a; destruct c; simpl in *. intuition.
+      * rewrite H1 in H2. inversion H2; lia.
+      * specialize (IHty _ _ H4 H3). assumption.
+      * intuition. rewrite H1 in H2. inversion H2.
+        assert (false = true) by (eapply transitivity; eauto). inversion H5.
+        specialize (IHty _ _ H4 H3). assumption.
+      * intuition. rewrite H1 in H2. apply asymmetry in H2; assumption.
+        specialize (IHty _ _ H4 H3). assumption.
+
+  - destruct ty.
+    + intros. apply OrderedType.EQ. red. reflexivity.
+    + intros. destruct c; destruct c.
+      simpl in lhs, rhs. intuition.
+      destruct (cmp a1 a).
+      * apply OrderedType.LT. red. simpl. left. assumption.
+      *
+
+Admitted.
 
 Definition example_tuple_lhs : tuple example_tuple_ty := (("abcd"%string, Policy.policy_bot), ((true, Policy.policy_bot), tt)).
 Definition example_tuple_rhs : tuple example_tuple_ty := (("abcd"%string, Policy.policy_bot), ((true, Policy.policy_bot), tt)).

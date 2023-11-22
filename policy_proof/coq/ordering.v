@@ -23,20 +23,7 @@ Class Ordered (A: Set) := {
   cmp: forall lhs rhs: A, Compare lt equiv lhs rhs;
 }.
 
-Global Instance eq_dec {A: Set} {ord: Ordered A}: EqDec eq.
-  red.
-  intros. destruct (cmp x y); intuition.
-  - right. apply neq. assumption.
-  - right. symmetry. apply neq. assumption.
-Defined.
-
-Global Instance eq_dec_setoid {A: Set} {ord: Ordered A}: DecidableSetoid eq.
-  red. intros.
-  unfold Decidable.decidable. unfold complement.
-  destruct (equiv_dec x y).
-  left. assumption.
-  right. unfold not. intros. intuition.
-Defined.
+Definition le {A: Set} {ord: Ordered A} (lhs rhs: A):= lt lhs rhs \/ lhs == rhs.
 
 Theorem order_is_irreflexive: forall {A: Set} {ord: Ordered A} (a: A),
   ~ lt a a.
@@ -51,6 +38,31 @@ Proof.
   rewrite H0 in H.
   apply order_is_irreflexive in H. assumption.
 Qed.
+
+Lemma le_dec {A: Set} {ord: Ordered A} (lhs rhs: A): decidable (le lhs rhs).
+Proof.
+  red. destruct (cmp lhs rhs); unfold le in *.
+  - left. left. assumption.
+  - left. right. assumption.
+  - right. unfold not. intros. destruct H.
+    + apply asymmetry in l; assumption.
+    + apply neq in l. auto with *.
+Qed.
+
+Global Instance eq_dec {A: Set} {ord: Ordered A}: EqDec eq.
+  red.
+  intros. destruct (cmp x y); intuition.
+  - right. apply neq. assumption.
+  - right. symmetry. apply neq. assumption.
+Defined.
+
+Global Instance eq_dec_setoid {A: Set} {ord: Ordered A}: DecidableSetoid eq.
+  red. intros.
+  unfold Decidable.decidable. unfold complement.
+  destruct (equiv_dec x y).
+  left. assumption.
+  right. unfold not. intros. intuition.
+Defined.
 
 (*
     This instance ensures that the 'lt' relation is proper with respect to the equivalence relation 'equiv'. 
@@ -79,6 +91,39 @@ Proof.
       assert (lt x0 y0) by (eapply transitivity; eauto). apply neq in H2. auto with *.
 Qed.
 Hint Resolve ord_lt_proper_eq.
+
+Global Instance le_proper_eq {A: Set} {ord: Ordered A}:
+  Proper (equiv ==> equiv ==> iff) le.
+Proof.
+  repeat red. intros. split; intros; unfold le in *; unfold equiv in *.
+  - destruct H1.
+    + left. rewrite <- H, <- H0. assumption.
+    + right. rewrite <- H, <- H0. assumption.
+  - destruct H1.
+    + left. rewrite H, H0. assumption.
+    + right. rewrite H, H0. assumption.
+Qed.
+
+Global Instance le_proper_lt {A: Set} {ord: Ordered A}:
+  Proper (lt --> lt ++> impl) le.
+Proof.
+  repeat red. intros; unfold flip in H.
+  unfold le in *.
+  destruct H1.
+  - left. eapply transitivity; eauto; eapply transitivity; eauto.
+  - rewrite <- H1 in H0. left. eapply transitivity; eauto.
+Qed.
+
+Global Instance lt_proper_le {A: Set} {ord: Ordered A}:
+  Proper (le --> le ++> impl) lt.
+Proof.
+  unfold Proper, respectful, flip, impl, le. intros.
+  destruct H0; destruct H.
+  - eapply transitivity; eauto; eapply transitivity; eauto.
+  - rewrite <- H in H1. eapply transitivity; eauto.
+  - rewrite H0 in H1. eapply transitivity; eauto.
+  - rewrite H0 in H1. rewrite <- H in H1. assumption.
+Qed.
 
 (* Now we can apply rewrite on `lt`. *)
 Example rewrite_lt: forall {A: Set} {ord: Ordered A} (a b c d: A),
@@ -123,10 +168,11 @@ Defined.
 
 Definition bool_eq (lhs rhs: bool): Prop := lhs = rhs.
 Definition bool_lt (lhs rhs: bool): Prop := lhs = false /\ rhs = true.
-Definition bool_trans : Transitive bool_lt.
+Global Instance bool_trans : Transitive bool_lt.
   unfold Transitive. intros.
   unfold bool_lt in *. intuition.
 Defined.
+
 
 Global Instance bool_ordered: Ordered bool.
 refine (
@@ -141,6 +187,13 @@ refine (
     + apply LT. unfold bool_lt. auto.
     + apply EQ. unfold equiv. auto.
 Defined.
+
+
+Example rewrite_lt': forall (a b c d: bool),
+  a == b -> c == d -> lt a c -> lt b d.
+Proof.
+  intros. rewrite H, H0 in H1. assumption.
+Qed.
 
 Definition to_lower (a' : ascii) : ascii :=
   let a := nat_of_ascii a' in
@@ -197,7 +250,7 @@ Fixpoint string_lt (lhs rhs: string): Prop :=
     | _, _ => False
   end.
 
-Definition string_eq_trans: Transitive string_eq.
+Global Instance string_eq_trans: Transitive string_eq.
   unfold Transitive.
   (* Intros y z makes y, z dependent but they should remain universal. *)
   induction x; destruct y; destruct z; try auto with *.
@@ -208,7 +261,7 @@ Definition string_eq_trans: Transitive string_eq.
   - specialize (IHx _ _ H1 H2). trivial.
 Defined.
 
-Definition string_lt_trans: Transitive string_lt.
+Global Instance string_lt_trans: Transitive string_lt.
   unfold Transitive.
   induction x; destruct y; destruct z; try auto with *; simpl in *; intros;
     try destruct H0; try destruct H.
@@ -277,4 +330,26 @@ refine (
         -- apply EQ. simpl in *. split. assumption. assumption.
         -- apply GT. simpl in *. right. split. unfold equiv in *. unfold char_eq in *. lia. assumption.
       * apply GT. simpl in *. left. assumption.
+Defined.
+
+Global Instance string_lt_eq_proper: Proper (equiv ==> equiv ==> iff) string_lt.
+Admitted.
+Global Instance string_lt_antisym: Asymmetric string_lt.
+Admitted.
+
+
+Definition unit_eq (_ _: unit) : Prop := True.
+Definition unit_lt (_ _: unit) : Prop := False.
+
+Global Instance unit_lt_trans : Transitive unit_lt.
+  unfold Transitive. unfold unit_lt. intros. contradiction.
+Defined.
+
+Global Instance unit_ordered: Ordered unit.
+refine (
+  @Build_Ordered unit (eq_setoid unit) unit_lt unit_lt_trans _ _
+).
+  unfold unit_lt. unfold complement. intros. contradiction.
+  intros. destruct lhs; destruct rhs; simpl; auto.
+  apply EQ. unfold equiv. reflexivity.
 Defined.
