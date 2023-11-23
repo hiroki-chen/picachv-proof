@@ -250,6 +250,14 @@ Fixpoint string_lt (lhs rhs: string): Prop :=
     | _, _ => False
   end.
 
+Global Instance string_lt_eq_proper:
+  Proper (string_eq ==> string_eq ==> iff) string_lt.
+Admitted.
+
+Global Instance string_lt_eq_proper':
+  Proper (equiv ==> equiv ==> iff) string_lt.
+Admitted.
+
 Global Instance string_eq_trans: Transitive string_eq.
   unfold Transitive.
   (* Intros y z makes y, z dependent but they should remain universal. *)

@@ -524,7 +524,7 @@ Definition example_tuple_rhs : tuple example_tuple_ty := (("abcd"%string, Policy
 
 Example example_tuple_total_eq: tuple_total_eq example_tuple_ty example_tuple_lhs example_tuple_lhs.
 Proof.
-  simpl. repeat split.
+  simpl. repeat split; simpl; reflexivity.
 Qed.
 
 End Tuple.
