@@ -403,6 +403,14 @@ Definition pair_lt {A B: Set} {ordA: Ordered A} {ordB: Ordered B} (lhs rhs: A * 
 Definition pair_eq {A B: Set} {ordA: Ordered A} {ordB: Ordered B} (lhs rhs: A * B): Prop :=
   fst lhs == fst rhs /\ snd lhs == snd rhs.
 
+Global Instance pair_eq_equiv {A B: Set} {ordA: Ordered A} {ordB: Ordered B}: Equivalence pair_eq.
+  constructor.
+  - unfold Reflexive. unfold pair_eq. auto. intros. split; reflexivity.
+  - unfold Symmetric. unfold pair_eq. intros. destruct H. split; symmetry; assumption.
+  - unfold Transitive. intros. unfold pair_eq in *.
+    split; destruct H, H0; eapply transitivity; eauto.
+Defined.
+
 Global Instance pair_eq_setoid {A B: Set} {ordA: Ordered A} {ordB: Ordered B}: Setoid (A * B).
 refine (@Build_Setoid _ pair_eq _).
   constructor.
@@ -441,4 +449,33 @@ refine (
       * apply EQ. unfold pair_eq. simpl. split. assumption. assumption.
       * apply GT. unfold pair_lt. simpl. right. split. auto with *. assumption.
     + apply GT. unfold pair_lt. simpl. left. assumption.
+Defined.
+
+Global Instance pair_fst_proper_eq {A B: Set} {ordA: Ordered A} {ordB: Ordered B}:
+  Proper (equiv ==> equiv) (@fst A B).
+Proof.
+  unfold Proper, respectful. intros. destruct H. assumption.
+Qed.
+
+Global Instance pair_snd_proper_eq {A B: Set} {ordA: Ordered A} {ordB: Ordered B}:
+  Proper (equiv ==> equiv) (@snd A B).
+Proof.
+  unfold Proper, respectful. intros. destruct H. assumption.
+Qed.
+
+(* make_pair should be proper. *)
+Global Instance make_pair_proper_eq {A B: Set} {ordA: Ordered A} {ordB: Ordered B}:
+  Proper (equiv ==> equiv ==> equiv) (@pair A B).
+Proof.
+  unfold Proper, respectful. intros.
+  destruct (cmp x y); destruct (cmp x0 y0).
+  - apply neq in H0, l0. contradiction. assumption.
+  - apply neq in l. contradiction.
+  - apply neq in l0. auto with *.
+  - apply neq in l. auto with *.
+  - unfold equiv. simpl. unfold pair_eq. split; simpl; auto.
+  - apply neq in l. auto with *.
+  - apply neq in l0. auto with *.
+  - apply neq in l. auto with *.
+  - apply neq in l0. auto with *.
 Defined.

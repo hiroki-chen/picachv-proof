@@ -211,6 +211,12 @@ Definition cell_denote (c: cell): Set := (type_to_coq_type (fst c) * Policy.poli
 
 Definition cell_inject_policy (c: clean_cell) (p: Policy.policy): cell := (c, p).
 
+Global Instance cell_denote_eq_propers:
+  Proper (equiv ==> equiv) (cell_denote).
+Proof.
+  unfold Proper, respectful. intros. unfold cell_denote. rewrite H. reflexivity.
+Qed.
+
 End Cell.
 
 Module Tuple.
@@ -239,6 +245,13 @@ Fixpoint tuple_value_lt (ty: tuple_type): forall (lhs rhs: tuple ty), Prop :=
     | nil => fun _ _ => False
     | (bt, _) :: t' => fun lhs rhs => lt (fst (fst lhs)) (fst (fst rhs)) \/
       (fst (fst lhs)) == (fst (fst rhs)) /\ tuple_value_lt t' (snd lhs) (snd rhs)
+  end.
+
+Fixpoint tuple_total_lt (ty: tuple_type): forall (lhs rhs: tuple ty), Prop :=
+  match ty return forall (lhs rhs: tuple ty), Prop with
+    | nil => fun _ _ => False
+    | (bt, _) :: t' => fun lhs rhs => lt (fst lhs) (fst rhs) \/
+      (fst lhs) == (fst rhs) /\ tuple_total_lt t' (snd lhs) (snd rhs)
   end.
 
 (* todo. *)
@@ -311,7 +324,7 @@ Fixpoint tuple_total_eq (ty: tuple_type): forall (lhs rhs: tuple ty), Prop :=
   match ty return (forall (lhs rhs: tuple ty), Prop) with
     | nil => fun _ _ => True
     | (h, p) :: tl => fun lhs rhs => 
-      (fst lhs) == (fst rhs) /\ (snd lhs) == (snd rhs) /\ tuple_total_eq tl (snd lhs) (snd rhs)
+      (fst lhs) == (fst rhs) /\ tuple_total_eq tl (snd lhs) (snd rhs)
   end. 
 
 Definition tuple_value_eq_eqv (ty: tuple_type): Equivalence (tuple_value_eq ty).
@@ -342,20 +355,18 @@ Definition tuple_total_eq_eqv (ty: tuple_type): Equivalence (tuple_total_eq ty).
   - unfold Transitive.
     intros. induction ty. auto. destruct a. destruct c.
     simpl in *. intuition; unfold pair_eq in *; intuition; auto with *.
-      + rewrite H3. assumption.
-      + rewrite H6. assumption.
       + rewrite H0. assumption.
-      + eapply IHty in H5; eauto.
-      + simpl in *. intuition; unfold pair_eq in *; intuition; auto with *.
-        * rewrite H3. assumption.
-        * rewrite H6. assumption.
-        * rewrite H0. assumption.
-        * eapply IHty in H5; eauto.
-      + simpl in *. intuition; unfold pair_eq in *; intuition; auto with *.
-        * rewrite H3. assumption.
-        * rewrite H6. assumption.
-        * rewrite H0. assumption.
-        * eapply IHty in H5; eauto.
+      + rewrite H4. assumption.
+      + specialize (IHty _ _ _ H2 H3). assumption.
+      
+      + simpl in *. unfold pair_eq in *. intuition.
+        -- rewrite H0. assumption.
+        -- rewrite H4. assumption.
+        -- specialize (IHty _ _ _ H2 H3). assumption.
+      + simpl in *. unfold pair_eq in *. intuition.
+        -- rewrite H0. assumption.
+        -- rewrite H4. assumption.
+        -- specialize (IHty _ _ _ H2 H3). assumption.
 Defined.
 
 Definition nth: forall (ty: tuple_type) (n: nat) (extract: n < length ty), Cell.cell.
@@ -420,7 +431,7 @@ Proof.
   unfold Proper, respectful. intros. rewrite H. reflexivity.
 Qed.
 
-Global Instance tuple_is_setoid (ty: tuple_type): Setoid (tuple ty).
+Global Instance tuple_total_eq_setoid (ty: tuple_type): Setoid (tuple ty).
   exists (tuple_total_eq ty).
   apply tuple_total_eq_eqv.
 Defined.
@@ -483,41 +494,128 @@ Global Instance tuple_value_lt_trans (ty: tuple_type): Transitive (tuple_value_l
     specialize (IHty _ _ _ H2 H3). assumption.
 Defined.
 
-(* Partial comparison does not guarantee that tuples are `equiv` if `lt x y` and `lt y x`. *)
-(* TODO: Change this to total comparison and establish equivalance between `tuple` and `tuple_np`. *)
-Lemma tuple_value_eq_equiv: forall (ty: tuple_type) (lhs rhs: tuple ty),
-  Equivalence.equiv lhs rhs <-> tuple_value_eq ty lhs rhs.
-Proof.
-Admitted.
+Global Instance tuple_total_lt_trans (ty: tuple_type): Transitive (tuple_total_lt ty).
+  unfold Transitive. induction ty.
+  - intros. auto.
+  - destruct a; destruct c. 
+    + simpl in *. unfold pair_lt, pair_eq in *. intuition.
+      * left. left. eapply transitivity; eauto.
+      * left. left. rewrite H in H0. assumption.
+      * left. left. rewrite <- H1 in H0. assumption.
+      * left. right. split.
+        -- rewrite H1. assumption.
+        -- eapply transitivity; eauto.
+      * left. left. rewrite <- H. assumption.
+      * left. right. split.
+        -- rewrite H1. assumption.
+        -- rewrite H3 in H4. assumption.
+      * left. left. rewrite H1. assumption.
+      * left. right. split.
+        -- rewrite H1. assumption.
+        -- rewrite <- H3 in H4. assumption.
+      * right. repeat split.
+        -- rewrite H1. assumption.
+        -- rewrite <- H5. assumption.
+        -- specialize (IHty _ _ _ H2 H4). assumption.
 
-Global Instance tuple_is_ordered_by_value (ty: tuple_type): Ordered (tuple ty).
+    + simpl in *. unfold pair_lt, pair_eq in *. intuition.
+      * left. left. eapply transitivity; eauto.
+      * left. left. rewrite H in H0. assumption.
+      * left. left. rewrite <- H1 in H0. assumption.
+      * left. right. split.
+        -- rewrite H1. assumption.
+        -- eapply transitivity; eauto.
+      * left. left. rewrite <- H. assumption.
+      * left. right. split.
+        -- rewrite H1. assumption.
+        -- rewrite H3 in H4. assumption.
+      * left. left. rewrite H1. assumption.
+      * left. right. split.
+        -- rewrite H1. assumption.
+        -- rewrite <- H3 in H4. assumption.
+      * right. repeat split.
+        -- rewrite H1. assumption.
+        -- rewrite <- H5. assumption.
+        -- specialize (IHty _ _ _ H2 H4). assumption.
+
+(* TODO: REDUCE DUPLICATE CODE. *)
+    + simpl in *. unfold pair_lt, pair_eq in *. intuition.
+      * left. left. eapply transitivity; eauto.
+      * left. left. rewrite H in H0. assumption.
+      * left. left. rewrite <- H1 in H0. assumption.
+      * left. right. split.
+        -- rewrite H1. assumption.
+        -- eapply transitivity; eauto.
+      * left. left. rewrite <- H. assumption.
+      * left. right. split.
+        -- rewrite H1. assumption.
+        -- rewrite H3 in H4. assumption.
+      * left. left. rewrite H1. assumption.
+      * left. right. split.
+        -- rewrite H1. assumption.
+        -- rewrite <- H3 in H4. assumption.
+      * right. repeat split.
+        -- rewrite H1. assumption.
+        -- rewrite <- H5. assumption.
+        -- specialize (IHty _ _ _ H2 H4). assumption.
+Defined.
+
+Global Instance tuple_is_total_ordered (ty: tuple_type): Ordered (tuple ty).
 refine(
   @Build_Ordered
   (tuple ty)
-  (tuple_is_setoid ty)
-  (tuple_value_lt ty)
-  (tuple_value_lt_trans ty)
+  (tuple_total_eq_setoid ty)
+  (tuple_total_lt ty)
+  (tuple_total_lt_trans ty)
   _ _
 ).
   - intros. simpl. unfold complement.
     induction ty.
     + simpl in H. exfalso. assumption.
-    + intros. destruct a; destruct c; simpl in *. intuition.
-      unfold pair_eq in *. intuition. rewrite H in H2. inversion H2. lia. lia.
-      eapply IHty in H3; auto.
-      intuition. unfold pair_eq in *. intuition.
-      rewrite H in H2. inversion H2. rewrite H1 in H5. inversion H5.
-      eapply IHty in H3; auto.
-      intuition. unfold pair_eq in *. intuition.
-      rewrite H in H2. apply asymmetry in H2. auto. auto.
-      eapply IHty in H3; auto.
+    + intros. destruct a; destruct c; simpl in *; unfold pair_lt, pair_eq in *; intuition.
+      * rewrite H0 in H. apply neq in H. auto with *.
+      * rewrite H3 in H4. apply neq in H4. auto with *.
+      * specialize (IHty _ _ H4 H2). assumption.
 
-    - intros. induction ty.
-      + apply OrderedType.EQ. simpl. apply unit_eq_equiv. exact lhs.
-      + destruct a; destruct c; simpl in *; intuition; destruct (cmp a a0).
-        * apply OrderedType.LT. simpl. auto. unfold nat_lt in *. 
-       (*TODO: MAKE IT TOTAL ORDER  *)
-Admitted.
+      * rewrite H0 in H. apply neq in H. auto with *.
+      * rewrite H3 in H4. apply neq in H4. auto with *.
+      * specialize (IHty _ _ H4 H2). assumption.
+
+      * rewrite H0 in H. apply neq in H. auto with *.
+      * rewrite H3 in H4. apply neq in H4. auto with *.
+      * specialize (IHty _ _ H4 H2). assumption.
+  
+  - induction ty.
+    + intros. apply OrderedType.EQ. apply unit_eq_equiv. auto.
+    + intros. destruct a; destruct c.
+      * destruct (cmp (fst lhs) (fst rhs)).
+        -- apply OrderedType.LT. simpl. auto.
+        -- destruct (IHty (snd lhs) (snd rhs)).
+          apply OrderedType.LT. simpl. auto.
+          apply OrderedType.EQ. simpl. split; auto.
+          apply OrderedType.GT. simpl. auto.
+          unfold pair_lt, pair_eq in *. right.
+          repeat split; try rewrite e; try reflexivity; assumption.
+        -- apply OrderedType.GT. simpl. auto.
+      * destruct (cmp (fst lhs) (fst rhs)).
+        -- apply OrderedType.LT. simpl. auto.
+        -- destruct (IHty (snd lhs) (snd rhs)).
+          apply OrderedType.LT. simpl. auto.
+          apply OrderedType.EQ. simpl. split; auto.
+          apply OrderedType.GT. simpl. auto.
+          unfold pair_lt, pair_eq in *. right.
+          repeat split; try rewrite e; try reflexivity; assumption.
+        -- apply OrderedType.GT. simpl. auto.
+      * destruct (cmp (fst lhs) (fst rhs)).
+        -- apply OrderedType.LT. simpl. auto.
+        -- destruct (IHty (snd lhs) (snd rhs)).
+          apply OrderedType.LT. simpl. auto.
+          apply OrderedType.EQ. simpl. split; auto.
+          apply OrderedType.GT. simpl. auto.
+          unfold pair_lt, pair_eq in *. right.
+          repeat split; try rewrite e; try reflexivity; assumption.
+        -- apply OrderedType.GT. simpl. auto. 
+Defined.
 
 Definition example_tuple_lhs : tuple example_tuple_ty := (("abcd"%string, Policy.policy_bot), ((true, Policy.policy_bot), tt)).
 Definition example_tuple_rhs : tuple example_tuple_ty := (("abcd"%string, Policy.policy_bot), ((true, Policy.policy_bot), tt)).
