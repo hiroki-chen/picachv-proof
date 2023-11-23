@@ -282,6 +282,17 @@ Proof.
 Qed.
 Hint Resolve string_eq_two_parts.
 
+Lemma string_eq_two_parts': forall (lhs rhs: string) (a b: ascii),
+  String a lhs == String b rhs -> a == b /\ lhs == rhs.
+Proof.
+  induction a.
+  split. inversion H. auto.
+  inversion H. reflexivity.
+  induction rhs. simpl. simpl in H. inversion H. auto.
+  inversion H. subst. reflexivity.
+Qed.
+Hint Resolve string_eq_two_parts'.
+
 Lemma ord_dec {A: Set} {O: Ordered A} : forall (lhs rhs: A), decidable (lt lhs rhs).
 Proof.
   intros. red. destruct (cmp lhs rhs).
@@ -332,14 +343,29 @@ refine (
       * apply GT. simpl in *. left. assumption.
 Defined.
 
-Global Instance string_lt_eq_proper: Proper (equiv ==> equiv ==> iff) string_lt.
-Admitted.
 Global Instance string_lt_antisym: Asymmetric string_lt.
-Admitted.
-
+  repeat red.
+  induction x; destruct y.
+  - auto.
+  - auto.
+  - auto.
+  - simpl. intuition.
+    + unfold char_lt in *. unfold char_eq in *. lia.
+    + unfold char_lt in *. unfold char_eq in *. lia.
+    + unfold char_lt in *. unfold char_eq in *. lia.
+    + eapply IHx. eauto. auto.
+Defined.
 
 Definition unit_eq (_ _: unit) : Prop := True.
 Definition unit_lt (_ _: unit) : Prop := False.
+
+Global Instance unit_eq_equiv : Equivalence unit_eq.
+refine (_).
+  constructor.
+  - unfold Reflexive. unfold unit_eq. auto.
+  - unfold Symmetric. unfold unit_eq. auto.
+  - unfold Transitive. unfold unit_eq. auto.
+Defined.
 
 Global Instance unit_lt_trans : Transitive unit_lt.
   unfold Transitive. unfold unit_lt. intros. contradiction.
@@ -352,4 +378,59 @@ refine (
   unfold unit_lt. unfold complement. intros. contradiction.
   intros. destruct lhs; destruct rhs; simpl; auto.
   apply EQ. unfold equiv. reflexivity.
+Defined.
+
+(* 
+  The `pair_lt` function defines a less-than relation for pairs. 
+  A pair is considered less than another if its first element is less than the first element of the other pair, 
+  or if both first elements are equal and the second element of the first pair is less than the second element of the other pair.
+*)
+Definition pair_lt {A B: Set} {ordA: Ordered A} {ordB: Ordered B} (lhs rhs: A * B): Prop :=
+  lt (fst lhs) (fst rhs) \/ (fst lhs == fst rhs /\ lt (snd lhs) (snd rhs)).
+
+(* 
+  The `pair_eq` function defines an equality relation for pairs. 
+  A pair is considered equal to another if both the first and second elements of the pairs are equal.
+*)
+Definition pair_eq {A B: Set} {ordA: Ordered A} {ordB: Ordered B} (lhs rhs: A * B): Prop :=
+  fst lhs == fst rhs /\ snd lhs == snd rhs.
+
+Global Instance pair_eq_setoid {A B: Set} {ordA: Ordered A} {ordB: Ordered B}: Setoid (A * B).
+refine (@Build_Setoid _ pair_eq _).
+  constructor.
+  - unfold Reflexive. unfold pair_eq. auto.
+    intros. split; reflexivity. Unshelve. auto. auto.
+  - unfold Symmetric. unfold pair_eq. intros.
+    destruct H. symmetry in H, H0. auto.
+  - unfold Transitive. unfold pair_eq. intros.
+    destruct H, H0. split.
+    + eapply transitivity; eauto.
+    + eapply transitivity; eauto.
+Defined.
+
+Global Instance pair_ordered {A B: Set} {ordA: Ordered A} {ordB: Ordered B}: Ordered (A * B).
+refine (
+  @Build_Ordered (A * B) pair_eq_setoid pair_lt _ _ _
+).
+  - unfold Transitive.
+    intros. unfold pair_lt in *. intuition.
+    + left. eapply transitivity; eauto.
+    + left. rewrite H0 in H1. assumption.
+    + left. rewrite <- H in H1. assumption.
+    + right. split.
+      * rewrite H0 in H. assumption.
+      * eapply transitivity; eauto.
+
+    Unshelve. auto. auto.
+  - intros. unfold pair_lt in H. intuition. 
+    destruct lhs; destruct rhs; simpl in *; unfold complement, pair_eq in *; intuition.
+    + apply neq in H0. auto.
+    + simpl in *. unfold complement. unfold pair_eq. apply neq in H1. intuition.
+  - intros. destruct lhs; destruct rhs; destruct (cmp a a0).
+    + apply LT. unfold pair_lt. simpl. left. assumption.
+    + destruct (cmp b b0).
+      * apply LT. unfold pair_lt. simpl. right. split. assumption. assumption.
+      * apply EQ. unfold pair_eq. simpl. split. assumption. assumption.
+      * apply GT. unfold pair_lt. simpl. right. split. auto with *. assumption.
+    + apply GT. unfold pair_lt. simpl. left. assumption.
 Defined.
