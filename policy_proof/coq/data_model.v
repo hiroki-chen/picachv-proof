@@ -1,11 +1,8 @@
-(* The policy library. *)
-
 Require Import String.
 Require Import RelationClasses.
 Require Import Lia.
 Require Import SetoidDec.
 Require Import SetoidClass.
-(* Require Import EqNat. *)
 Require Import List.
 
 Require Import lattice.
@@ -327,7 +324,7 @@ Fixpoint tuple_total_eq (ty: tuple_type): forall (lhs rhs: tuple ty), Prop :=
       (fst lhs) == (fst rhs) /\ tuple_total_eq tl (snd lhs) (snd rhs)
   end. 
 
-Definition tuple_value_eq_eqv (ty: tuple_type): Equivalence (tuple_value_eq ty).
+Global Instance tuple_value_eq_eqv (ty: tuple_type): Equivalence (tuple_value_eq ty).
   (* Note that `Equivalence` is a class. *)
   constructor.
   - unfold Reflexive.
@@ -617,6 +614,50 @@ refine(
         -- apply OrderedType.GT. simpl. auto. 
 Defined.
 
+Global Instance tuple_is_ordered_by_value (ty: tuple_type): Ordered (tuple ty).
+refine(
+  @Build_Ordered
+  (tuple ty)
+  (@Build_Setoid _ (tuple_value_eq ty) _)
+  (tuple_value_lt ty) _ _ _
+).
+  intros.
+  simpl. unfold complement. intros.
+  induction ty.
+  - simpl in H. exfalso. assumption.
+  - destruct a; destruct c; simpl in *; unfold pair_lt, pair_eq in *; intuition.
+    * rewrite H1 in H0. unfold nat_lt in H0. auto with *.
+    * specialize (IHty _ _ H3 H2). assumption.
+    * unfold bool_lt in H0. destruct H0. rewrite H in H1. rewrite H0 in H1. inversion H1.
+    * specialize (IHty _ _ H3 H2). assumption.
+    * rewrite H1 in H0. apply string_lt_neq in H0. auto with *.
+    * specialize (IHty _ _ H3 H2). assumption.
+
+  - intros. induction ty.
+    * apply OrderedType.EQ. simpl. red. auto.
+    * destruct a; destruct c; destruct (cmp (fst (fst lhs)) (fst (fst rhs))).
+      + apply OrderedType.LT. simpl. auto.
+      + destruct (IHty (snd lhs) (snd rhs)).
+        apply OrderedType.LT. simpl. auto.
+        apply OrderedType.EQ. simpl. split; auto.
+        apply OrderedType.GT. simpl. auto.
+      + apply OrderedType.GT. simpl. auto.
+      + apply OrderedType.LT. simpl. auto.
+      + destruct (IHty (snd lhs) (snd rhs)).
+        apply OrderedType.LT. simpl. auto.
+        apply OrderedType.EQ. simpl. split; auto.
+        apply OrderedType.GT. simpl. auto.
+      + apply OrderedType.GT. simpl. auto.
+      + apply OrderedType.LT. simpl. auto.
+      + destruct (IHty (snd lhs) (snd rhs)).
+        apply OrderedType.LT. simpl. auto.
+        apply OrderedType.EQ. simpl. split; auto.
+        apply OrderedType.GT. simpl. auto.
+        right. split. rewrite e. reflexivity.
+        assumption.
+      + apply OrderedType.GT. simpl. auto.
+Defined.
+
 Definition example_tuple_lhs : tuple example_tuple_ty := (("abcd"%string, Policy.policy_bot), ((true, Policy.policy_bot), tt)).
 Definition example_tuple_rhs : tuple example_tuple_ty := (("abcd"%string, Policy.policy_bot), ((true, Policy.policy_bot), tt)).
 
@@ -647,3 +688,13 @@ Definition relation: Set := fbag Tuple.tuple_type.
 (* Global Instance relation_is_fbag: FiniteBag Tuple.tuple_type. *)
 
 End Relation.
+
+Section Facts.
+  Context {ty: Tuple.tuple_type}.
+
+  Notation "a <~ b":= (Tuple.tuple_value_lt ty a b) (at level 70, no associativity):
+    type_scope.
+  Notation "a <<~ b":= (Tuple.tuple_total_lt ty a b) (at level 70, no associativity):
+    type_scope.
+
+End Facts.

@@ -250,14 +250,6 @@ Fixpoint string_lt (lhs rhs: string): Prop :=
     | _, _ => False
   end.
 
-Global Instance string_lt_eq_proper:
-  Proper (string_eq ==> string_eq ==> iff) string_lt.
-Admitted.
-
-Global Instance string_lt_eq_proper':
-  Proper (equiv ==> equiv ==> iff) string_lt.
-Admitted.
-
 Global Instance string_eq_trans: Transitive string_eq.
   unfold Transitive.
   (* Intros y z makes y, z dependent but they should remain universal. *)
@@ -289,6 +281,20 @@ Proof.
   inversion H. reflexivity.
 Qed.
 Hint Resolve string_eq_two_parts.
+
+Lemma string_lt_neq: forall (lhs rhs: string),
+  string_lt lhs rhs -> lhs =/= rhs.
+Proof.
+  induction lhs; destruct rhs; simpl; intros; try contradiction; unfold complement.
+  - destruct a. intros. inversion H0.
+  - unfold char_lt, char_eq in *. intros. intuition.
+    + apply string_eq_two_parts in H0. destruct H0. rewrite H in H1. lia.
+    + apply string_eq_two_parts in H0. destruct H0. apply IHlhs in H2. auto with *.
+Qed.
+
+Lemma string_lt_neq': forall (lhs rhs: string),
+  string_lt lhs rhs -> ~ string_eq lhs rhs.
+Admitted.
 
 Lemma string_eq_two_parts': forall (lhs rhs: string) (a b: ascii),
   String a lhs == String b rhs -> a == b /\ lhs == rhs.
@@ -363,6 +369,25 @@ Global Instance string_lt_antisym: Asymmetric string_lt.
     + unfold char_lt in *. unfold char_eq in *. lia.
     + eapply IHx. eauto. auto.
 Defined.
+
+(* 
+   We need to prove that `string_lt` is proper with respect to `string_eq` in order to use `rewrite` on `string_lt`. Although we have proved that `lt` is proper with respect to `equiv`, we cannot use it directly because `string_lt` is not directly defined in terms of `lt`.
+
+   The proof is simple because we already showed that `string` is ordered and `lt` is proper. These two
+   instances are used to let `setoid_rewrite` work since it is ignorant of the fact that `string_lt` is
+   an instance of `lt`.
+ *)
+Global Instance string_lt_eq_proper:
+  Proper (string_eq ==> string_eq ==> iff) string_lt.
+Proof.
+  exact ord_lt_proper_eq.
+Qed.
+
+Global Instance string_lt_eq_proper':
+  Proper (equiv ==> equiv ==> iff) string_lt.
+Proof.
+  exact ord_lt_proper_eq.
+Qed.
 
 Definition unit_eq (_ _: unit) : Prop := True.
 Definition unit_lt (_ _: unit) : Prop := False.
@@ -479,3 +504,5 @@ Proof.
   - apply neq in l. auto with *.
   - apply neq in l0. auto with *.
 Defined.
+
+Notation "a << b":= (lt a b) (at level 70, no associativity): type_scope.
