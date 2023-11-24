@@ -177,11 +177,88 @@ refine (
 ).
 Defined.
 
+Definition policy_lt (lhs rhs: policy): Prop :=
+  flowsto lhs rhs /\ lhs =/= rhs.
+
+Global Instance policy_lt_trans: Transitive policy_lt.
+  unfold Transitive.
+  intros. destruct x; destruct y; destruct z; unfold policy_lt in *; intuition auto with *;
+  unfold "⊑" in *; simpl in *; unfold complement, policy_eq in *; intros; try inversion H0.
+Defined.
+
 Global Instance policy_ordered: Ordered policy.
 refine (
-  @Build_Ordered policy policy_setoid flowsto _ _ _
+  @Build_Ordered policy policy_setoid policy_lt policy_lt_trans _ _
 ).
-Admitted.
+  - intros. simpl. unfold complement, policy_eq, policy_lt in *. intuition auto with *.
+  - intros. destruct lhs; destruct rhs.
+    + apply OrderedType.EQ. apply policy_eq_eqv.
+    + apply OrderedType.LT. unfold policy_lt. unfold "⊑". split; auto with *. simpl. unfold complement. intros.
+      unfold policy_eq in *. inversion H.
+    + apply OrderedType.LT. unfold policy_lt. unfold "⊑". split; auto with *. simpl. unfold complement. intros.
+      unfold policy_eq in *. inversion H.
+    + apply OrderedType.LT. unfold policy_lt. unfold "⊑". split; auto with *. simpl. unfold complement. intros.
+      unfold policy_eq in *. inversion H.
+    + apply OrderedType.LT. unfold policy_lt. unfold "⊑". split; auto with *. simpl. unfold complement. intros.
+      unfold policy_eq in *. inversion H.
+    + apply OrderedType.LT. unfold policy_lt. unfold "⊑". split; auto with *. simpl. unfold complement. intros.
+      unfold policy_eq in *. inversion H.
+    + apply OrderedType.GT. unfold policy_lt. unfold "⊑". split; auto with *. simpl. unfold complement. intros.
+      unfold policy_eq in *. inversion H.
+    + apply OrderedType.EQ. apply policy_eq_eqv.
+    + apply OrderedType.LT. unfold policy_lt. unfold "⊑". split; auto with *. simpl. unfold complement. intros.
+      unfold policy_eq in *. inversion H.
+    + apply OrderedType.LT. unfold policy_lt. unfold "⊑". split; auto with *. simpl. unfold complement. intros.
+      unfold policy_eq in *. inversion H.
+    + apply OrderedType.LT. unfold policy_lt. unfold "⊑". split; auto with *. simpl. unfold complement. intros.
+      unfold policy_eq in *. inversion H.
+    + apply OrderedType.LT. unfold policy_lt. unfold "⊑". split; auto with *. simpl. unfold complement. intros.
+      unfold policy_eq in *. inversion H.
+    + apply OrderedType.GT. unfold policy_lt. unfold "⊑". split; auto with *. simpl. unfold complement. intros.
+      unfold policy_eq in *. inversion H.
+    + apply OrderedType.GT. unfold policy_lt. unfold "⊑". split; auto with *. simpl. unfold complement. intros.
+      unfold policy_eq in *. inversion H.
+    + apply OrderedType.EQ. apply policy_eq_eqv.
+    + apply OrderedType.LT. unfold policy_lt. unfold "⊑". split; auto with *. simpl. unfold complement. intros.
+      unfold policy_eq in *. inversion H.
+    + apply OrderedType.LT. unfold policy_lt. unfold "⊑". split; auto with *. simpl. unfold complement. intros.
+      unfold policy_eq in *. inversion H.
+    + apply OrderedType.LT. unfold policy_lt. unfold "⊑". split; auto with *. simpl. unfold complement. intros.
+      unfold policy_eq in *. inversion H.
+    + apply OrderedType.GT. unfold policy_lt. unfold "⊑". split; auto with *. simpl. unfold complement. intros.
+      unfold policy_eq in *. inversion H.
+    + apply OrderedType.GT. unfold policy_lt. unfold "⊑". split; auto with *. simpl. unfold complement. intros.
+      unfold policy_eq in *. inversion H.
+    + apply OrderedType.GT. unfold policy_lt. unfold "⊑". split; auto with *. simpl. unfold complement. intros.
+      unfold policy_eq in *. inversion H.
+    + apply OrderedType.EQ. apply policy_eq_eqv.
+    + apply OrderedType.LT. unfold policy_lt. unfold "⊑". split; auto with *. simpl. unfold complement. intros.
+      unfold policy_eq in *. inversion H.
+    + apply OrderedType.LT. unfold policy_lt. unfold "⊑". split; auto with *. simpl. unfold complement. intros.
+      unfold policy_eq in *. inversion H.
+    + apply OrderedType.GT. unfold policy_lt. unfold "⊑". split; auto with *. simpl. unfold complement. intros.
+      unfold policy_eq in *. inversion H.
+    + apply OrderedType.GT. unfold policy_lt. unfold "⊑". split; auto with *. simpl. unfold complement. intros.
+      unfold policy_eq in *. inversion H.
+    + apply OrderedType.GT. unfold policy_lt. unfold "⊑". split; auto with *. simpl. unfold complement. intros.
+      unfold policy_eq in *. inversion H.
+    + apply OrderedType.GT. unfold policy_lt. unfold "⊑". split; auto with *. simpl. unfold complement. intros.
+      unfold policy_eq in *. inversion H.
+    + apply OrderedType.EQ. apply policy_eq_eqv.
+    + apply OrderedType.LT. unfold policy_lt. unfold "⊑". split; auto with *. simpl. unfold complement. intros.
+      unfold policy_eq in *. inversion H.
+    + apply OrderedType.GT. unfold policy_lt. unfold "⊑". split; auto with *. simpl. unfold complement. intros.
+      unfold policy_eq in *. inversion H.
+    + apply OrderedType.GT. unfold policy_lt. unfold "⊑". split; auto with *. simpl. unfold complement. intros.
+      unfold policy_eq in *. inversion H.
+    + apply OrderedType.GT. unfold policy_lt. unfold "⊑". split; auto with *. simpl. unfold complement. intros.
+      unfold policy_eq in *. inversion H.
+    + apply OrderedType.GT. unfold policy_lt. unfold "⊑". split; auto with *. simpl. unfold complement. intros.
+      unfold policy_eq in *. inversion H.
+    + apply OrderedType.GT. unfold policy_lt. unfold "⊑". split; auto with *. simpl. unfold complement. intros.
+      unfold policy_eq in *. inversion H.
+    + apply OrderedType.EQ. apply policy_eq_eqv.
+Defined.
 
 (* The active policy context. *)
 Definition policy_encoding := (option policy * option policy)%type.

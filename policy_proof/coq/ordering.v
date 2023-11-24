@@ -294,7 +294,14 @@ Qed.
 
 Lemma string_lt_neq': forall (lhs rhs: string),
   string_lt lhs rhs -> ~ string_eq lhs rhs.
-Admitted.
+Proof.
+  induction lhs; destruct rhs.
+  simpl; auto; intros.
+  - simpl. auto.
+  - simpl. auto.
+  - simpl. intros. unfold not. intros. intuition; unfold char_lt, char_eq in *; try lia.
+    specialize (IHlhs _ H3 H2). assumption.
+Qed.
 
 Lemma string_eq_two_parts': forall (lhs rhs: string) (a b: ascii),
   String a lhs == String b rhs -> a == b /\ lhs == rhs.
