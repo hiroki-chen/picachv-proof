@@ -77,4 +77,12 @@ Definition func_list: Set := list func%type.
 *)
 
 (* A schema is a list of attributes. *)
-Definition schema: Set := (list Attribute)%type.
+Definition schema:= (list Attribute).
+
+Fixpoint eqb_list {A: Type} (eqb: A -> A -> bool) (l1 l2: list A): bool :=
+  match l1, l2 with
+  | nil, nil => true
+  | nil, _ => false
+  | _, nil => false
+  | h1 :: t1, h2 :: t2 => if eqb h1 h2 then eqb_list eqb t1 t2 else false
+  end.
