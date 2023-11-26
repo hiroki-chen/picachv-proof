@@ -513,3 +513,4 @@ Proof.
 Defined.
 
 Notation "a << b":= (lt a b) (at level 70, no associativity): type_scope.
+Notation "a <<= b":= (le a b) (at level 70, no associativity): type_scope.

@@ -261,9 +261,17 @@ refine (
 Defined.
 
 (* The active policy context. *)
-Definition policy_encoding := (option policy * option policy)%type.
+(* release policy: option policy *)
+Definition policy_encoding := (policy * option policy)%type.
 Definition context := list (nat * policy_encoding)%type.
-Definition can_release (p: policy_encoding): Prop := (fst p) = (snd p).
+Definition can_release (p: policy_encoding): Prop := 
+  match p with
+    | (cur, None) => False
+    | (cur, Some disc) => disc <<= cur
+  end.
+
+Definition cannot_release (p: policy_encoding): Prop := ~ can_release p.
+ 
 (* Lookup the policy context and check if the cell has been associated with an active policy. *)
 Fixpoint label_lookup (id: nat) (ctx: context):
   option policy_encoding :=
@@ -301,7 +309,7 @@ make it a recursive type, so that we can build types of arbitrary length. *)
 Fixpoint tuple (ty: tuple_type): Set :=
   match ty with
   | nil => unit
-  | bt :: t' => ((type_to_coq_type bt) * Policy.policy) * tuple t'
+  | bt :: t' => ((type_to_coq_type bt) * nat) * tuple t'
   end%type.
 
 Fixpoint tuple_np (ty: tuple_type): Set :=
@@ -309,6 +317,16 @@ Fixpoint tuple_np (ty: tuple_type): Set :=
     | nil => unit
     | bt :: t' => (type_to_coq_type bt) * tuple_np t'
   end%type.
+
+Fixpoint inject_tuple_id
+  (ty: tuple_type)
+  (t: tuple_np ty)
+  (id: nat)
+: tuple ty :=
+  match ty return forall (t: tuple_np ty) (id: nat), tuple ty with
+    | nil => fun _  _ => tt
+    | bt :: t' => fun t id => (((fst t), id), inject_tuple_id t' (snd t) (id + 1))
+  end t id.
 
 Fixpoint tuple_value_lt (ty: tuple_type): forall (lhs rhs: tuple ty), Prop :=
   match ty return forall (lhs rhs: tuple ty), Prop with
@@ -326,15 +344,12 @@ Fixpoint tuple_total_lt (ty: tuple_type): forall (lhs rhs: tuple ty), Prop :=
 
 (* A tuple type is a list of basic types. *)
 
-Definition example_tuple_ty : tuple_type := StringType :: BoolType :: nil.
-Definition example_tuple: tuple example_tuple_ty := (("abcd"%string, Policy.policy_bot), ((true, Policy.policy_bot), tt)).
-Definition example_tuple_ty' : tuple_type := IntegerType :: nil.
-Definition example_tuple' : tuple example_tuple_ty' := ((1, Policy.policy_bot), tt).
-Definition example_tuple'' : tuple (example_tuple_ty' ++ example_tuple_ty) := 
-  ((1, Policy.policy_bot),
-    (("abcd"%string, Policy.policy_bot),
-      ((true, Policy.policy_bot),
-        tt))).
+Example example_tuple_ty : tuple_type := StringType :: BoolType :: nil.
+Example example_tuple: tuple_np example_tuple_ty := ("abcd"%string, (true, tt)).
+Example example_tuple_ty' : tuple_type := IntegerType :: nil.
+Example example_tuple' : tuple_np example_tuple_ty' := (1, tt).
+Example example_tuple'' : tuple_np (example_tuple_ty' ++ example_tuple_ty) := 
+  (1, ("abcd"%string, (true, tt))).
 
 (* Cast the type of the tuple, if needed. *)
 Lemma tuple_cast: forall (ty1 ty2: tuple_type) (f: tuple_type -> Set),
@@ -719,8 +734,8 @@ refine(
       + apply OrderedType.GT. simpl. auto.
 Defined.
 
-Definition example_tuple_lhs : tuple example_tuple_ty := (("abcd"%string, Policy.policy_bot), ((true, Policy.policy_bot), tt)).
-Definition example_tuple_rhs : tuple example_tuple_ty := (("abcd"%string, Policy.policy_bot), ((true, Policy.policy_bot), tt)).
+Definition example_tuple_lhs : tuple example_tuple_ty := (("abcd"%string, 1), ((true, 2), tt)).
+Definition example_tuple_rhs : tuple example_tuple_ty := (("abcd"%string, 1), ((true, 2), tt)).
 Set Printing Constructor.
 Set Printing Coercions.
 Set Printing Implicit.
