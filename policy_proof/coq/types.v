@@ -58,7 +58,7 @@ Global Instance can_order (t: basic_type): Ordered (type_to_coq_type t).
 Defined.
 
 (* Attributes are themselves string representation of the name. *)
-Definition Attribute := (basic_type * string)%type.
+Definition Attribute := basic_type%type.
 Definition Symbol := string.
 Definition Aggregate := string.
 

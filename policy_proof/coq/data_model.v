@@ -318,6 +318,12 @@ Fixpoint tuple_np (ty: tuple_type): Set :=
     | bt :: t' => (type_to_coq_type bt) * tuple_np t'
   end%type.
 
+Fixpoint bounded_list (l: list nat) (ty: tuple_type): Prop :=
+  match l with
+    | nil => True
+    | n :: l' => n < length ty /\ bounded_list l' ty
+  end.
+
 Fixpoint inject_tuple_id
   (ty: tuple_type)
   (t: tuple_np ty)
@@ -454,6 +460,15 @@ refine
 Proof.
   - simpl in *. lia.
   - simpl in *. lia.
+Defined.
+
+Definition ntypes (l: list nat) (ty: tuple_type) (bounded: bounded_list l ty): tuple_type.
+  induction l.
+  - exact nil. (* nil => nil *)
+  - destruct bounded.
+    apply cons. (* cons => cons *)
+    apply (nth ty a H).
+    apply IHl. apply H0.
 Defined.
 
 Definition nth_col_tuple: forall (ty: tuple_type) (n : nat) (extract: n < length ty), tuple ty -> tuple ((nth ty n extract) :: nil).

@@ -1,3 +1,5 @@
+Require Import List.
+
 Require Import types.
 Require Import data_model.
 Require Import ordering.
@@ -14,7 +16,19 @@ Inductive atomic_expression (ty: Tuple.tuple_type) : basic_type -> Set :=
   (* a *)
   | atomic_expression_column:
       forall n (extract: n < length ty), atomic_expression ty (Tuple.nth_np ty n extract)
-  (* more -> apply function. *)
+  (* f(list e) *)
+  | atomic_expression_func:
+      forall bt (c: type_to_coq_type bt),
+        transform_func -> list (atomic_expression ty bt) -> atomic_expression ty bt
+.
+
+Inductive agg_expression (ty: Tuple.tuple_type) (bt: basic_type): Set :=
+  (* e *)
+  | agg_atomic_expression: atomic_expression ty bt -> agg_expression ty bt
+  (* agg(e) *)
+  | agg_aggregate: aggregate_func -> atomic_expression ty bt -> agg_expression ty bt
+  (* f(A) *)
+  | agg_function: transform_func -> list (agg_expression ty bt)  -> agg_expression ty bt
 .
 
 Inductive simple_atomic_expression: Set :=
@@ -24,13 +38,16 @@ Inductive simple_atomic_expression: Set :=
   (* a *)
   | simple_atomic_expression_column:
       forall (n: nat), simple_atomic_expression
+  (* f(list args) *)
+  | simple_atomic_expression_func:
+      transform_func -> list simple_atomic_expression -> simple_atomic_expression
   .
 
-Inductive predicate (ty: Tuple.tuple_type) (t: basic_type): Type :=
-  | predicate_true: predicate ty t
-  | predicate_false: predicate ty t
-  | predicate_com: ComOp -> atomic_expression ty t -> atomic_expression ty t -> predicate ty t
-  | predicate_not: predicate ty t -> predicate ty t
+Inductive predicate (ty: Tuple.tuple_type) (bt: basic_type): Type :=
+  | predicate_true: predicate ty bt
+  | predicate_false: predicate ty bt
+  | predicate_com: ComOp -> agg_expression ty bt -> agg_expression ty bt-> predicate ty bt
+  | predicate_not: predicate ty bt -> predicate ty bt
 .
 
 Inductive simple_predicate: Set :=
@@ -58,11 +75,34 @@ Proof.
     match a in atomic_expression _ t' return Tuple.tuple ty -> type_to_coq_type t' with
       | atomic_expression_const _ _ v => fun _ => v
       | atomic_expression_column _ _ v  => fun x => _
+      | atomic_expression_func _ _ _ f args => fun x => _
     end
   ).
   pose (Tuple.nth_col_tuple_np ty n v x).
   simpl in t0.
   exact (fst t0).
+  exact t0.
+Defined.
+
+Fixpoint agg_denote (ty: Tuple.tuple_type) (t: basic_type) (a: agg_expression ty t):
+  Tuple.tuple ty -> type_to_coq_type t.
+Proof.
+  refine (
+    match a in agg_expression _ _ return Tuple.tuple ty -> type_to_coq_type _ with
+      | agg_atomic_expression _ _ a => fun x => atomic_expression_denote ty t a x
+      | agg_aggregate _ _ f a => fun x => _
+      | agg_function _ _ f args => fun x => _
+    end
+  ).
+  - exact (atomic_expression_denote ty t a x).
+  - apply (List.map (fun arg => agg_denote ty t arg x)) in args.
+    induction args.
+    (* Should never happen? *)
+    + destruct t.
+      * simpl. exact 0.
+      * simpl. exact false.
+      * simpl. exact String.EmptyString.
+    + exact IHargs.
 Defined.
 
 Fixpoint predicate_denote (bt: basic_type) (ty: Tuple.tuple_type) (p: predicate ty bt):
@@ -74,27 +114,27 @@ Fixpoint predicate_denote (bt: basic_type) (ty: Tuple.tuple_type) (p: predicate 
   (* Determined by the operator type. *)
   (* Inductive ComOp: Type := Gt | Lt | Ge | Le | Eq | Neq.*)
   (* We are actually doing a match between `lt lhs rhs` and `com_op`. *)
-    + destruct (cmp (atomic_expression_denote ty bt lhs tp) (atomic_expression_denote ty bt rhs tp)).
+    + destruct (cmp (agg_denote ty bt lhs tp) (agg_denote ty bt rhs tp)).
       * exact false.
       * exact false.
       * exact true.
-    + destruct (cmp (atomic_expression_denote ty bt lhs tp) (atomic_expression_denote ty bt rhs tp)).
+    + destruct (cmp (agg_denote ty bt lhs tp) (agg_denote ty bt rhs tp)).
       * exact true.
       * exact false.
       * exact false.
-    + destruct (cmp (atomic_expression_denote ty bt lhs tp) (atomic_expression_denote ty bt rhs tp)).
+    + destruct (cmp (agg_denote ty bt lhs tp) (agg_denote ty bt rhs tp)).
       * exact false.
       * exact true.
       * exact true.
-    + destruct (cmp (atomic_expression_denote ty bt lhs tp) (atomic_expression_denote ty bt rhs tp)).
+    + destruct (cmp (agg_denote ty bt lhs tp) (agg_denote ty bt rhs tp)).
       * exact true.
       * exact true.
       * exact false.
-    + destruct (cmp (atomic_expression_denote ty bt lhs tp) (atomic_expression_denote ty bt rhs tp)).
+    + destruct (cmp (agg_denote ty bt lhs tp) (agg_denote ty bt rhs tp)).
       * exact false.
       * exact true.
       * exact false.
-    + destruct (cmp (atomic_expression_denote ty bt lhs tp) (atomic_expression_denote ty bt rhs tp)).
+    + destruct (cmp (agg_denote ty bt lhs tp) (agg_denote ty bt rhs tp)).
       * exact true.
       * exact false.
       * exact true.
@@ -143,6 +183,15 @@ match f with
     end
 end.
 
+Fixpoint bounded_list' (l: list simple_atomic_expression) (ty: Tuple.tuple_type) : Prop :=
+  match l with
+    | h :: t => match h with
+                  | simple_atomic_expression_column n => n < List.length ty
+                  | _ => True
+                end /\ bounded_list' t ty
+    | _ => False
+  end.
+
 Require Import String.
 Require Import List.
 Require Import Lia.
@@ -152,8 +201,10 @@ Example example_formula: formula Tuple.example_tuple_ty :=
 Example example_formula': formula Tuple.example_tuple_ty :=
     (formula_predicate Tuple.example_tuple_ty IntegerType
       (predicate_com Tuple.example_tuple_ty IntegerType Eq
-        (atomic_expression_const Tuple.example_tuple_ty IntegerType 1)
-        (atomic_expression_const Tuple.example_tuple_ty IntegerType 1)
+        (agg_atomic_expression Tuple.example_tuple_ty IntegerType
+          (atomic_expression_const Tuple.example_tuple_ty IntegerType 1))
+        (agg_atomic_expression Tuple.example_tuple_ty IntegerType
+          (atomic_expression_const Tuple.example_tuple_ty IntegerType 1))
       )
     ).
 
@@ -164,8 +215,10 @@ Qed.
 Example example_formula'': formula Tuple.example_tuple_ty :=
     (formula_predicate Tuple.example_tuple_ty StringType
       (predicate_com Tuple.example_tuple_ty StringType Eq
-        (atomic_expression_column Tuple.example_tuple_ty 0 can_index)
-        (atomic_expression_const Tuple.example_tuple_ty StringType "233"%string)
+        (agg_atomic_expression Tuple.example_tuple_ty StringType
+          (atomic_expression_column Tuple.example_tuple_ty 0 can_index))
+        (agg_atomic_expression Tuple.example_tuple_ty StringType
+          (atomic_expression_const Tuple.example_tuple_ty StringType "233"%string))
       )
     ).
 
