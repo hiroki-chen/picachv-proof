@@ -8,6 +8,11 @@ Require Import data_model.
 Require Import ordering.
 Require Import finite_bags.
 
+Set Printing Coercions.
+Set Printing Implicit.
+Set Printing Projections.
+
+
 Fixpoint schema_to_anf (s: schema): list nat :=
   match s with
     | nil => nil
@@ -22,14 +27,41 @@ Inductive project_list: Set :=
 Definition groupby_list := (list nat)%type.
 Definition agg_list s := (list (forall bt, agg_expression s bt))%type.
 
-Definition context: Set := list (nat * schema)%type.
-Fixpoint env (ctx: context): Set :=
-  match ctx with
+Definition schema_env:= list (nat * schema)%type.
+Fixpoint relation_env (se: schema_env): Set :=
+  match se with
     | nil => unit
-    | (_, s) :: ctx' => relation s * env ctx'
-  end%type.
+    | (_, s) :: se' => (relation s * relation_env se')%type
+  end.
 
-(* TODO: we also need to reason about how schema (type) is changed in the course of operators. *)
+Fixpoint lookup_schema (n: nat) (se: schema_env): schema :=
+  match se with
+    | nil => nil
+    | (n', s) :: se' => if Nat.eqb n n' then s else lookup_schema n se'
+  end.
+
+(*
+  `env` is a definition for an environment in a given schema `s`. 
+  It is a list of tuples, where each tuple consists of a relation, 
+  a list of 'selected' attributes, a groupby list, and a list of tuples.
+
+  - The relation is a list of tuples of type `Tuple.tuple s` for determing the concrete relation
+    that is used for the expression evaluation.
+  - The selected attributes is a list of natural numbers, which are the indices of the attributes
+    in the schema that are used for the expression evaluation.
+  - The groupby list is a list of natural numbers, which are the indices of the attributes in the
+    schema that are used for grouping.
+  - The list of tuples is a list of tuples of type `Tuple.tuple s`.
+
+  This environment is used in the context of database query operations.
+*)
+Definition env_slice (s: schema) := (relation s * list nat * groupby_list * list (Tuple.tuple s))%type.
+Definition env (s: schema): Set := list (env_slice s)%type.
+
+(*
+  The operator is a dependent type on a schema that has seven constructors.
+  Operator: forall s: schema, Set
+*)
 Inductive Operator: schema -> Set :=
   | operator_empty: forall s, Operator s
   | operator_relation: forall s, nat -> Operator s
@@ -40,20 +72,32 @@ Inductive Operator: schema -> Set :=
   | operator_grouby_having: forall s, groupby_list -> agg_list s -> formula s -> Operator s -> Operator s
 .
 
-Definition config (ctx: context) := (Policy.context * Configuration.privacy * Operator ((snd (List.hd (0, nil) ctx))) * env ctx)%type.
+Inductive config: Set :=
+  | config_terminal: config
+  | config_ok: forall s, Policy.context -> Configuration.privacy -> env s -> config
+.
 
-(**  
-  [eval] is a Fixpoint in Coq, which means it is a recursive function. It is used to evaluate a
-  query on a given configuration and schema.
-
-  @param c   A configuration of type [config s]. This configuration is a tuple containing a Policy
-             context, an environment, a privacy setting, an Operator, and a tuple type.
-
-  @return    The result of the evaluation of the query on the given configuration.
-*)
-Fixpoint eval (ctx: context) (c: config ctx): option (config ctx) :=
-  match get_operator c with
-  | operator_empty => None
-  (* TODO: IMPLEMENT THIS. *)
-  | _ => None 
+Definition hd_option {A: Type} (l: list A): option A :=
+  match l with
+    | nil => None
+    | cons hd _ => Some hd
   end.
+
+Reserved Notation "c1 '=[' o ']=>' c2" (at level 50, left associativity).
+(* 
+  `step` is an inductive type representing the transition rules for configurations. 
+  It defines how a configuration changes from one state to another by the query.
+  The rules are:
+  - `E_Error`   : If the configuration is error, it remains error.
+  ...
+*)
+Inductive step: forall s, Operator s -> config -> config -> Prop :=
+  (* Error state can no longer be forwarded. *)
+  | E_Error: forall s (o: Operator s) c, c =[ o ]=> config_terminal
+where "c1 '=[' o ']=>' c2" := (step _ o c1 c2).
+
+Lemma cfg_dec: forall (s: schema) (o: Operator s) c1 c2, {c1 =[ o ]=> c2} + {~ c1 =[ o ]=> c2}.
+Admitted.
+
+Lemma cfg_eq_dec: forall (c1 c2: config), {c1 = c2} + {c1 <> c2}.
+Admitted.
