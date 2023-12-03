@@ -1,4 +1,5 @@
 Require Import List.
+Require Import Lia.
 Require Import Unicode.Utf8.
 
 Definition hd_option {A : Type} (l : list A) : option A :=
@@ -6,6 +7,12 @@ Definition hd_option {A : Type} (l : list A) : option A :=
   | nil => None
   | cons h _ => Some h
   end.
+
+Definition hd_ok {A: Type} (l: list A) (non_empty: length l > 0) : A.
+  destruct l.
+  - simpl in non_empty. lia.
+  - exact a.
+Defined.
 
 Fixpoint eqb_list {A: Type} (eqb: A → A → bool) (l1 l2: list A): bool :=
   match l1, l2 with
