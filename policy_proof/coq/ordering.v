@@ -24,7 +24,7 @@ Class Ordered (A: Set) := {
   cmp: ∀ lhs rhs: A, Compare lt equiv lhs rhs;
 }.
 
-Definition le {A: Set} {ord: Ordered A} (lhs rhs: A):= lt lhs rhs \/ lhs == rhs.
+Definition le {A: Set} {ord: Ordered A} (lhs rhs: A):= lt lhs rhs ∨ lhs == rhs.
 
 Theorem order_is_irreflexive: ∀ {A: Set} {ord: Ordered A} (a: A),
   ~ lt a a.
@@ -168,7 +168,7 @@ refine (
 Defined.
 
 Definition bool_eq (lhs rhs: bool): Prop := lhs = rhs.
-Definition bool_lt (lhs rhs: bool): Prop := lhs = false /\ rhs = true.
+Definition bool_lt (lhs rhs: bool): Prop := lhs = false ∧ rhs = true.
 Global Instance bool_trans : Transitive bool_lt.
   unfold Transitive. intros.
   unfold bool_lt in *. intuition.
@@ -240,14 +240,14 @@ Defined.
 Fixpoint string_eq (lhs rhs: string): Prop := 
   match lhs, rhs with
     | EmptyString, EmptyString => True
-    | String l lhs', String r rhs' => char_eq l r /\ string_eq lhs' rhs'
+    | String l lhs', String r rhs' => char_eq l r ∧ string_eq lhs' rhs'
     | _, _ => False
   end.
 
 Fixpoint string_lt (lhs rhs: string): Prop := 
   match lhs, rhs with
     | EmptyString, String _ _ => True
-    | String l lhs', String r rhs' => char_lt l r \/ (char_eq l r /\ string_lt lhs' rhs')
+    | String l lhs', String r rhs' => char_lt l r ∨ (char_eq l r ∧ string_lt lhs' rhs')
     | _, _ => False
   end.
 
@@ -275,7 +275,7 @@ Global Instance string_lt_trans: Transitive string_lt.
 Defined.
 
 Lemma string_eq_two_parts: ∀ (lhs rhs: string) (a b: ascii),
-  String a lhs = String b rhs → a = b /\ lhs = rhs.
+  String a lhs = String b rhs → a = b ∧ lhs = rhs.
 Proof.
   induction a.
   intros. split. inversion H. auto.
@@ -305,7 +305,7 @@ Proof.
 Qed.
 
 Lemma string_eq_two_parts': ∀ (lhs rhs: string) (a b: ascii),
-  String a lhs == String b rhs → a == b /\ lhs == rhs.
+  String a lhs == String b rhs → a == b ∧ lhs == rhs.
 Proof.
   induction a.
   split. inversion H. auto.
@@ -427,14 +427,14 @@ Defined.
   or if both first elements are equal and the second element of the first pair is less than the second element of the other pair.
 *)
 Definition pair_lt {A B: Set} {ordA: Ordered A} {ordB: Ordered B} (lhs rhs: A * B): Prop :=
-  lt (fst lhs) (fst rhs) \/ (fst lhs == fst rhs /\ lt (snd lhs) (snd rhs)).
+  lt (fst lhs) (fst rhs) ∨ (fst lhs == fst rhs ∧ lt (snd lhs) (snd rhs)).
 
 (* 
   The `pair_eq` function defines an equality relation for pairs. 
   A pair is considered equal to another if both the first and second elements of the pairs are equal.
 *)
 Definition pair_eq {A B: Set} {ordA: Ordered A} {ordB: Ordered B} (lhs rhs: A * B): Prop :=
-  fst lhs == fst rhs /\ snd lhs == snd rhs.
+  fst lhs == fst rhs ∧ snd lhs == snd rhs.
 
 Global Instance pair_eq_equiv {A B: Set} {ordA: Ordered A} {ordB: Ordered B}: Equivalence pair_eq.
   constructor.

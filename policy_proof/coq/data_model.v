@@ -179,7 +179,7 @@ refine (
 Defined.
 
 Definition policy_lt (lhs rhs: policy): Prop :=
-  flowsto lhs rhs /\ lhs =/= rhs.
+  flowsto lhs rhs ∧ lhs =/= rhs.
 
 Global Instance policy_lt_trans: Transitive policy_lt.
   unfold Transitive.
@@ -322,7 +322,7 @@ Fixpoint tuple_np (ty: tuple_type): Set :=
 Fixpoint bounded_list (l: list nat) (ty: tuple_type): Prop :=
   match l with
     | nil => True
-    | n :: l' => n < length ty /\ bounded_list l' ty
+    | n :: l' => n < length ty ∧ bounded_list l' ty
   end.
 
 Fixpoint inject_tuple_id
@@ -338,15 +338,15 @@ Fixpoint inject_tuple_id
 Fixpoint tuple_value_lt (ty: tuple_type): ∀ (lhs rhs: tuple ty), Prop :=
   match ty return ∀ (lhs rhs: tuple ty), Prop with
     | nil => fun _ _ => False
-    | _ :: t' => fun lhs rhs => lt (fst (fst lhs)) (fst (fst rhs)) \/
-      (fst (fst lhs)) == (fst (fst rhs)) /\ tuple_value_lt t' (snd lhs) (snd rhs)
+    | _ :: t' => fun lhs rhs => lt (fst (fst lhs)) (fst (fst rhs)) ∨
+      (fst (fst lhs)) == (fst (fst rhs)) ∧ tuple_value_lt t' (snd lhs) (snd rhs)
   end.
 
 Fixpoint tuple_total_lt (ty: tuple_type): ∀ (lhs rhs: tuple ty), Prop :=
   match ty return ∀ (lhs rhs: tuple ty), Prop with
     | nil => fun _ _ => False
-    | _ :: t' => fun lhs rhs => lt (fst lhs) (fst rhs) \/
-      (fst lhs) == (fst rhs) /\ tuple_total_lt t' (snd lhs) (snd rhs)
+    | _ :: t' => fun lhs rhs => lt (fst lhs) (fst rhs) ∨
+      (fst lhs) == (fst rhs) ∧ tuple_total_lt t' (snd lhs) (snd rhs)
   end.
 
 (* A tuple type is a list of basic types. *)
@@ -397,14 +397,14 @@ Fixpoint tuple_value_eq (ty: tuple_type): ∀ (lhs rhs: tuple ty), Prop :=
   match ty return (∀ (lhs rhs: tuple ty), Prop) with
     | nil => fun _ _ => True
     | _ :: tl => fun lhs rhs => 
-      (fst (fst lhs)) == (fst (fst rhs)) /\ tuple_value_eq tl (snd lhs) (snd rhs)
+      (fst (fst lhs)) == (fst (fst rhs)) ∧ tuple_value_eq tl (snd lhs) (snd rhs)
   end. 
 
 Fixpoint tuple_total_eq (ty: tuple_type): ∀ (lhs rhs: tuple ty), Prop :=
   match ty return (∀ (lhs rhs: tuple ty), Prop) with
     | nil => fun _ _ => True
     | _ :: tl => fun lhs rhs => 
-      (fst lhs) == (fst rhs) /\ tuple_total_eq tl (snd lhs) (snd rhs)
+      (fst lhs) == (fst rhs) ∧ tuple_total_eq tl (snd lhs) (snd rhs)
   end.
 
 Global Instance tuple_value_eq_eqv (ty: tuple_type): Equivalence (tuple_value_eq ty).

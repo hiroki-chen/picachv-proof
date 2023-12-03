@@ -189,7 +189,7 @@ Fixpoint bounded_list' (l: list simple_atomic_expression) (ty: Tuple.tuple_type)
     | h :: t => match h with
                   | simple_atomic_expression_column n => n < List.length ty
                   | _ => True
-                end /\ bounded_list' t ty
+                end ∧ bounded_list' t ty
     | _ => False
   end.
 
