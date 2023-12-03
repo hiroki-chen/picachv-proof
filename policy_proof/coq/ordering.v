@@ -6,6 +6,7 @@ Require Import Equivalence.
 Require Import Lia.
 Require Import Ascii.
 Require Import String.
+Require Import Unicode.Utf8.
 Require Import Compare_dec.
 
 (*
@@ -17,15 +18,15 @@ Require Import Compare_dec.
 Class Ordered (A: Set) := {
   eq :: Setoid A;
 
-  lt: A -> A -> Prop;
+  lt: A → A → Prop;
   trans :: Transitive lt;
-  neq: forall lhs rhs: A, lt lhs rhs -> lhs =/= rhs;
-  cmp: forall lhs rhs: A, Compare lt equiv lhs rhs;
+  neq: ∀ lhs rhs: A, lt lhs rhs → lhs =/= rhs;
+  cmp: ∀ lhs rhs: A, Compare lt equiv lhs rhs;
 }.
 
 Definition le {A: Set} {ord: Ordered A} (lhs rhs: A):= lt lhs rhs \/ lhs == rhs.
 
-Theorem order_is_irreflexive: forall {A: Set} {ord: Ordered A} (a: A),
+Theorem order_is_irreflexive: ∀ {A: Set} {ord: Ordered A} (a: A),
   ~ lt a a.
 Proof.
   intros. unfold "~". intros.
@@ -126,19 +127,19 @@ Proof.
 Qed.
 
 (* Now we can apply rewrite on `lt`. *)
-Example rewrite_lt: forall {A: Set} {ord: Ordered A} (a b c d: A),
-  a == b -> c == d -> lt a c -> lt b d.
+Example rewrite_lt: ∀ {A: Set} {ord: Ordered A} (a b c d: A),
+  a == b → c == d → lt a c → lt b d.
 Proof.
   intros. rewrite H, H0 in H1. assumption.
 Qed.
 
-Global Instance order_irreflexive: forall {A: Set} {ord: Ordered A} (a: A),
+Global Instance order_irreflexive: ∀ {A: Set} {ord: Ordered A} (a: A),
   Irreflexive lt.
   intros. unfold Irreflexive. unfold complement. unfold Reflexive. intros.
   apply order_is_irreflexive in H. assumption.
 Qed.
 
-Definition nat_dec : forall (a b: nat), {a < b} + {a = b} + {b < a}.
+Definition nat_dec : ∀ (a b: nat), {a < b} + {a = b} + {b < a}.
 Proof.
  intros. pose (lt_eq_lt_dec a b).
  destruct s; auto; destruct s; auto.
@@ -189,8 +190,8 @@ refine (
 Defined.
 
 
-Example rewrite_lt': forall (a b c d: bool),
-  a == b -> c == d -> lt a c -> lt b d.
+Example rewrite_lt': ∀ (a b c d: bool),
+  a == b → c == d → lt a c → lt b d.
 Proof.
   intros. rewrite H, H0 in H1. assumption.
 Qed.
@@ -273,8 +274,8 @@ Global Instance string_lt_trans: Transitive string_lt.
     + specialize (IHx _ _ H1 H2). assumption.
 Defined.
 
-Lemma string_eq_two_parts: forall (lhs rhs: string) (a b: ascii),
-  String a lhs = String b rhs -> a = b /\ lhs = rhs.
+Lemma string_eq_two_parts: ∀ (lhs rhs: string) (a b: ascii),
+  String a lhs = String b rhs → a = b /\ lhs = rhs.
 Proof.
   induction a.
   intros. split. inversion H. auto.
@@ -282,8 +283,8 @@ Proof.
 Qed.
 Hint Resolve string_eq_two_parts.
 
-Lemma string_lt_neq: forall (lhs rhs: string),
-  string_lt lhs rhs -> lhs =/= rhs.
+Lemma string_lt_neq: ∀ (lhs rhs: string),
+  string_lt lhs rhs → lhs =/= rhs.
 Proof.
   induction lhs; destruct rhs; simpl; intros; try contradiction; unfold complement.
   - destruct a. intros. inversion H0.
@@ -292,8 +293,8 @@ Proof.
     + apply string_eq_two_parts in H0. destruct H0. apply IHlhs in H2. auto with *.
 Qed.
 
-Lemma string_lt_neq': forall (lhs rhs: string),
-  string_lt lhs rhs -> ~ string_eq lhs rhs.
+Lemma string_lt_neq': ∀ (lhs rhs: string),
+  string_lt lhs rhs → ~ string_eq lhs rhs.
 Proof.
   induction lhs; destruct rhs.
   simpl; auto; intros.
@@ -303,8 +304,8 @@ Proof.
     specialize (IHlhs _ H3 H2). assumption.
 Qed.
 
-Lemma string_eq_two_parts': forall (lhs rhs: string) (a b: ascii),
-  String a lhs == String b rhs -> a == b /\ lhs == rhs.
+Lemma string_eq_two_parts': ∀ (lhs rhs: string) (a b: ascii),
+  String a lhs == String b rhs → a == b /\ lhs == rhs.
 Proof.
   induction a.
   split. inversion H. auto.
@@ -314,7 +315,7 @@ Proof.
 Qed.
 Hint Resolve string_eq_two_parts'.
 
-Lemma ord_dec {A: Set} {O: Ordered A} : forall (lhs rhs: A), decidable (lt lhs rhs).
+Lemma ord_dec {A: Set} {O: Ordered A} : ∀ (lhs rhs: A), decidable (lt lhs rhs).
 Proof.
   intros. red. destruct (cmp lhs rhs).
   - left. assumption.

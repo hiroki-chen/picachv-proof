@@ -1,4 +1,5 @@
 Require Import List.
+Require Import Unicode.Utf8.
 
 Require Import types.
 Require Import data_model.
@@ -9,70 +10,70 @@ Require Import ordering.
   give types to each expressions. This is the gap. So we need `simple_` versions which are not typed.
 *)
 
-Inductive atomic_expression (ty: Tuple.tuple_type) : basic_type -> Set :=
+Inductive atomic_expression (ty: Tuple.tuple_type) : basic_type → Set :=
   (* v *)
   | atomic_expression_const:
-      forall bt (c : type_to_coq_type bt), atomic_expression ty bt
+      ∀ bt (c : type_to_coq_type bt), atomic_expression ty bt
   (* a *)
   | atomic_expression_column:
-      forall n (extract: n < length ty), atomic_expression ty (Tuple.nth_np ty n extract)
+      ∀ n (extract: n < length ty), atomic_expression ty (Tuple.nth_np ty n extract)
   (* f(list e) *)
   | atomic_expression_func:
-      forall bt (c: type_to_coq_type bt),
-        transform_func -> list (atomic_expression ty bt) -> atomic_expression ty bt
+      ∀ bt (c: type_to_coq_type bt),
+        transform_func bt → list (atomic_expression ty bt) → atomic_expression ty bt
 .
 
 Inductive agg_expression (ty: Tuple.tuple_type) (bt: basic_type): Set :=
   (* e *)
-  | agg_atomic_expression: atomic_expression ty bt -> agg_expression ty bt
+  | agg_atomic_expression: atomic_expression ty bt → agg_expression ty bt
   (* agg(e) *)
-  | agg_aggregate: aggregate_func -> atomic_expression ty bt -> agg_expression ty bt
+  | agg_aggregate: aggregate_func bt → atomic_expression ty bt → agg_expression ty bt
   (* f(A) *)
-  | agg_function: transform_func -> list (agg_expression ty bt)  -> agg_expression ty bt
+  | agg_function: transform_func bt → list (agg_expression ty bt)  → agg_expression ty bt
 .
 
 Inductive simple_atomic_expression: Set :=
   (* v *)
   | simple_atomic_expression_const:
-      forall bt (c : type_to_coq_type bt), simple_atomic_expression
+      ∀ bt (c : type_to_coq_type bt), simple_atomic_expression
   (* a *)
   | simple_atomic_expression_column:
-      forall (n: nat), simple_atomic_expression
+      ∀ (n: nat), simple_atomic_expression
   (* f(list args) *)
-  | simple_atomic_expression_func:
-      transform_func -> list simple_atomic_expression -> simple_atomic_expression
+  (* | simple_atomic_expression_func:
+      transform_func bt → list simple_atomic_expression → simple_atomic_expression *)
   .
 
 Inductive predicate (ty: Tuple.tuple_type) (bt: basic_type): Type :=
   | predicate_true: predicate ty bt
   | predicate_false: predicate ty bt
-  | predicate_com: ComOp -> agg_expression ty bt -> agg_expression ty bt-> predicate ty bt
-  | predicate_not: predicate ty bt -> predicate ty bt
+  | predicate_com: ComOp → agg_expression ty bt → agg_expression ty bt→ predicate ty bt
+  | predicate_not: predicate ty bt → predicate ty bt
 .
 
 Inductive simple_predicate: Set :=
   | simple_predicate_true: simple_predicate
   | simple_predicate_false: simple_predicate
   (* cell ? basic_type *)
-  | simple_predicate_com: ComOp -> simple_atomic_expression -> simple_atomic_expression -> simple_predicate
-  | simple_predicate_not: simple_predicate -> simple_predicate
+  | simple_predicate_com: ComOp → simple_atomic_expression → simple_atomic_expression → simple_predicate
+  | simple_predicate_not: simple_predicate → simple_predicate
 .
 
 Inductive formula (ty: Tuple.tuple_type) :=
-  | formula_con: LogOp -> formula ty -> formula ty -> formula ty
-  | formula_predicate: forall bt, predicate ty bt -> formula ty
+  | formula_con: LogOp → formula ty → formula ty → formula ty
+  | formula_predicate: ∀ bt, predicate ty bt → formula ty
 .
 
 Inductive simple_formula :=
-  | simple_formula_con: LogOp -> simple_formula -> simple_formula -> simple_formula
-  | simple_formula_predicate: simple_predicate -> simple_formula
+  | simple_formula_con: LogOp → simple_formula → simple_formula → simple_formula
+  | simple_formula_predicate: simple_predicate → simple_formula
 .
 
 Definition atomic_expression_denote (ty: Tuple.tuple_type) (t: basic_type) (a: atomic_expression ty t):
-  Tuple.tuple ty -> type_to_coq_type t.
+  Tuple.tuple ty → type_to_coq_type t.
 Proof.
   refine (
-    match a in atomic_expression _ t' return Tuple.tuple ty -> type_to_coq_type t' with
+    match a in atomic_expression _ t' return Tuple.tuple ty → type_to_coq_type t' with
       | atomic_expression_const _ _ v => fun _ => v
       | atomic_expression_column _ _ v  => fun x => _
       | atomic_expression_func _ _ _ f args => fun x => _
@@ -85,10 +86,10 @@ Proof.
 Defined.
 
 Fixpoint agg_denote (ty: Tuple.tuple_type) (t: basic_type) (a: agg_expression ty t):
-  Tuple.tuple ty -> type_to_coq_type t.
+  Tuple.tuple ty → type_to_coq_type t.
 Proof.
   refine (
-    match a in agg_expression _ _ return Tuple.tuple ty -> type_to_coq_type _ with
+    match a in agg_expression _ _ return Tuple.tuple ty → type_to_coq_type _ with
       | agg_atomic_expression _ _ a => fun x => atomic_expression_denote ty t a x
       | agg_aggregate _ _ f a => fun x => _
       | agg_function _ _ f args => fun x => _
@@ -106,7 +107,7 @@ Proof.
 Defined.
 
 Fixpoint predicate_denote (bt: basic_type) (ty: Tuple.tuple_type) (p: predicate ty bt):
-  Tuple.tuple ty -> bool.
+  Tuple.tuple ty → bool.
   intros. destruct p as [ | |op lhs rhs| ].
   - exact true.
   - exact false.
@@ -141,7 +142,7 @@ Fixpoint predicate_denote (bt: basic_type) (ty: Tuple.tuple_type) (p: predicate 
   - rename H into tp. exact (negb (predicate_denote bt ty p tp)).
 Defined.
 (* 
-Fixpoint simple_predicate_denote (bt: basic_type) (p: simple_predicate bt): type_to_coq_type bt -> bool.
+Fixpoint simple_predicate_denote (bt: basic_type) (p: simple_predicate bt): type_to_coq_type bt → bool.
   intros. destruct p.
   - exact true.
   - exact false.
@@ -173,7 +174,7 @@ Fixpoint simple_predicate_denote (bt: basic_type) (p: simple_predicate bt): type
   - exact (negb (simple_predicate_denote bt p H)).
 Defined. *)
 
-Fixpoint formula_denote (ty: Tuple.tuple_type) (f: formula ty) {struct f}: Tuple.tuple ty -> bool :=
+Fixpoint formula_denote (ty: Tuple.tuple_type) (f: formula ty) {struct f}: Tuple.tuple ty → bool :=
 match f with
   | formula_predicate _ c pred => predicate_denote c ty pred
   | formula_con _ op lhs rhs =>

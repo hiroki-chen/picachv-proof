@@ -4,6 +4,7 @@ Require Import Lia.
 Require Import SetoidDec.
 Require Import SetoidClass.
 Require Import List.
+Require Import Unicode.Utf8.
 
 Require Import lattice.
 Require Import ordering.
@@ -14,7 +15,7 @@ Module Policy.
 (* TODO: Wrap more information? *)
 Inductive policy : Set :=
   | policy_bot : policy
-  (* Should be something like `pred -> policy` *)
+  (* Should be something like `pred → policy` *)
   | policy_select: policy
   | policy_transform: policy
   | policy_agg: policy
@@ -116,31 +117,31 @@ refine (
     simpl in *. eapply transitivity; eassumption.
 Defined.
 
-Lemma policy_join_comm: forall (lhs rhs: policy),
+Lemma policy_join_comm: ∀ (lhs rhs: policy),
   policy_join lhs rhs = policy_join rhs lhs.
 Proof.
   intros. destruct lhs; destruct rhs; reflexivity.
 Qed.
 
-Lemma policy_meet_comm: forall (lhs rhs: policy),
+Lemma policy_meet_comm: ∀ (lhs rhs: policy),
   policy_meet lhs rhs = policy_meet rhs lhs.
 Proof.
   intros. destruct lhs; destruct rhs; reflexivity.
 Qed.
 
-Lemma policy_join_absorp: forall (lhs rhs: policy),
+Lemma policy_join_absorp: ∀ (lhs rhs: policy),
   policy_join lhs (policy_meet lhs rhs) = lhs.
 Proof.
   intros. destruct lhs; destruct rhs; reflexivity.
 Qed.
 
-Lemma policy_join_assoc: forall (a b c: policy),
+Lemma policy_join_assoc: ∀ (a b c: policy),
   policy_join a (policy_join b c) = policy_join (policy_join a b) c.
 Proof.
   intros. destruct a; destruct b; destruct c; reflexivity.
 Qed.
 
-Lemma policy_meet_assoc: forall (a b c: policy),
+Lemma policy_meet_assoc: ∀ (a b c: policy),
   policy_meet a (policy_meet b c) = policy_meet (policy_meet a b) c.
 Proof.
   intros. destruct a; destruct b; destruct c; reflexivity.
@@ -329,20 +330,20 @@ Fixpoint inject_tuple_id
   (t: tuple_np ty)
   (id: nat)
 : tuple ty :=
-  match ty return forall (t: tuple_np ty) (id: nat), tuple ty with
+  match ty return ∀ (t: tuple_np ty) (id: nat), tuple ty with
     | nil => fun _  _ => tt
     | bt :: t' => fun t id => (((fst t), id), inject_tuple_id t' (snd t) (id + 1))
   end t id.
 
-Fixpoint tuple_value_lt (ty: tuple_type): forall (lhs rhs: tuple ty), Prop :=
-  match ty return forall (lhs rhs: tuple ty), Prop with
+Fixpoint tuple_value_lt (ty: tuple_type): ∀ (lhs rhs: tuple ty), Prop :=
+  match ty return ∀ (lhs rhs: tuple ty), Prop with
     | nil => fun _ _ => False
     | _ :: t' => fun lhs rhs => lt (fst (fst lhs)) (fst (fst rhs)) \/
       (fst (fst lhs)) == (fst (fst rhs)) /\ tuple_value_lt t' (snd lhs) (snd rhs)
   end.
 
-Fixpoint tuple_total_lt (ty: tuple_type): forall (lhs rhs: tuple ty), Prop :=
-  match ty return forall (lhs rhs: tuple ty), Prop with
+Fixpoint tuple_total_lt (ty: tuple_type): ∀ (lhs rhs: tuple ty), Prop :=
+  match ty return ∀ (lhs rhs: tuple ty), Prop with
     | nil => fun _ _ => False
     | _ :: t' => fun lhs rhs => lt (fst lhs) (fst rhs) \/
       (fst lhs) == (fst rhs) /\ tuple_total_lt t' (snd lhs) (snd rhs)
@@ -358,8 +359,8 @@ Example example_tuple'' : tuple_np (example_tuple_ty' ++ example_tuple_ty) :=
   (1, ("abcd"%string, (true, tt))).
 
 (* Cast the type of the tuple, if needed. *)
-Lemma tuple_cast: forall (ty1 ty2: tuple_type) (f: tuple_type -> Set),
-  f ty1 -> ty1 = ty2 -> f ty2.
+Lemma tuple_cast: ∀ (ty1 ty2: tuple_type) (f: tuple_type → Set),
+  f ty1 → ty1 = ty2 → f ty2.
 Proof.
   intros.
   rewrite H0 in H.
@@ -392,15 +393,15 @@ Proof.
   - simpl in IHty1. intros. rewrite H0. rewrite H. reflexivity.
 Qed.
 
-Fixpoint tuple_value_eq (ty: tuple_type): forall (lhs rhs: tuple ty), Prop :=
-  match ty return (forall (lhs rhs: tuple ty), Prop) with
+Fixpoint tuple_value_eq (ty: tuple_type): ∀ (lhs rhs: tuple ty), Prop :=
+  match ty return (∀ (lhs rhs: tuple ty), Prop) with
     | nil => fun _ _ => True
     | _ :: tl => fun lhs rhs => 
       (fst (fst lhs)) == (fst (fst rhs)) /\ tuple_value_eq tl (snd lhs) (snd rhs)
   end. 
 
-Fixpoint tuple_total_eq (ty: tuple_type): forall (lhs rhs: tuple ty), Prop :=
-  match ty return (forall (lhs rhs: tuple ty), Prop) with
+Fixpoint tuple_total_eq (ty: tuple_type): ∀ (lhs rhs: tuple ty), Prop :=
+  match ty return (∀ (lhs rhs: tuple ty), Prop) with
     | nil => fun _ _ => True
     | _ :: tl => fun lhs rhs => 
       (fst lhs) == (fst rhs) /\ tuple_total_eq tl (snd lhs) (snd rhs)
@@ -448,11 +449,11 @@ Definition tuple_total_eq_eqv (ty: tuple_type): Equivalence (tuple_total_eq ty).
         -- specialize (IHty _ _ _ H2 H3). assumption.
 Defined.
 
-Definition nth: forall (ty: tuple_type) (n: nat) (extract: n < length ty), Cell.cell.
+Definition nth: ∀ (ty: tuple_type) (n: nat) (extract: n < length ty), Cell.cell.
 refine
 (fix nth' (ty: tuple_type) (n: nat):
-  n < length ty -> Cell.cell :=
-     match ty as ty' , n as n' return ty = ty' -> n = n' -> n' < length ty' -> Cell.cell with
+  n < length ty → Cell.cell :=
+     match ty as ty' , n as n' return ty = ty' → n = n' → n' < length ty' → Cell.cell with
       | x :: y , 0 => fun _ _ _ => x
       | x :: y , S n' => fun _ _ _ => nth' y n' _
       | _ , _ => fun _ _ _ => False_rec _ _
@@ -471,12 +472,12 @@ Definition ntypes (l: list nat) (ty: tuple_type) (bounded: bounded_list l ty): t
     apply IHl. apply H0.
 Defined.
 
-Definition nth_col_tuple: forall (ty: tuple_type) (n : nat) (extract: n < length ty), tuple ty -> tuple ((nth ty n extract) :: nil).
+Definition nth_col_tuple: ∀ (ty: tuple_type) (n : nat) (extract: n < length ty), tuple ty → tuple ((nth ty n extract) :: nil).
 refine (
-  fix nth_col_tuple' (ty: tuple_type) (n : nat): forall (extract: n < length ty),
-    tuple ty -> tuple ((nth ty n extract) :: nil) :=
-      match ty as ty', n as n' return ty = ty' -> n = n' -> 
-            forall (extract: n' < length ty'), tuple ty' -> tuple ((nth ty' n' extract) :: nil) with
+  fix nth_col_tuple' (ty: tuple_type) (n : nat): ∀ (extract: n < length ty),
+    tuple ty → tuple ((nth ty n extract) :: nil) :=
+      match ty as ty', n as n' return ty = ty' → n = n' → 
+            ∀ (extract: n' < length ty'), tuple ty' → tuple ((nth ty' n' extract) :: nil) with
         |_  :: l', 0 => fun _ _ _ t => ((fst t), tt)
         | _ :: l', S n' => fun _ _ _ t => nth_col_tuple' l' n' _ (snd t)
         | _, _ => fun _ _ _ => fun _ => False_rec _ _
@@ -493,18 +494,18 @@ Proof.
 Qed.
 
 (* Without `policy` extracted! *)
-Definition nth_np: forall (ty: tuple_type) (n: nat) (extract: n < length ty), basic_type.
+Definition nth_np: ∀ (ty: tuple_type) (n: nat) (extract: n < length ty), basic_type.
   intros.
   exact (nth ty n extract).
 Defined.
 
 (* Without `policy` extracted! *)
-Definition nth_col_tuple_np: forall (ty: tuple_type) (n : nat) (extract: n < length ty), tuple ty -> tuple_np ((nth_np ty n extract) :: nil).
+Definition nth_col_tuple_np: ∀ (ty: tuple_type) (n : nat) (extract: n < length ty), tuple ty → tuple_np ((nth_np ty n extract) :: nil).
 refine (
-  fix nth_col_tuple_np' (ty: tuple_type) (n : nat): forall (extract: n < length ty),
-    tuple ty -> tuple_np ((nth_np ty n extract) :: nil) :=
-      match ty as ty', n as n' return ty = ty' -> n = n' -> 
-            forall (extract: n' < length ty'), tuple ty' -> tuple_np ((nth_np ty' n' extract) :: nil) with
+  fix nth_col_tuple_np' (ty: tuple_type) (n : nat): ∀ (extract: n < length ty),
+    tuple ty → tuple_np ((nth_np ty n extract) :: nil) :=
+      match ty as ty', n as n' return ty = ty' → n = n' → 
+            ∀ (extract: n' < length ty'), tuple ty' → tuple_np ((nth_np ty' n' extract) :: nil) with
         | _ :: l', 0 => fun _ _ _ t => ((fst (fst t)), tt)
         | _ :: l', S n' => fun _ _ _ t => nth_col_tuple_np' l' n' _ (snd t)
         | _, _ => fun _ _ _ => fun _ => False_rec _ _
@@ -524,7 +525,7 @@ Global Instance tuple_total_eq_setoid (ty: tuple_type): Setoid (tuple ty).
   apply tuple_total_eq_eqv.
 Defined.
 
-Definition tuple_value_compare: forall (ty: tuple_type) (lhs rhs: tuple ty), 
+Definition tuple_value_compare: ∀ (ty: tuple_type) (lhs rhs: tuple ty), 
   OrderedType.Compare (tuple_value_lt ty) (@tuple_value_eq ty) lhs rhs.
 Proof.
   intros. induction ty.

@@ -25,6 +25,7 @@
 Require Import RelationClasses.
 Require Import SetoidClass.
 Require Import List.
+Require Import Unicode.Utf8.
 
 Require Import ordering.
 
@@ -38,79 +39,79 @@ Class FiniteBag (elt: Set) (E: Ordered elt) := {
     (* Creates an empty bag. *)
     empty: bag;
     (* Converts an element into a bag. *)
-    lift: elt -> bag;
+    lift: elt → bag;
     (* Check if an element is in the bag. *)
-    in_bag: elt -> bag -> Prop;
+    in_bag: elt → bag → Prop;
     (* Checks if an element is in the bag, returns bool. *)
-    in_bag_bool: elt -> bag -> bool;
+    in_bag_bool: elt → bag → bool;
     (* Append an element into the bag. *)
-    add: elt -> bag -> bag;
+    add: elt → bag → bag;
     (* Do a union. *)
-    union: bag -> bag -> bag;
+    union: bag → bag → bag;
     (* Check if the bag is empty. *)
-    is_empty: bag -> Prop;
+    is_empty: bag → Prop;
     (* Check if the bag is a subset of another bag. *)
-    subbag: bag -> bag -> Prop;
+    subbag: bag → bag → Prop;
     (* Check if two bags are equal. *)
-    equal: bag -> bag -> Prop;
+    equal: bag → bag → Prop;
     (* Apply a map on all elements. *)
-    map: (elt -> elt) -> bag -> bag;
+    map: (elt → elt) → bag → bag;
     (* Apply a filter on all elements. *)
-    filter: (elt -> bool) -> bag -> bag;
+    filter: (elt → bool) → bag → bag;
     (* Removes an element. *)
-    remove: elt -> bag -> bag;
+    remove: elt → bag → bag;
     (* Apply a fold on all elements. *)
-    fold : forall A : Set, (elt -> A -> A) -> bag -> A -> A;
+    fold : ∀ A : Set, (elt → A → A) → bag → A → A;
     (* Returns the length of the bag. *)
-    len: bag -> nat;
+    len: bag → nat;
     (* Returns all the elements in the bag. *)
-    elements: bag -> list elt;
+    elements: bag → list elt;
     (* Returns the number of a given element in the bag. *)
-    count: elt -> bag -> nat;
+    count: elt → bag → nat;
     (* Returns an element in the bag. *)
-    choose : bag -> option elt;
+    choose : bag → option elt;
     (* Checks if all elements satisfy a given predicate. *)
-    for_all : (elt -> bool) -> bag -> bool;
-    (* Checks if there exists an element that satisfies a given predicate. *)
-    exists_element: (elt -> bool) -> bag -> bool;
+    for_all : (elt → bool) → bag → bool;
+    (* Checks if there ∃ an element that satisfies a given predicate. *)
+    exists_element: (elt → bool) → bag → bool;
 
-    compare : bag -> bag -> comparison;
+    compare : bag → bag → comparison;
     (* TODO: IN CONSTRUCTION. *)
     (* partition: creates an element-to-list set. *)
 
     (* The following are theorems. *)
     (* The empty bag is empty. *)
     empty_is_empty: is_empty empty;
-    (* Prop <-> bool. *)
-    in_bag_is_in_bag_bool: forall (e: elt) (b: bag), in_bag e b <-> in_bag_bool e b = true;
+    (* Prop <→ bool. *)
+    in_bag_is_in_bag_bool: ∀ (e: elt) (b: bag), in_bag e b ↔ in_bag_bool e b = true;
     (* If an element is in the bag, then the bag is not empty. *)
-    member_is_not_empty: forall (e: elt) (b: bag), in_bag e b -> ~ is_empty b;
+    member_is_not_empty: ∀ (e: elt) (b: bag), in_bag e b → ~ is_empty b;
     (* If an element is in the bag, then the bag is a subset of the bag with the element. *)
-    member_subbag: forall (e: elt) (b: bag), in_bag e b -> subbag b (add e b);
-    subbag_count_less: forall (a b: bag), subbag a b <-> forall (e: elt), count e a <= count e b;
+    member_subbag: ∀ (e: elt) (b: bag), in_bag e b → subbag b (add e b);
+    subbag_count_less: ∀ (a b: bag), subbag a b ↔ ∀ (e: elt), count e a <= count e b;
     (* Length should match. *)
-    length_elements: forall (b: bag), len b = length (elements b);
+    length_elements: ∀ (b: bag), len b = length (elements b);
     (* If two bags are equal, then the number of a given element in the bags are equal. *)
-    eq_bag_count_eq: forall (b1 b2: bag),
-      equal b1 b2 <-> forall (e: elt), count e b1 = count e b2;
+    eq_bag_count_eq: ∀ (b1 b2: bag),
+      equal b1 b2 ↔ ∀ (e: elt), count e b1 = count e b2;
     (* If a bag is empty, then there is no member in it *)
-    empty_bag_no_member: forall (b: bag),
-      is_empty b <-> forall (e: elt), in_bag_bool e b = false;
+    empty_bag_no_member: ∀ (b: bag),
+      is_empty b ↔ ∀ (e: elt), in_bag_bool e b = false;
     (* If a bag is empty, then there is no member in it *)
-    empty_bag_no_member': forall (e: elt), in_bag_bool e empty = false;
-    choose_spec: forall (b: bag) (e: elt), choose b = Some e -> count e b > 0;
-    choose_spec': forall (b: bag), choose b = None -> is_empty b;
-    compare_spec : forall s1 s2, compare s1 s2 = Eq <-> equal s1 s2;
+    empty_bag_no_member': ∀ (e: elt), in_bag_bool e empty = false;
+    choose_spec: ∀ (b: bag) (e: elt), choose b = Some e → count e b > 0;
+    choose_spec': ∀ (b: bag), choose b = None → is_empty b;
+    compare_spec : ∀ s1 s2, compare s1 s2 = Eq ↔ equal s1 s2;
     compare_eq_trans : 
-      forall a1 a2 a3, compare a1 a2 = Eq -> compare a2 a3 = Eq -> compare a1 a3 = Eq;
+      ∀ a1 a2 a3, compare a1 a2 = Eq → compare a2 a3 = Eq → compare a1 a3 = Eq;
     compare_eq_lt_trans : 
-      forall a1 a2 a3, compare a1 a2 = Eq -> compare a2 a3 = Lt -> compare a1 a3 = Lt;
+      ∀ a1 a2 a3, compare a1 a2 = Eq → compare a2 a3 = Lt → compare a1 a3 = Lt;
     compare_lt_eq_trans : 
-      forall a1 a2 a3, compare a1 a2 = Lt -> compare a2 a3 = Eq -> compare a1 a3 = Lt;
+      ∀ a1 a2 a3, compare a1 a2 = Lt → compare a2 a3 = Eq → compare a1 a3 = Lt;
     compare_lt_trans : 
-      forall a1 a2 a3, compare a1 a2 = Lt -> compare a2 a3 = Lt -> compare a1 a3 = Lt;
-    compare_lt_gt : forall a1 a2, compare a1 a2 = CompOpp (compare a2 a1);
-    exists_bool : forall (s : bag) (f : elt -> bool), exists_element f s = existsb f (elements s);
+      ∀ a1 a2 a3, compare a1 a2 = Lt → compare a2 a3 = Lt → compare a1 a3 = Lt;
+    compare_lt_gt : ∀ a1 a2, compare a1 a2 = CompOpp (compare a2 a1);
+    exists_bool : ∀ (s : bag) (f : elt → bool), exists_element f s = existsb f (elements s);
 }.
 
 Hint Immediate @empty_is_empty.
@@ -165,7 +166,7 @@ Section FB.
     end.
 
 
-  Fixpoint union' (b: fbag): fbag -> fbag :=
+  Fixpoint union' (b: fbag): fbag → fbag :=
     match b with
     | nil => fun b' => b'
     | e :: b' =>  
@@ -193,19 +194,19 @@ Section FB.
                     end
       end.
 
-      Fixpoint for_all' (f: elt -> bool) (b: fbag): bool :=
+      Fixpoint for_all' (f: elt → bool) (b: fbag): bool :=
         match b with
         | nil => true
         | e :: b' => if f e then for_all' f b' else false
         end.
 
-    Fixpoint exists' (f: elt -> bool) (b: fbag): bool :=
+    Fixpoint exists' (f: elt → bool) (b: fbag): bool :=
       match b with
       | nil => false
       | e :: b' => if f e then true else exists' f b'
       end.
 
-    Fixpoint fold' (A: Set) (f: elt -> A -> A) (b: fbag) (a: A): A :=
+    Fixpoint fold' (A: Set) (f: elt → A → A) (b: fbag) (a: A): A :=
       match b with
       | nil => a
       | e :: b' => fold' A f b' (f e a)
@@ -227,13 +228,13 @@ Section FB.
       | e :: b' => Some e
       end.
     
-    Fixpoint map' (f: elt -> elt) (b: fbag): fbag :=
+    Fixpoint map' (f: elt → elt) (b: fbag): fbag :=
       match b with
       | nil => nil
       | e :: b' => f e :: map' f b'
       end.
 
-    Fixpoint filter' (f: elt -> bool) (b: fbag): fbag :=
+    Fixpoint filter' (f: elt → bool) (b: fbag): fbag :=
       match b with
       | nil => nil
       | e :: b' => if f e then e :: filter' f b' else filter' f b'

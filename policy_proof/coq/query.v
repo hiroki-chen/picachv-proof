@@ -1,5 +1,6 @@
 Require Import List.
 Require Import String.
+Require Import Unicode.Utf8.
 
 Require Import types.
 Require Import relation.
@@ -12,6 +13,9 @@ Set Printing Coercions.
 Set Printing Implicit.
 Set Printing Projections.
 
+Inductive trans_func (l1 l2: Policy.policy): Set :=
+  | trans_func_with_label: ∀ bt, transform_func bt → trans_func l1 l2
+.
 
 Fixpoint schema_to_anf (s: schema): list nat :=
   match s with
@@ -21,11 +25,11 @@ Fixpoint schema_to_anf (s: schema): list nat :=
 
 Inductive project_list: Set :=
   | project_star: project_list
-  | project s: list (forall bt, agg_expression s bt) -> project_list
+  | project s: list (∀ bt, agg_expression s bt) → project_list
 .
 
 Definition groupby_list := (list nat)%type.
-Definition agg_list s := (list (forall bt, agg_expression s bt))%type.
+Definition agg_list s := (list (∀ bt, agg_expression s bt))%type.
 
 Definition schema_env:= list (nat * schema)%type.
 Fixpoint relation_env (se: schema_env): Set :=
@@ -58,46 +62,60 @@ Fixpoint lookup_schema (n: nat) (se: schema_env): schema :=
 Definition env_slice (s: schema) := (relation s * list nat * groupby_list * list (Tuple.tuple s))%type.
 Definition env (s: schema): Set := list (env_slice s)%type.
 
-(*
-  The operator is a dependent type on a schema that has seven constructors.
-  Operator: forall s: schema, Set
-*)
-Inductive Operator: schema -> Set :=
-  | operator_empty: forall s, Operator s
-  | operator_relation: forall s, nat -> Operator s
-  | operator_union: forall s, Operator s -> Operator s -> Operator s
-  | operator_join: forall s1 s2, Operator s1 -> Operator s2 -> Operator (s1 ++ s2)
-  | operator_project: forall s, project_list -> Operator s -> Operator s
-  | operator_select: forall s, formula s -> Operator s -> Operator s
-  | operator_grouby_having: forall s, groupby_list -> agg_list s -> formula s -> Operator s -> Operator s
+Inductive Operator: Set :=
+  | operator_empty: Operator
+  | operator_relation: nat → Operator
+  | operator_union: Operator → Operator → Operator
+  | operator_join: Operator → Operator → Operator
+  | operator_project: project_list → Operator → Operator
+  | operator_select: ∀ s, formula s → Operator → Operator
+  | operator_grouby_having: ∀ s, groupby_list → agg_list s → formula s → Operator → Operator
 .
 
+(*
+  `Configuration` is a dependent type on a schema that has two constructors.
+*)
 Inductive config: Set :=
   | config_terminal: config
-  | config_ok: forall s, Policy.context -> Configuration.privacy -> env s -> config
+  | config_error: config
+  | config_ok: ∀ s, Policy.context → Configuration.privacy → env s → config
 .
 
-Definition hd_option {A: Type} (l: list A): option A :=
-  match l with
-    | nil => None
-    | cons hd _ => Some hd
-  end.
+(*
+  `step_cell` is an inductive type that defines a relation between two configurations except that
+  it works on the level of cells. This transition is defined by a notation `c1 >[ f ]> c2` where `f`
+  is a function that transforms the cell.
+*)
+Reserved Notation "c1 '>[' f ']>' c2" (at level 50, left associativity).
+Inductive step_cell: ∀ l1 l2, trans_func l1 l2 → config → config→ Prop :=
+  | E_CTransSkip:
+      ∀ l1 l2 s ctx priv (e: env s) (f: trans_func l1 l2), 
+        List.length e = 0 →
+      config_ok s ctx priv e >[ f ]> config_ok s ctx priv e
+  (* | E_CTransError: ∀ l1 l2 l s ctx priv (e: env s) (f: trans_func l1 l2), *)
 
-Reserved Notation "c1 '=[' o ']=>' c2" (at level 50, left associativity).
+where "c1 '>[' f ']>' c2" := (step_cell _ _ f c1 c2).
+
+Notation "{{ ctx priv env }}":= (config_ok _ ctx priv env) (at level 50, left associativity) .
+
 (* 
-  `step` is an inductive type representing the transition rules for configurations. 
+  `step_config` is an inductive type representing the transition rules for configurations. 
   It defines how a configuration changes from one state to another by the query.
   The rules are:
   - `E_Error`   : If the configuration is error, it remains error.
   ...
 *)
-Inductive step: forall s, Operator s -> config -> config -> Prop :=
-  (* Error state can no longer be forwarded. *)
-  | E_Error: forall s (o: Operator s) c, c =[ o ]=> config_terminal
-where "c1 '=[' o ']=>' c2" := (step _ o c1 c2).
-
-Lemma cfg_dec: forall (s: schema) (o: Operator s) c1 c2, {c1 =[ o ]=> c2} + {~ c1 =[ o ]=> c2}.
-Admitted.
-
-Lemma cfg_eq_dec: forall (c1 c2: config), {c1 = c2} + {c1 <> c2}.
-Admitted.
+Reserved Notation "c1 '=[' o ']=>' c2" (at level 50).
+Inductive step_config: Operator → config → config → Prop :=
+  (* Empty operator clears the environment. *)
+  | E_Empty: ∀ s1 s2 ctx priv (e: env s1), config_ok s1 ctx priv e =[ operator_empty ]=> config_ok s2 ctx priv nil
+  (* If the operator returns an empty environment, we do nothing. *)
+  | E_ProjEmpty: ∀ s1 s2 ctx ctx' priv priv' (e: env s1) (e': env s2) project_list o,
+      config_ok s1 ctx priv e =[ o ]=> config_ok s2 ctx' priv' e' →
+      List.length e' = 0 →
+      config_ok s1 ctx priv e =[ operator_project project_list o ]=> config_ok s2 ctx' priv' nil
+  | E_Proj: ∀ s1 s2 ctx ctx' priv priv' (e: env s1) (e': env s2) project_list o,
+      config_ok s1 ctx priv e =[ o ]=> config_ok s2 ctx' priv' e' →
+      List.length e' > 0 →
+      config_ok s1 ctx priv e =[ operator_project project_list o]=> config_ok s2 ctx' priv' e'
+where "c1 '=[' o ']=>' c2" := (step_config o c1 c2).

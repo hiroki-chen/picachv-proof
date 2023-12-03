@@ -7,6 +7,7 @@ Require Import SetoidDec.
 Require Import SetoidClass.
 Require Import Lia.
 Require Import Decidable.
+Require Import Unicode.Utf8.
 
 Require Import ordering.
 
@@ -62,12 +63,13 @@ Definition Attribute := basic_type%type.
 Definition Symbol := string.
 Definition Aggregate := string.
 
-Inductive transform_func : Set.
-Inductive aggregate_func : Set.
+Inductive transform_func (bt: basic_type): Set.
+Inductive aggregate_func (bt: basic_type): Set.
 Inductive func: Set :=
-  | transform: transform_func -> func
-  | aggregate: aggregate_func -> func
+  | transform: ∀ bt, transform_func bt → func
+  | aggregate: ∀ bt, aggregate_func bt → func
 .
+
 Definition func_list: Set := list func%type.
 
 (*
@@ -78,11 +80,3 @@ Definition func_list: Set := list func%type.
 
 (* A schema is a list of attributes. *)
 Definition schema:= (list Attribute).
-
-Fixpoint eqb_list {A: Type} (eqb: A -> A -> bool) (l1 l2: list A): bool :=
-  match l1, l2 with
-  | nil, nil => true
-  | nil, _ => false
-  | _, nil => false
-  | h1 :: t1, h2 :: t2 => if eqb h1 h2 then eqb_list eqb t1 t2 else false
-  end.

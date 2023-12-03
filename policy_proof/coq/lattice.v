@@ -1,4 +1,4 @@
-Require Import Setoid Coq.Classes.Morphisms Basics List PeanoNat Coq.Logic.FinFun Psatz Coq.Sorting.Mergesort Coq.Structures.Orders Coq.Logic.FinFun Coq.Program.Equality.
+Require Import Setoid Coq.Classes.Morphisms Basics List PeanoNat Coq.Logic.FinFun Psatz Coq.Sorting.Mergesort Coq.Structures.Orders Coq.Logic.FinFun Coq.Program.Equality Unicode.Utf8.
 
 Reserved Notation "X '⊓' Y" (at level 39, left associativity).
 Reserved Notation "X '⊔' Y" (at level 40, left associativity).
@@ -10,28 +10,28 @@ Reserved Notation "X '⊑' Y" (at level 70, no associativity).
 
 Class lattice (A : Set) :=
   Lattice {
-      join: A -> A -> A where "X '⊔' Y" := (join X Y);
-      meet: A -> A -> A where "X '⊓' Y" := (meet X Y);
+      join: A → A → A where "X '⊔' Y" := (join X Y);
+      meet: A → A → A where "X '⊓' Y" := (meet X Y);
       top: A where "⊤" := @top;
       bot: A where "⊥" := @bot;
-      eq: A -> A -> Prop where "x '===' y" := (eq x y)
+      eq: A → A → Prop where "x '===' y" := (eq x y)
         and "x '=/=' y" := (complement eq x y)
         and "X '⊑' Y" := (X ⊔ Y === Y);
       eq_equiv :: Equivalence eq;
-      meet_symmetry: forall a b : A, a ⊓ b === b ⊓ a;
-      join_symmetry: forall a b   : A,  a ⊔ b === b ⊔ a;
-      join_assoc   : forall a b c : A,  a ⊔ (b ⊔ c) === (a ⊔ b) ⊔ c;
-      join_absorp : forall a b   : A,  a ⊔ (a ⊓ b) === a;
-      meet_assoc   : forall a b c : A,  a ⊓ (b ⊓ c) === (a ⊓ b) ⊓ c;
-      meet_absorp : forall a b   : A,  a ⊓ (a ⊔ b) === a;
-      join_bot: forall a     : A, bot ⊔ a === a;
-      join_top: forall a     : A, ⊤ ⊔ a === ⊤;
-                               meet_bot: forall a     : A, bot ⊓ a === bot;
-      meet_top: forall a     : A, ⊤ ⊓ a === a;
-      join_compat: forall x1 y1 x2 y2, x1 === x2 -> y1 === y2 -> x1 ⊔ y1 === x2 ⊔ y2;
-      meet_compat: forall x1 y1 x2 y2, x1 === x2 -> y1 === y2 -> x1 ⊓ y1 === x2 ⊓ y2;
-      flowsto_compat_right: forall x y z, x === y -> z ⊑ y -> z ⊑ x;
-      flowsto_compat_left: forall x y z, x === y -> y ⊑ z -> x ⊑ z
+      meet_symmetry: ∀ a b : A, a ⊓ b === b ⊓ a;
+      join_symmetry: ∀ a b   : A,  a ⊔ b === b ⊔ a;
+      join_assoc   : ∀ a b c : A,  a ⊔ (b ⊔ c) === (a ⊔ b) ⊔ c;
+      join_absorp : ∀ a b   : A,  a ⊔ (a ⊓ b) === a;
+      meet_assoc   : ∀ a b c : A,  a ⊓ (b ⊓ c) === (a ⊓ b) ⊓ c;
+      meet_absorp : ∀ a b   : A,  a ⊓ (a ⊔ b) === a;
+      join_bot: ∀ a     : A, bot ⊔ a === a;
+      join_top: ∀ a     : A, ⊤ ⊔ a === ⊤;
+                               meet_bot: ∀ a     : A, bot ⊓ a === bot;
+      meet_top: ∀ a     : A, ⊤ ⊓ a === a;
+      join_compat: ∀ x1 y1 x2 y2, x1 === x2 → y1 === y2 → x1 ⊔ y1 === x2 ⊔ y2;
+      meet_compat: ∀ x1 y1 x2 y2, x1 === x2 → y1 === y2 → x1 ⊓ y1 === x2 ⊓ y2;
+      flowsto_compat_right: ∀ x y z, x === y → z ⊑ y → z ⊑ x;
+      flowsto_compat_left: ∀ x y z, x === y → y ⊑ z → x ⊑ z
     }.
 
 Notation "X '⊓' Y" := (meet X Y)(at level 39, left associativity).
@@ -60,18 +60,18 @@ Section LatticeProperties.
         as eq_rel.
   Hint Resolve eq_rel : typeclass_instances.
 
-  Class Morphism2 (f : A -> A -> A) :=
+  Class Morphism2 (f : A → A → A) :=
     {
-      compat2: forall (x1 y1 x2 y2 : A), x1 === x2 -> y1 === y2 -> f x1 y1 === f x2 y2
+      compat2: ∀ (x1 y1 x2 y2 : A), x1 === x2 → y1 === y2 → f x1 y1 === f x2 y2
     }.
   
-  Class MorphismR (f : A -> A -> Prop) :=
+  Class MorphismR (f : A → A → Prop) :=
     {
-      compatR: forall (x1 y1 x2 y2 : A), x1 === x2 -> y1 === y2 -> f x1 y1 <-> f x2 y2
+      compatR: ∀ (x1 y1 x2 y2 : A), x1 === x2 → y1 === y2 → f x1 y1 ↔ f x2 y2
     }.
 
 
-Global Instance eq_rewrite2_Proper (f : A -> A -> A) `{Morphism2 f}:
+Global Instance eq_rewrite2_Proper (f : A → A → A) `{Morphism2 f}:
   Proper (eq ==> eq ==> eq) f.
 Proof.
   intros x1 y1 H_eq1 x2 y2 H_eq2.
@@ -79,7 +79,7 @@ Proof.
 Qed.
 Hint Resolve eq_rewrite2_Proper : typeclass_instances.
 
-Global Instance eq_rewrite3_Proper (f : A -> A -> Prop) `{MorphismR f}:
+Global Instance eq_rewrite3_Proper (f : A → A → Prop) `{MorphismR f}:
   Proper (eq ==> eq ==> flip impl) f.
 Proof.
   intros x1 y1 H_eq1 x2 y2 H_eq2.
@@ -95,13 +95,13 @@ Global Instance meet_inst: Morphism2 meet := { compat2 := meet_compat }.
 Hint Resolve join_inst : typeclass_instances.
 Hint Resolve meet_inst : typeclass_instances.
 
-Lemma join_idem: forall a, a ⊔ a === a.
+Lemma join_idem: ∀ a, a ⊔ a === a.
 Proof.
   intros. rewrite <- (meet_absorp a a) at 2. auto.
 Qed.
 Hint Resolve join_idem.
 
-Lemma meet_idem: forall a, a ⊓ a === a.
+Lemma meet_idem: ∀ a, a ⊓ a === a.
 Proof.
   intros. rewrite <- (join_absorp a a) at 2. auto.
 Qed.
