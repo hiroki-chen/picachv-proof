@@ -9,6 +9,7 @@ Require Import Unicode.Utf8.
 Require Import lattice.
 Require Import ordering.
 Require Import types.
+Require Import util.
 
 Module Policy.
 (* For now, the policy is just a placeholder. *)
@@ -274,14 +275,25 @@ Definition can_release (p: policy_encoding): Prop :=
 Definition cannot_release (p: policy_encoding): Prop := ~ can_release p.
  
 (* Lookup the policy context and check if the cell has been associated with an active policy. *)
-Fixpoint label_lookup (id: nat) (ctx: context):
-  option policy_encoding :=
-    match ctx with
-      | nil => None
-      | (id', (cur, disc)) :: l' =>
-          if Nat.eqb id id' then Some (cur, disc) else label_lookup id l'
-    end.
+Fixpoint label_lookup (id: nat) (ctx: context): option policy_encoding :=
+  match ctx with
+    | nil => None
+    | (id', (cur, disc)) :: l' =>
+        if Nat.eqb id id' then Some (cur, disc) else label_lookup id l'
+  end.
 
+Fixpoint update_label (id: nat) (ctx: context) (pe: policy_encoding): context :=
+  match ctx with
+  | nil => nil
+  | (id', pe') :: l' =>
+      if Nat.eqb id id' then (id, pe) :: l' else (id', pe') :: update_label id l' pe
+  end.
+
+Lemma update_valid: forall id ctx pe pe',
+  label_lookup id ctx = Some pe →
+  label_lookup id (update_label id ctx pe') = Some pe'.
+Proof.
+Admitted.
 End Policy.
 
 Module Cell.
@@ -462,6 +474,28 @@ Proof.
   - simpl in *. lia.
   - simpl in *. lia.
 Defined.
+
+(* FIXME: ensures that types match between `c` and `x`. *)
+(* Only matched types are allowed to transition. *)
+Definition set_nth_type_match: ∀ (ty: tuple_type) (n: nat) (c: Cell.cell) (extract: n < length ty),
+  tuple ty -> option (tuple ty).
+refine
+(fix set_nth' (ty: tuple_type) (n: nat) (c: Cell.cell):
+  n < length ty -> tuple ty -> option (tuple ty) :=
+  match ty as ty', n as n'
+    return ty = ty' -> n = n' -> n' < length ty' -> tuple ty' -> option (tuple ty') with
+      | x :: y, 0 => fun _ _ _ t => _
+      | x :: y, S n' => fun _ _ _ t => match set_nth' y n' c _ (snd t) with
+                                          | None => None
+                                          | Some t' => Some (fst t, t')
+                                        end
+      | _, _ => fun _ _ _ => False_rec _ _
+      end (refl_equal _) (refl_equal _)).
+Proof.
+  - simpl in *. lia.
+  - destruct c as [int|bool|str]. (* match c with ... *)
+    + 
+Admitted.
 
 Definition ntypes (l: list nat) (ty: tuple_type) (bounded: bounded_list l ty): tuple_type.
   induction l.

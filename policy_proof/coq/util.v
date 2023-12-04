@@ -31,3 +31,10 @@ Proof.
   - trivial.
   - simpl.  specialize (H a). rewrite H. apply IHl.
 Qed.
+
+Fixpoint set_nth {A: Type} (l: list A) (n: nat) (a: A): list A :=
+  match l, n with
+  | nil, _ => nil
+  | h :: t, 0 => a :: t
+  | h :: t, S n' => h :: set_nth t n' a
+  end.
