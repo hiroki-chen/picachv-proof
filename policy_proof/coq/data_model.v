@@ -493,9 +493,9 @@ refine
       end (refl_equal _) (refl_equal _)).
 Proof.
   - simpl in *. lia.
-  - destruct c as [int|bool|str]. (* match c with ... *)
-    + 
-Admitted.
+  - exact (Some t).
+  - simpl in *. lia.
+Defined.
 
 Definition ntypes (l: list nat) (ty: tuple_type) (bounded: bounded_list l ty): tuple_type.
   induction l.

@@ -134,19 +134,8 @@ Inductive step_cell: ∀ ℓ1 ℓ2, trans_func ℓ1 ℓ2 → config → config �
           tl = (env_slice_get_tuples (get_env_slice s e non_empty)) →
           List.length tl = 0 → 
           ⟨ s Γ β e ⟩ >[ f ]> ⟨ s Γ β e ⟩
-  (* No active labels are found; this should be an error. *)
-  | E_CTransError:
-      ∀ ℓ1 ℓ2 s Γ β e (f: trans_func ℓ1 ℓ2) (non_empty: List.length e > 0)
-        tl (tl_non_empty: List.length tl > 0) t c_idx,
-          (* tl => A list of tuples. *)
-          tl = (env_slice_get_tuples (get_env_slice s e non_empty)) →
-          (* t => The first tuple. *)
-          t = hd_ok tl tl_non_empty →
-          (* we now get the label encodings. *)
-          None = Policy.label_lookup c_idx Γ →
-          ⟨ s Γ β e ⟩ >[ f ]> config_error
   (* The label does not flow to the current one. *)
-  | E_CTransInvalid:
+  | E_CTransSkip3:
       ∀ ℓ1 ℓ2 ℓcur ℓdisc s Γ β e (f: trans_func ℓ1 ℓ2) (non_empty: List.length e > 0)
         tl (tl_non_empty: List.length tl > 0) t c_idx,
           (* tl => A list of tuples. *)
@@ -157,6 +146,34 @@ Inductive step_cell: ∀ ℓ1 ℓ2, trans_func ℓ1 ℓ2 → config → config �
           Some (ℓcur, Some ℓdisc) = Policy.label_lookup c_idx Γ →
           ~ (ℓcur ⊑ ℓ1) →
           ⟨ s Γ β e ⟩ >[ f ]> ⟨ s Γ β e ⟩
+  (* No active labels are found; this should be an error. *)
+  | E_CTransError1:
+      ∀ ℓ1 ℓ2 s Γ β e (f: trans_func ℓ1 ℓ2) (non_empty: List.length e > 0)
+        tl (tl_non_empty: List.length tl > 0) t c_idx,
+          (* tl => A list of tuples. *)
+          tl = (env_slice_get_tuples (get_env_slice s e non_empty)) →
+          (* t => The first tuple. *)
+          t = hd_ok tl tl_non_empty →
+          (* we now get the label encodings. *)
+          None = Policy.label_lookup c_idx Γ →
+          ⟨ s Γ β e ⟩ >[ f ]> config_error
+  | E_CTransError2:
+      ∀ ℓ1 ℓ2 ℓcur ℓdisc s Γ Γ' β e (f: trans_func ℓ1 ℓ2) (non_empty: List.length e > 0)
+        tl (tl_non_empty: List.length tl > 0) t c c' c_idx (idx_bound: c_idx < List.length s),
+          (* tl => A list of tuples. *)
+          tl = (env_slice_get_tuples (get_env_slice s e non_empty)) →
+          (* t => The first tuple. *)
+          t = hd_ok tl tl_non_empty →
+          (* we now get the label encodings. *)
+          Some (ℓcur, Some ℓdisc) = Policy.label_lookup c_idx Γ →
+          (* udpate the policy environment. *)
+          ℓcur ⊑ ℓ1 → Γ' = Policy.update_label c_idx Γ (ℓ2, Some ℓdisc) →
+          (* update the cell *)
+          c = Tuple.nth _ c_idx idx_bound → c' = (trans_func_denote _ _ f) c →
+          (* update the tuple by updating this cell. *)
+          None = Tuple.set_nth_type_match _ c_idx c' idx_bound t →
+          (* update the environment. *)
+          ⟨ s Γ β e ⟩ >[ f ]> config_error
   (* This transition is ok. *)
   | E_CTransOk:
       ∀ ℓ1 ℓ2 ℓcur ℓdisc s Γ Γ' β e e' (f: trans_func ℓ1 ℓ2) (non_empty: List.length e > 0)
@@ -169,10 +186,12 @@ Inductive step_cell: ∀ ℓ1 ℓ2, trans_func ℓ1 ℓ2 → config → config �
           Some (ℓcur, Some ℓdisc) = Policy.label_lookup c_idx Γ →
           (* udpate the policy environment. *)
           ℓcur ⊑ ℓ1 → Γ' = Policy.update_label c_idx Γ (ℓ2, Some ℓdisc) →
-          (* TODO: Update the tuple. *)
-          tl' = set_nth tl 0 →
+          (* update the cell. *)
           c = Tuple.nth _ c_idx idx_bound → c' = (trans_func_denote _ _ f) c →
-          t' = Tuple.set_nth_type_match _ c_idx c' idx_bound t →
+          (* update the tuple by updating this cell. *)
+          Some t' = Tuple.set_nth_type_match _ c_idx c' idx_bound t →
+          (* update the tuple environment. *)
+          tl' = set_nth tl 0 t' →
           (* update the environment. *)
           ⟨ s Γ β e ⟩ >[ f ]> ⟨ s Γ' β e' ⟩
 where "c1 '>[' f ']>' c2" := (step_cell _ _ f c1 c2).
@@ -180,9 +199,14 @@ where "c1 '>[' f ']>' c2" := (step_cell _ _ f c1 c2).
 (* 
   `step_config` is an inductive type representing the transition rules for configurations. 
   It defines how a configuration changes from one state to another by the query.
-  The rules are:
-  - `E_Error`   : If the configuration is error, it remains error.
-  ...
+
+  If an update is successfully performed, then we need to:
+  * Update the environment.
+  * Update the policy environment.
+  * Update the privacy budget.
+  * Update the cell in the tuple.
+  * Update the tuple in the environment.
+  * Update the relation.
 *)
 Reserved Notation "c1 '=[' o ']=>' c2" (at level 50, left associativity).
 Inductive step_config: Operator → config → config → Prop :=
