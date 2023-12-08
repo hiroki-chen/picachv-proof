@@ -63,8 +63,16 @@ Definition Attribute := basic_type%type.
 Definition Symbol := string.
 Definition Aggregate := string.
 
-Inductive transform_func (bt: basic_type): Set.
+Inductive transform_func (bt: basic_type): Set :=
+  | tf_id: transform_func bt
+  | tf_other: transform_func bt
+.
+Inductive simple_transform_func: Set :=
+  | stf_id: simple_transform_func
+  | stf_other: simple_transform_func
+.
 Inductive aggregate_func (bt: basic_type): Set.
+Inductive simple_aggregate_func: Set.
 Inductive func: Set :=
   | transform: ∀ bt, transform_func bt → func
   | aggregate: ∀ bt, aggregate_func bt → func

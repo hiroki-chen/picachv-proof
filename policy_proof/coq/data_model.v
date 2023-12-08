@@ -475,6 +475,16 @@ Proof.
   - simpl in *. lia.
 Defined.
 
+Definition nth_nocheck: ∀ (ty: tuple_type) (n: nat), option Cell.cell.
+refine
+(fix nth' (ty: tuple_type) (n: nat): option Cell.cell :=
+     match ty as ty' , n as n' return ty = ty' → n = n' → option Cell.cell with
+      | x :: y , 0 => fun _ _  => Some x
+      | x :: y , S n' => fun _ _  => nth' y n'
+      | _ , _ => fun _ _ => None
+    end (refl_equal _) (refl_equal _)).
+Defined.
+
 (* FIXME: ensures that types match between `c` and `x`. *)
 (* Only matched types are allowed to transition. *)
 Definition set_nth_type_match: ∀ (ty: tuple_type) (n: nat) (c: Cell.cell) (extract: n < length ty),

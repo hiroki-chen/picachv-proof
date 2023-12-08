@@ -14,6 +14,13 @@ Definition hd_ok {A: Type} (l: list A) (non_empty: length l > 0) : A.
   - exact a.
 Defined.
 
+Fixpoint zip_lists {A B: Type} (l1: list A) (l2: list B): list (A * B) :=
+  match l1, l2 with
+  | nil, _ => nil
+  | _, nil => nil
+  | h1 :: t1, h2 :: t2 => (h1, h2) :: zip_lists t1 t2
+  end.
+
 Fixpoint eqb_list {A: Type} (eqb: A → A → bool) (l1 l2: list A): bool :=
   match l1, l2 with
   | nil, nil => true
@@ -38,3 +45,13 @@ Fixpoint set_nth {A: Type} (l: list A) (n: nat) (a: A): list A :=
   | h :: t, 0 => a :: t
   | h :: t, S n' => h :: set_nth t n' a
   end.
+
+Theorem eq_length_list_zip_preserves_length :
+  ∀ (A B: Type) (l1: list A) (l2: list B),
+    length l1 = length l2 → length (zip_lists l1 l2) = length l1.
+Proof.
+  induction l1.
+  - intros. destruct l2. trivial. inversion H.
+  - intros. destruct l2. inversion H. simpl. apply eq_S.
+    apply IHl1. inversion H. trivial.
+Qed.

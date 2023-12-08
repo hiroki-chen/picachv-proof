@@ -22,16 +22,208 @@ Inductive trans_func (ℓ1 ℓ2: Policy.policy): Set :=
 
 Definition trans_func_denote ℓ1 ℓ2 (f: trans_func ℓ1 ℓ2) : basic_type -> basic_type. Admitted.
 
-Fixpoint schema_to_anf (s: schema): list nat :=
-  match s with
-    | nil => nil
-    | cons t ty' => cons 0 (List.map S (schema_to_anf ty'))
+Inductive project_list: Set :=
+  (* Denotes a "*" projection list. *)
+  | project_star: project_list
+  (* Dentoes a project list consisting function applications, column names, and constants. *)
+  | project: list (simple_atomic_expression) → project_list
+.
+
+Definition normalized (pl: project_list): Prop :=
+  match pl with
+  | project_star => False
+  | project ℓ =>
+      (fix check ℓ := match ℓ with
+                      | nil => True
+                      | x :: ℓ' => match x with
+                                  | simple_atomic_expression_column _ => check ℓ'
+                                  | simple_atomic_expression_const _ => check ℓ'
+                                  | simple_atomic_expression_func _ ℓ'' => 
+                                             (fix check' ℓ := match ℓ with
+                                                        | nil => True
+                                                        | cur :: ℓ' =>
+                                                          match cur with
+                                                          | simple_atomic_expression_column _ => check' ℓ'
+                                                          | simple_atomic_expression_const _ => check' ℓ'
+                                                          | _ => False
+                                                          end
+                                                        end) ℓ''
+                                  end
+                        end) ℓ
   end.
 
-Inductive project_list: Set :=
-  | project_star: project_list
-  | project s: list (∀ bt, agg_expression s bt) → project_list
-.
+(*
+  `determine_bt_from_args` is a function that takes a schema and a list of simple atomic expressions
+  and returns a basic type. This function calculates the output basic type for a function application
+  given the input schema and the list of simple atomic expressions.
+
+  HACK: This function uses `option` which is inconsistent with the `nth` function in `Tuple.v`.
+        `nth` requires a proof that the index is within the bounds of the list. However, this
+        function does not require such a proof.
+
+        The major difficulty is that we cannot easily obtain the proof that the bound is satisfied,
+        although is might appear quite intuitive for us after the project list is normalized.
+
+        We thus use `option` to avoid the proof obligation. This is a hack, though.
+*)
+Fixpoint determine_bt_from_args (s: schema) (ℓ: list simple_atomic_expression): option basic_type :=
+  match ℓ with
+  | nil => None
+  | x :: ℓ' => match x with
+                | simple_atomic_expression_column c => Tuple.nth_nocheck s c
+                | simple_atomic_expression_const bt => Some bt
+                | simple_atomic_expression_func _ _ => determine_bt_from_args s ℓ'
+                end
+  end.
+
+(*
+  `determine_schema` is a function that takes a schema and a project list and returns a schema.
+  This function calculates the output schema for the project operation given the input schema
+  and the project list.
+
+  * Note *
+  This project list must be first normalized.
+
+  For example, if we have a schema `(IntegerType :: StringType :: BoolType :: nil)%type` and
+  a project list `(simple_atomic_expression_column 0) :: (simple_atomic_expression_column 2) :: nil`,
+  then the result of `determine_schema` is `(IntegerType :: BoolType :: nil)%type`.
+*)
+Definition determine_schema (s: schema) (pl: project_list): schema :=
+  match pl with
+    | project_star => s
+    | project ℓ =>
+        (fix determine ℓ :=
+          match ℓ with
+          | nil => nil
+          | x :: ℓ' => match x with
+                        | simple_atomic_expression_column c => 
+                            match Tuple.nth_nocheck s c with
+                              | Some bt => bt :: determine ℓ'
+                              | None => determine ℓ'
+                            end
+                        | simple_atomic_expression_const bt => bt :: determine ℓ'
+                        | simple_atomic_expression_func _ ℓ'' =>
+                            match determine_bt_from_args s ℓ'' with
+                              | Some bt => bt :: determine ℓ'
+                              | None => determine ℓ'
+                            end
+                      end
+          end) ℓ
+  end.
+
+(*
+  `normalize_project_star` is a function that takes a schema and a natural number `n` and
+  returns a list of simple atomic expressions. The list of simple atomic expressions is
+  the same length as the schema. Each simple atomic expression is a function application
+  of the identity function to a column name.
+
+  For example, if we have a schema `(IntegerType :: StringType :: BoolType :: nil)%type`,
+  then the result of `normalize_project_star` is:
+  ```
+  (simple_atomic_expression_func stf_id
+    (cons (simple_atomic_expression_column 0) nil)
+  )
+  ::
+  (simple_atomic_expression_func stf_id
+    (cons (simple_atomic_expression_column 1) nil)
+  )
+  ::
+  (simple_atomic_expression_func stf_id
+    (cons (simple_atomic_expression_column 2) nil)
+  )
+  ::
+  nil
+  ```
+*)
+Fixpoint normalize_project_star (s: schema) (n: nat): list (simple_atomic_expression) :=
+  match s with
+    | nil => nil
+    | _ :: s' =>
+      (simple_atomic_expression_func stf_id
+        (cons (simple_atomic_expression_column n) nil)
+      )
+          :: normalize_project_star s' (S n)
+  end.
+
+(* 
+  `normalize_project_list_list` is a function that takes a schema and a list of simple atomic
+  expressions and returns a list of simple atomic expressions. The list of simple atomic
+  expressions is the same length as the schema.
+
+  This function converts from
+  - column names to function applications of the identity function to the column name,
+  - constants to constants, and
+  - functions to functions (by filtering) with only column names as arguments.
+*)
+Fixpoint normalize_project_list_list
+  (s: schema) (pl: list (simple_atomic_expression)): list (simple_atomic_expression) :=
+  match pl with
+    | nil => nil
+    | e :: pl' => match e with
+                    | simple_atomic_expression_column c => 
+                          (simple_atomic_expression_func stf_id
+                            (cons (simple_atomic_expression_column c) nil)
+                          ) :: normalize_project_list_list s pl'
+                    | simple_atomic_expression_const _ => e:: normalize_project_list_list s pl'
+                    (* Functions are special: because Coq requires that all recursive functions are
+                       well-typed, we cannot normalize a function application since we do not know
+                       the number of nested functions.
+
+                       Consider:
+                        ```
+                        f1 (f2 (f3 (f4 (...))))
+                        ```
+                        This is ill-typed.
+
+                        So we just assume that the functions are only 1-order; i.e., there is no
+                        functions over functions: the hierarchy cannot be infinite.
+
+                        This can be fixed, though. We can refine the constructor `simple_atomic_expression_func`
+                        to be simple_atomic_expression_func:
+                          ∀ bt, transform_func bt → 
+                                list (∀ n, (n * simple_atomic_expression)) →
+                                simple_atomic_expression
+                        
+                        Then we can let Coq know that `n` will reduce. This is a bit tricky.
+                    *)
+                    | simple_atomic_expression_func f ℓ =>
+                        simple_atomic_expression_func f (List.filter (fun x => match x with
+                                                                                | simple_atomic_expression_column _ => true
+                                                                                | simple_atomic_expression_const _ => true
+                                                                                | _ => false
+                                                                              end) ℓ)
+                          :: normalize_project_list_list s pl'
+                  end
+  end.
+
+Lemma normalize_project_star_length: ∀ s n,
+  List.length (normalize_project_star s n) = List.length s.
+Proof.
+  induction s.
+  - auto.
+  - intros. simpl.
+    specialize IHs with (n := S n). rewrite <- IHs. auto.
+Qed.
+
+Example sample_schema: schema := (IntegerType :: StringType :: BoolType :: nil)%type.
+Compute normalize_project_star sample_schema 0.
+
+Definition normalize_project_list (s: schema) (pl: project_list): project_list :=
+  match pl with
+    | project_star => project (normalize_project_star s 0)
+    | project ℓ => project (normalize_project_list_list s ℓ)
+  end.
+
+Lemma normalize_normalized: ∀ s pl, normalized (normalize_project_list s pl).
+Proof.
+  destruct pl.
+  - induction s; simpl; auto.
+  - induction l.
+    + simpl. auto.
+    + destruct a; simpl; auto.
+      induction l0; simpl; auto with *.
+      destruct a; simpl; auto.
+Qed.
 
 Definition groupby_list := (list nat)%type.
 Definition agg_list s := (list (∀ bt, agg_expression s bt))%type.
@@ -64,10 +256,13 @@ Fixpoint lookup_schema (n: nat) (se: schema_env): schema :=
 
   This environment is used in the context of database query operations.
 *)
-Definition env_slice (s: schema) := (relation s * list nat * groupby_list * list (Tuple.tuple s))%type.
+Definition env_slice (s: schema) := (list (relation s) * list nat * groupby_list * list (Tuple.tuple s))%type.
+
+(* An environment is just a list of environment slices. *)
 Definition ℰ (s: schema): Set := list (env_slice s)%type.
 
-Definition env_slice_get_relation {s} (e: env_slice s) : relation s :=
+(* =============================== Some utility functions =================================== *)
+Definition env_slice_get_relation {s} (e: env_slice s) : list (relation s) :=
   match e with
     | (r, _, _, _) => r
   end.
@@ -92,10 +287,11 @@ Definition get_env_slice s (e: ℰ s) (non_empty: List.length e > 0) : env_slice
   - simpl in non_empty. lia.
   - exact e.
 Defined.
+(* ========================================================================================= *)
 
 Inductive Operator: Set :=
   | operator_empty: Operator
-  | operator_relation: nat → Operator
+  | operator_relation: forall s, relation s → Operator
   | operator_union: Operator → Operator → Operator
   | operator_join: Operator → Operator → Operator
   | operator_project: project_list → Operator → Operator
@@ -211,14 +407,18 @@ where "c1 '>[' f ']>' c2" := (step_cell _ _ f c1 c2).
 Reserved Notation "c1 '=[' o ']=>' c2" (at level 50, left associativity).
 Inductive step_config: Operator → config → config → Prop :=
   (* Empty operator clears the environment. *)
-  | E_Empty: ∀ s1 s2 Γ β (e: ℰ s1),
-      ⟨ s1 Γ β e ⟩ =[ operator_empty ]=> ⟨ s2 Γ β nil ⟩
+  | E_Empty: ∀ s1 s2 Γ Γ' β β' (e: ℰ s1) (e': ℰ s2),
+      e' = nil →
+      ⟨ s1 Γ β e ⟩ =[ operator_empty ]=> ⟨ s2 Γ' β' e' ⟩
   (* If the operator returns an empty environment, we do nothing. *)
   | E_ProjEmpty: ∀ s1 s2 Γ Γ' β β' (e: ℰ s1) (e': ℰ s2) project_list o,
       ⟨ s1 Γ β e ⟩ =[ o ]=> ⟨ s2 Γ' β' e' ⟩ →
+      List.length e' = 0 →
       ⟨ s1 Γ β e ⟩ =[ operator_project project_list o ]=> ⟨ s2 Γ' β' nil ⟩
-  | E_Proj: ∀ s1 s2 Γ Γ' β β' (e: ℰ s1) (e': ℰ s2) project_list o,
-      ⟨ s1 Γ β e ⟩ =[ o ]=> ⟨ s2 Γ' β' e' ⟩ →
+  | E_Proj: ∀ s1 s2 s3 Γ Γ' β β' (e: ℰ s1) (e'': ℰ s2) (e': ℰ s3) project_list ℓ o,
+      ⟨ s1 Γ β e ⟩ =[ o ]=> ⟨ s2 Γ' β' e'' ⟩ →
       List.length e' > 0 →
-      ⟨ s1 Γ β e ⟩ =[ operator_project project_list o]=> ⟨ s2 Γ' β' e' ⟩
+      ℓ = normalize_project_list s2 project_list →
+      s3 = determine_schema s2 ℓ →
+      ⟨ s1 Γ β e ⟩ =[ operator_project project_list o]=> ⟨ s3 Γ' β' e' ⟩
 where "c1 '=[' o ']=>' c2" := (step_config o c1 c2).

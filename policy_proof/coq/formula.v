@@ -5,11 +5,6 @@ Require Import types.
 Require Import data_model.
 Require Import ordering.
 
-(*
-  One thing in the relational algbera is that the variables aren't explicitly typed, but in Coq, we need to
-  give types to each expressions. This is the gap. So we need `simple_` versions which are not typed.
-*)
-
 Inductive atomic_expression (ty: Tuple.tuple_type) : basic_type → Set :=
   (* v *)
   | atomic_expression_const:
@@ -35,13 +30,13 @@ Inductive agg_expression (ty: Tuple.tuple_type) (bt: basic_type): Set :=
 Inductive simple_atomic_expression: Set :=
   (* v *)
   | simple_atomic_expression_const:
-      ∀ bt (c : type_to_coq_type bt), simple_atomic_expression
+      ∀ (bt: basic_type), simple_atomic_expression
   (* a *)
   | simple_atomic_expression_column:
       ∀ (n: nat), simple_atomic_expression
-  (* f(list args) *)
-  (* | simple_atomic_expression_func:
-      transform_func bt → list simple_atomic_expression → simple_atomic_expression *)
+  (* For well-formed types, this cannot be wrapped in infinite function calls. *)
+  | simple_atomic_expression_func:
+      simple_transform_func → list simple_atomic_expression → simple_atomic_expression
   .
 
 Inductive predicate (ty: Tuple.tuple_type) (bt: basic_type): Type :=

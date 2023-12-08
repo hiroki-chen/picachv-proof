@@ -20,7 +20,7 @@ refine (
   - exact (Policy.can_release p0 ∧ policy_ok_tuple' _ Γ t).
   - exact False.
 Defined.
-  
+
 Fixpoint policy_ok_relation s (Γ: Policy.context) (r: relation s) : Prop :=
   match r with
     | nil => True
@@ -31,16 +31,26 @@ Definition policy_ok s (Γ: Policy.context) (e : ℰ s) : Prop :=
   match e with
     | nil => True
     | es :: _ =>
-        match es with (r, _, _, _) => policy_ok_relation _ Γ r end
+        match es with (r, _, _, _) =>
+          match r with
+          | nil => True
+          | t :: _ => policy_ok_relation _ Γ t
+          end
+    end
   end.
 
 (* todo *)
 Theorem secure_query:
-  ∀ s s' Γ Γ' β β' e e' o c,
-    ⟨ s Γ β e ⟩ =[ o ]=> c →
-      c = config_error ∨
-      c = ⟨ s' Γ' β' e' ⟩ ∧ policy_ok s' Γ' e'.
+  ∀ s Γ β e o,
+    ⟨ s Γ β e ⟩ =[ o ]=> config_error \/
+    (∃ s' Γ' β' e', ⟨ s Γ β e ⟩ =[ o ]=> ⟨ s' Γ' β' e' ⟩
+      ∧ policy_ok s' Γ' e').
 Proof.
-  intros. induction H; simpl in *.
-  - right. split.
+  induction o.
+  + right. exists s, Γ, β, nil. split.
+    - apply E_Empty; reflexivity.
+    - simpl. trivial.
+
+  + 
 Admitted.
+
