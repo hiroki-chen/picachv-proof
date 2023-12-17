@@ -7,7 +7,9 @@ Require Import relation.
 Require Import data_model.
 Require Import prov.
 Require Import lattice.
+Require Import util.
 
+(* ====================================== Deprecated =========================================== *)
 Definition policy_ok_tuple: ∀ s (Γ: Policy.context), Tuple.tuple s -> Prop.
 refine (
   fix policy_ok_tuple' s (Γ: Policy.context): Tuple.tuple s -> Prop :=
@@ -34,26 +36,70 @@ Definition policy_ok s (Γ: Policy.context) (e : ℰ s) : Prop :=
     | nil => True
     | (r, _, _, _) :: _ => policy_ok_relation _ Γ r
   end.
+(* =========================================================================================== *)
 
-Fixpoint label_transition_valid' (Γ Γ': Policy.context) (lc: list nat): Prop :=
+
+Definition valid_transition (τ: prov_type) (ℓ1 ℓ2: Policy.policy): Prop :=
+  match τ with
+    | prov_trans _ => ℓ1 ⊑ Policy.policy_transform ∧ ℓ2 = Policy.policy_agg
+    | prov_agg _ => ℓ1 ⊑ Policy.policy_agg ∧ ℓ2 = Policy.policy_noise
+    | prov_noise => ℓ1 ⊑ Policy.policy_transform ∧ ℓ2 = Policy.policy_bot
+  end.
+
+(*
+    This fixpoint function checks whether a given provenance tree (consisting of cells) is valid
+    in the course of a query execution. It will check if policies are correctly enforced and if
+    all transitions are permitted.
+*)
+Fixpoint prov_ok (Γ Γ': Policy.context) (ε': Policy.policy_encoding)
+                      (p: prov_ctx) (prv: prov)
+:Prop :=
+  match prv with
+    | prov_none => True
+    | prov_list τ l =>
+      (*
+          We use an anonymous recursive function sometimes necessary to use
+          them for difficult recursion patterns.
+      *)
+      (fix prov_list_ok
+        (Γ Γ': Policy.context) (ε': Policy.policy_encoding)
+        (p: prov_ctx) (τ: prov_type) (l: list (nat * prov)): Prop :=
+          match l with
+          | nil => True
+          | (c, prov) :: l' =>
+            match Policy.label_lookup c Γ with
+              | Some ε => Policy.can_release ε ∨
+                  match (ε, ε') with
+                  | ((ℓ1, _), (ℓ1', _)) => valid_transition τ ℓ1 ℓ1' ∧ 
+                                           prov_list_ok Γ Γ' ε' p τ l'
+                  end 
+              | None => False
+            end ∧ prov_ok Γ Γ' ε' p prov
+          end)
+      Γ Γ' ε' p τ l
+  end.
+
+Fixpoint label_transition_valid' (Γ Γ': Policy.context) (p: prov_ctx) (lc: list nat): Prop :=
   match lc with
     | nil => True
-    | c :: lc' => False
-      (* TODO!! *)
-      (* match Policy.label_lookup c Γ' with *)
-      (* | Some l' => 
-        match Policy.label_lookup c Γ with
-        | Some l => l' ⊑ l ∧ label_transition_valid' Γ Γ' lc'
-        | None => False
-        end
-      | _ => False *)
-      (* end *)
-  end.
+    | c :: lc' =>
+      match (Policy.label_lookup c Γ, Policy.label_lookup c Γ') with
+      | (Some ε, Some ε') =>
+          Policy.can_release ε →
+            match lookup c p with
+            | Some prov => prov_ok Γ Γ' ε' p prov
+            | _ => True
+            end
+      (* Really so? *)
+      | _ => False
+      end ∧ label_transition_valid' Γ Γ' p lc'
+  end. 
 
 Definition label_transition_valid s (Γ Γ': Policy.context) (e: ℰ s) (p: prov_ctx) : Prop :=
   match e with
     | nil => True
-    | (r, _, _, _) :: _ => label_transition_valid' (extract_as_cell_list _ r)
+    | (r, _, _, _) :: _ =>
+        label_transition_valid' Γ Γ' p (extract_as_cell_list _ r)
   end.
 
 (* 
@@ -64,8 +110,11 @@ Definition label_transition_valid s (Γ Γ': Policy.context) (e: ℰ s) (p: prov
 Theorem secure_query:
   ∀ s Γ β e p o,
     (∃ s' Γ' β' e' p', ⟨ s Γ β e p ⟩ =[ o ]=> ⟨ s' Γ' β' e' p' ⟩
-      → policy_ok s' Γ' e' ∧ label_transition_valid s' Γ Γ' e' p').
+      → label_transition_valid s' Γ Γ' e' p').
+      (* TODO: Add something for privacy parameter. *)
 Proof.
   induction o.
+  - exists nil, nil, β, nil, nil. intros. clear H.
+    simpl. trivial.
+  - 
 Admitted.
-

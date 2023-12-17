@@ -275,6 +275,7 @@ Definition can_release (p: policy_encoding): Prop :=
 Definition cannot_release (p: policy_encoding): Prop := ~ can_release p.
  
 (* Lookup the policy context and check if the cell has been associated with an active policy. *)
+(* FIXME: Is there a need to ensure that the return value is always `Some`? *)
 Fixpoint label_lookup (id: nat) (ctx: context): option policy_encoding :=
   match ctx with
     | nil => None
