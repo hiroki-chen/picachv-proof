@@ -44,3 +44,9 @@ Fixpoint inject_tuple_id_relation
   cons (Tuple.inject_tuple_id s t id)
        (inject_tuple_id_relation s r' (id + List.length s))
   end.
+
+Fixpoint extract_as_cell_list s (r: relation s) : list nat :=
+  match r with
+  | nil => nil
+  | cons t r' => (Tuple.extract_as_cell_id s t) ++ (extract_as_cell_list s r')
+  end.

@@ -530,6 +530,21 @@ Proof.
   simpl in *. lia.
 Defined.
 
+Definition extract_as_cell_id: ∀ (ty: tuple_type) (t: tuple ty), list nat.
+refine (
+  fix extract_as_cell' (ty: tuple_type) (t: tuple ty): list nat :=
+    match ty as ty' return tuple ty' → list nat with
+      | nil => fun _ => nil
+      | bt :: t' => _
+    end t
+).
+Proof.
+  intros. simpl in H.
+  pose (fst H). pose (snd H).
+  apply extract_as_cell' in t0.
+  exact ((snd p) :: t0).
+Defined.
+
 Global Instance nth_col_tuple_proper_eq
 (ty: tuple_type) (n: nat) (extract: n < length ty):
   Proper (equiv ==> equiv) (nth_col_tuple ty n extract).

@@ -11,6 +11,7 @@ Require Import ordering.
 Require Import lattice.
 Require Import finite_bags.
 Require Import util.
+Require Import prov.
 
 Set Printing Coercions.
 Set Printing Implicit.
@@ -256,13 +257,13 @@ Fixpoint lookup_schema (n: nat) (se: schema_env): schema :=
 
   This environment is used in the context of database query operations.
 *)
-Definition env_slice (s: schema) := (list (relation s) * list nat * groupby_list * list (Tuple.tuple s))%type.
+Definition env_slice (s: schema) := ((relation s) * list nat * groupby_list * list (Tuple.tuple s))%type.
 
 (* An environment is just a list of environment slices. *)
 Definition ℰ (s: schema): Set := list (env_slice s)%type.
 
 (* =============================== Some utility functions =================================== *)
-Definition env_slice_get_relation {s} (e: env_slice s) : list (relation s) :=
+Definition env_slice_get_relation {s} (e: env_slice s) : relation s :=
   match e with
     | (r, _, _, _) => r
   end.
@@ -300,16 +301,26 @@ Inductive Operator: Set :=
 .
 
 (*
-  `Configuration` is a dependent type on a schema that has two constructors.
+  `config` is an inductive type that defines a configuration for the query evaluation.
+  It is either:
+  * `config_terminal` => The query evaluation is done.
+  * `config_error` => An error has occurred.
+  * `config_ok` => The query evaluation is ok. It consists of:
+    - `s` => The schema.
+    - `Γ` => The policy environment.
+    - `β` => The privacy budget.
+    - `ℰ` => The environment.
+    - `p` => The provenance context.
 *)
 Inductive config: Set :=
   | config_terminal: config
   | config_error: config
-  | config_ok: ∀ s, Policy.context → Configuration.privacy → ℰ s → config
+  | config_ok: ∀ s, Policy.context → Configuration.privacy → ℰ s → prov_ctx -> config
 .
 
-Notation "'⟨' s Γ β ℰ '⟩'":= (config_ok s Γ β ℰ)
+Notation "'⟨' s Γ β ℰ p '⟩'":= (config_ok s Γ β ℰ p)
   (at level 10, s at next level, Γ at next level, β at next level, ℰ at next level,
+  p at next level,
   no associativity).
 
 (*
@@ -321,18 +332,18 @@ Reserved Notation "c1 '>[' f ']>' c2" (at level 50, no associativity).
 Inductive step_cell: ∀ ℓ1 ℓ2, trans_func ℓ1 ℓ2 → config → config → Prop :=
   (* If the environment is empty, then we cannot do anything.  *)
   | E_CTransSkip1:
-      ∀ ℓ1 ℓ2 s Γ β e (f: trans_func ℓ1 ℓ2), 
+      ∀ ℓ1 ℓ2 s Γ β e p (f: trans_func ℓ1 ℓ2), 
           List.length e = 0 →
-          ⟨ s Γ β e ⟩ >[ f ]> ⟨ s Γ β e ⟩
+          ⟨ s Γ β e p ⟩ >[ f ]> ⟨ s Γ β e p ⟩
   (* If the environment is not empty but there is no active tuples, we cannot do anything. *)
   | E_CTransSkip2:
-      ∀ ℓ1 ℓ2 s Γ β e (f: trans_func ℓ1 ℓ2) (non_empty: List.length e > 0) tl,
+      ∀ ℓ1 ℓ2 s Γ β e p (f: trans_func ℓ1 ℓ2) (non_empty: List.length e > 0) tl,
           tl = (env_slice_get_tuples (get_env_slice s e non_empty)) →
           List.length tl = 0 → 
-          ⟨ s Γ β e ⟩ >[ f ]> ⟨ s Γ β e ⟩
+          ⟨ s Γ β e p ⟩ >[ f ]> ⟨ s Γ β e p ⟩
   (* The label does not flow to the current one. *)
   | E_CTransSkip3:
-      ∀ ℓ1 ℓ2 ℓcur ℓdisc s Γ β e (f: trans_func ℓ1 ℓ2) (non_empty: List.length e > 0)
+      ∀ ℓ1 ℓ2 ℓcur ℓdisc s Γ β e p (f: trans_func ℓ1 ℓ2) (non_empty: List.length e > 0)
         tl (tl_non_empty: List.length tl > 0) t c_idx,
           (* tl => A list of tuples. *)
           tl = (env_slice_get_tuples (get_env_slice s e non_empty)) →
@@ -341,10 +352,10 @@ Inductive step_cell: ∀ ℓ1 ℓ2, trans_func ℓ1 ℓ2 → config → config �
           (* we now get the label encodings. *)
           Some (ℓcur, Some ℓdisc) = Policy.label_lookup c_idx Γ →
           ~ (ℓcur ⊑ ℓ1) →
-          ⟨ s Γ β e ⟩ >[ f ]> ⟨ s Γ β e ⟩
+          ⟨ s Γ β e p ⟩ >[ f ]> ⟨ s Γ β e p ⟩
   (* No active labels are found; this should be an error. *)
   | E_CTransError1:
-      ∀ ℓ1 ℓ2 s Γ β e (f: trans_func ℓ1 ℓ2) (non_empty: List.length e > 0)
+      ∀ ℓ1 ℓ2 s Γ β e p (f: trans_func ℓ1 ℓ2) (non_empty: List.length e > 0)
         tl (tl_non_empty: List.length tl > 0) t c_idx,
           (* tl => A list of tuples. *)
           tl = (env_slice_get_tuples (get_env_slice s e non_empty)) →
@@ -352,9 +363,9 @@ Inductive step_cell: ∀ ℓ1 ℓ2, trans_func ℓ1 ℓ2 → config → config �
           t = hd_ok tl tl_non_empty →
           (* we now get the label encodings. *)
           None = Policy.label_lookup c_idx Γ →
-          ⟨ s Γ β e ⟩ >[ f ]> config_error
+          ⟨ s Γ β e p ⟩ >[ f ]> config_error
   | E_CTransError2:
-      ∀ ℓ1 ℓ2 ℓcur ℓdisc s Γ Γ' β e (f: trans_func ℓ1 ℓ2) (non_empty: List.length e > 0)
+      ∀ ℓ1 ℓ2 ℓcur ℓdisc s Γ Γ' β e p (f: trans_func ℓ1 ℓ2) (non_empty: List.length e > 0)
         tl (tl_non_empty: List.length tl > 0) t c c' c_idx (idx_bound: c_idx < List.length s),
           (* tl => A list of tuples. *)
           tl = (env_slice_get_tuples (get_env_slice s e non_empty)) →
@@ -369,10 +380,10 @@ Inductive step_cell: ∀ ℓ1 ℓ2, trans_func ℓ1 ℓ2 → config → config �
           (* update the tuple by updating this cell. *)
           None = Tuple.set_nth_type_match _ c_idx c' idx_bound t →
           (* update the environment. *)
-          ⟨ s Γ β e ⟩ >[ f ]> config_error
+          ⟨ s Γ β e p ⟩ >[ f ]> config_error
   (* This transition is ok. *)
   | E_CTransOk:
-      ∀ ℓ1 ℓ2 ℓcur ℓdisc s Γ Γ' β e e' (f: trans_func ℓ1 ℓ2) (non_empty: List.length e > 0)
+      ∀ ℓ1 ℓ2 ℓcur ℓdisc s Γ Γ' β e e' p p' (f: trans_func ℓ1 ℓ2) (non_empty: List.length e > 0)
         tl tl' (tl_non_empty: List.length tl > 0) t t' c c' c_idx (idx_bound: c_idx < List.length s),
           (* tl => A list of tuples. *)
           tl = (env_slice_get_tuples (get_env_slice s e non_empty)) →
@@ -389,7 +400,7 @@ Inductive step_cell: ∀ ℓ1 ℓ2, trans_func ℓ1 ℓ2 → config → config �
           (* update the tuple environment. *)
           tl' = set_nth tl 0 t' →
           (* update the environment. *)
-          ⟨ s Γ β e ⟩ >[ f ]> ⟨ s Γ' β e' ⟩
+          ⟨ s Γ β e p ⟩ >[ f ]> ⟨ s Γ' β e' p' ⟩
 where "c1 '>[' f ']>' c2" := (step_cell _ _ f c1 c2).
 
 (* 
@@ -407,18 +418,17 @@ where "c1 '>[' f ']>' c2" := (step_cell _ _ f c1 c2).
 Reserved Notation "c1 '=[' o ']=>' c2" (at level 50, left associativity).
 Inductive step_config: Operator → config → config → Prop :=
   (* Empty operator clears the environment. *)
-  | E_Empty: ∀ s1 s2 Γ Γ' β β' (e: ℰ s1) (e': ℰ s2),
-      e' = nil →
-      ⟨ s1 Γ β e ⟩ =[ operator_empty ]=> ⟨ s2 Γ' β' e' ⟩
+  | E_Empty: ∀ s1 Γ β p (e: ℰ s1),
+      ⟨ s1 Γ β e p ⟩ =[ operator_empty ]=> ⟨ nil nil β nil nil ⟩
   (* If the operator returns an empty environment, we do nothing. *)
-  | E_ProjEmpty: ∀ s1 s2 Γ Γ' β β' (e: ℰ s1) (e': ℰ s2) project_list o,
-      ⟨ s1 Γ β e ⟩ =[ o ]=> ⟨ s2 Γ' β' e' ⟩ →
+  | E_ProjEmpty: ∀ s1 s2 Γ Γ' β β' p p' (e: ℰ s1) (e': ℰ s2) project_list o,
+      ⟨ s1 Γ β e p ⟩ =[ o ]=> ⟨ s2 Γ' β' e' p' ⟩ →
       List.length e' = 0 →
-      ⟨ s1 Γ β e ⟩ =[ operator_project project_list o ]=> ⟨ s2 Γ' β' nil ⟩
-  | E_Proj: ∀ s1 s2 s3 Γ Γ' β β' (e: ℰ s1) (e'': ℰ s2) (e': ℰ s3) project_list ℓ o,
-      ⟨ s1 Γ β e ⟩ =[ o ]=> ⟨ s2 Γ' β' e'' ⟩ →
+      ⟨ s1 Γ β e p ⟩ =[ operator_project project_list o ]=> ⟨ s2 Γ' β' nil nil ⟩
+  | E_Proj: ∀ s1 s2 s3 Γ Γ' β β' p p' (e: ℰ s1) (e'': ℰ s2) (e': ℰ s3) project_list ℓ o,
+      ⟨ s1 Γ β e p ⟩ =[ o ]=> ⟨ s2 Γ' β' e'' p'⟩ →
       List.length e' > 0 →
       ℓ = normalize_project_list s2 project_list →
       s3 = determine_schema s2 ℓ →
-      ⟨ s1 Γ β e ⟩ =[ operator_project project_list o]=> ⟨ s3 Γ' β' e' ⟩
+      ⟨ s1 Γ β e p ⟩ =[ operator_project project_list o]=> ⟨ s3 Γ' β' e' p' ⟩
 where "c1 '=[' o ']=>' c2" := (step_config o c1 c2).

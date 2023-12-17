@@ -5,6 +5,8 @@ Require Import query.
 Require Import types.
 Require Import relation.
 Require Import data_model.
+Require Import prov.
+Require Import lattice.
 
 Definition policy_ok_tuple: ∀ s (Γ: Policy.context), Tuple.tuple s -> Prop.
 refine (
@@ -30,27 +32,40 @@ Fixpoint policy_ok_relation s (Γ: Policy.context) (r: relation s) : Prop :=
 Definition policy_ok s (Γ: Policy.context) (e : ℰ s) : Prop :=
   match e with
     | nil => True
-    | es :: _ =>
-        match es with (r, _, _, _) =>
-          match r with
-          | nil => True
-          | t :: _ => policy_ok_relation _ Γ t
-          end
-    end
+    | (r, _, _, _) :: _ => policy_ok_relation _ Γ r
   end.
 
-(* todo *)
+Fixpoint label_transition_valid' (Γ Γ': Policy.context) (lc: list nat): Prop :=
+  match lc with
+    | nil => True
+    | c :: lc' => False
+      (* TODO!! *)
+      (* match Policy.label_lookup c Γ' with *)
+      (* | Some l' => 
+        match Policy.label_lookup c Γ with
+        | Some l => l' ⊑ l ∧ label_transition_valid' Γ Γ' lc'
+        | None => False
+        end
+      | _ => False *)
+      (* end *)
+  end.
+
+Definition label_transition_valid s (Γ Γ': Policy.context) (e: ℰ s) (p: prov_ctx) : Prop :=
+  match e with
+    | nil => True
+    | (r, _, _, _) :: _ => label_transition_valid' (extract_as_cell_list _ r)
+  end.
+
+(* 
+    ∀Γ, Γ′.Γ −→ Γ′ =⇒ ∀c′ ∈ Γ′.ℓ′1 ⊑ ℓ =⇒
+      ∃C = {c1, · · · cn} −→ c′ =⇒
+        ∀c ∈ C.(ℓ1, ℓ2) = Γ(c) ∧ ℓ1 ⊑ ℓ2 =⇒ Ok(ℓ1 ⇝o ℓ′1)
+ *)
 Theorem secure_query:
-  ∀ s Γ β e o,
-    ⟨ s Γ β e ⟩ =[ o ]=> config_error \/
-    (∃ s' Γ' β' e', ⟨ s Γ β e ⟩ =[ o ]=> ⟨ s' Γ' β' e' ⟩
-      ∧ policy_ok s' Γ' e').
+  ∀ s Γ β e p o,
+    (∃ s' Γ' β' e' p', ⟨ s Γ β e p ⟩ =[ o ]=> ⟨ s' Γ' β' e' p' ⟩
+      → policy_ok s' Γ' e' ∧ label_transition_valid s' Γ Γ' e' p').
 Proof.
   induction o.
-  + right. exists s, Γ, β, nil. split.
-    - apply E_Empty; reflexivity.
-    - simpl. trivial.
-
-  + 
 Admitted.
 

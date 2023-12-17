@@ -55,3 +55,9 @@ Proof.
   - intros. destruct l2. inversion H. simpl. apply eq_S.
     apply IHl1. inversion H. trivial.
 Qed.
+
+Fixpoint lookup {A: Type} (l: list (nat * A)) (n: nat) : option A :=
+  match l with
+  | nil => None
+  | (n', a) :: t => if Nat.eqb n n' then Some a else lookup t n
+  end.
