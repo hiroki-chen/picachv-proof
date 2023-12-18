@@ -229,18 +229,7 @@ Qed.
 Definition groupby_list := (list nat)%type.
 Definition agg_list s := (list (∀ bt, agg_expression s bt))%type.
 
-Definition schema_env:= list (nat * schema)%type.
-Fixpoint relation_env (se: schema_env): Set :=
-  match se with
-    | nil => unit
-    | (_, s) :: se' => (relation s * relation_env se')%type
-  end.
-
-Fixpoint lookup_schema (n: nat) (se: schema_env): schema :=
-  match se with
-    | nil => nil
-    | (n', s) :: se' => if Nat.eqb n n' then s else lookup_schema n se'
-  end.
+Definition env_slice s := (relation s * list nat * groupby_list * list (Tuple.tuple s))%type.
 
 (*
   `env` is a definition for an environment in a given schema `s`. 
@@ -256,38 +245,55 @@ Fixpoint lookup_schema (n: nat) (se: schema_env): schema :=
   - The list of tuples is a list of tuples of type `Tuple.tuple s`.
 
   This environment is used in the context of database query operations.
+
+  Note that this is a dependent type (heterogeneous list). This is because we need to know the schema
+  of each active relation, but the schema of each relation is different. Consider this case:
+
+  ```
+  a: (IntegerType :: StringType :: nil)%type
+  b: (IntegerType :: BoolType :: nil)%type
+  ```
+
+  We now have a `join` operator:
+
+  ```
+  join a b
+  ```
+
+  After `a` and `b` are evaluated, we have two relations of different schemas.
 *)
-Definition env_slice (s: schema) := ((relation s) * list nat * groupby_list * list (Tuple.tuple s))%type.
-
-(* An environment is just a list of environment slices. *)
-Definition ℰ (s: schema): Set := list (env_slice s)%type.
-
-(* =============================== Some utility functions =================================== *)
-Definition env_slice_get_relation {s} (e: env_slice s) : relation s :=
-  match e with
-    | (r, _, _, _) => r
+Fixpoint ℰ (s: list schema) : Type :=
+  match s with
+    | nil => unit
+    | s :: s' => (env_slice s * ℰ s')%type
   end.
 
-Definition env_slice_get_selected {s} (e: env_slice s) : list nat :=
-  match e with
+(* =============================== Some utility functions =================================== *)
+Definition get_env_slice s (e: ℰ s) (non_empty: List.length s > 0) : env_slice (hd_ok s non_empty).
+  destruct s; simpl in *.
+  - lia.
+  - exact (fst e).
+Defined.
+
+Definition env_slice_get_tuples s (es: env_slice s) : list (Tuple.tuple s) :=
+  match es with
+    | (r, _, _, t) => t
+  end.
+
+Definition env_slice_get_groupby s (es: env_slice s) : groupby_list :=
+  match es with
+    | (_, _, g, _) => g
+  end.  
+
+Definition env_slice_get_selected s (es: env_slice s) : list nat :=
+  match es with
     | (_, s, _, _) => s
   end.
 
-Definition env_slice_get_groupby {s} (e: env_slice s) : groupby_list :=
-  match e with
-    | (_, _, g, _) => g
+Definition env_slice_get_relation s (es: env_slice s) : relation s :=
+  match es with
+    | (r, _, _, _) => r
   end.
-
-Definition env_slice_get_tuples {s} (e: env_slice s) : list (Tuple.tuple s) :=
-  match e with
-    | (_, _, _, t) => t
-  end.
-
-Definition get_env_slice s (e: ℰ s) (non_empty: List.length e > 0) : env_slice s.
-  destruct e.
-  - simpl in non_empty. lia.
-  - exact e.
-Defined.
 (* ========================================================================================= *)
 
 Inductive Operator: Set :=
@@ -312,7 +318,7 @@ Inductive Operator: Set :=
     - `ℰ` => The environment.
     - `p` => The provenance context.
 *)
-Inductive config: Set :=
+Inductive config: Type :=
   | config_terminal: config
   | config_error: config
   | config_ok: ∀ s, Policy.context → Configuration.privacy → ℰ s → prov_ctx -> config
@@ -333,20 +339,20 @@ Inductive step_cell: ∀ ℓ1 ℓ2, trans_func ℓ1 ℓ2 → config → config �
   (* If the environment is empty, then we cannot do anything.  *)
   | E_CTransSkip1:
       ∀ ℓ1 ℓ2 s Γ β e p (f: trans_func ℓ1 ℓ2), 
-          List.length e = 0 →
+          List.length s = 0 →
           ⟨ s Γ β e p ⟩ >[ f ]> ⟨ s Γ β e p ⟩
   (* If the environment is not empty but there is no active tuples, we cannot do anything. *)
   | E_CTransSkip2:
-      ∀ ℓ1 ℓ2 s Γ β e p (f: trans_func ℓ1 ℓ2) (non_empty: List.length e > 0) tl,
-          tl = (env_slice_get_tuples (get_env_slice s e non_empty)) →
+      ∀ ℓ1 ℓ2 s Γ β e p (f: trans_func ℓ1 ℓ2) (non_empty: List.length s > 0) tl,
+          tl = (env_slice_get_tuples (hd_ok s non_empty) (get_env_slice s e non_empty)) →
           List.length tl = 0 → 
           ⟨ s Γ β e p ⟩ >[ f ]> ⟨ s Γ β e p ⟩
   (* The label does not flow to the current one. *)
   | E_CTransSkip3:
-      ∀ ℓ1 ℓ2 ℓcur ℓdisc s Γ β e p (f: trans_func ℓ1 ℓ2) (non_empty: List.length e > 0)
+      ∀ ℓ1 ℓ2 ℓcur ℓdisc s Γ β e p (f: trans_func ℓ1 ℓ2) (non_empty: List.length s > 0)
         tl (tl_non_empty: List.length tl > 0) t c_idx,
           (* tl => A list of tuples. *)
-          tl = (env_slice_get_tuples (get_env_slice s e non_empty)) →
+          tl = (env_slice_get_tuples (hd_ok s non_empty) (get_env_slice s e non_empty)) →
           (* t => The first tuple. *)
           t = hd_ok tl tl_non_empty →
           (* we now get the label encodings. *)
@@ -355,20 +361,21 @@ Inductive step_cell: ∀ ℓ1 ℓ2, trans_func ℓ1 ℓ2 → config → config �
           ⟨ s Γ β e p ⟩ >[ f ]> ⟨ s Γ β e p ⟩
   (* No active labels are found; this should be an error. *)
   | E_CTransError1:
-      ∀ ℓ1 ℓ2 s Γ β e p (f: trans_func ℓ1 ℓ2) (non_empty: List.length e > 0)
+      ∀ ℓ1 ℓ2 s Γ β e p (f: trans_func ℓ1 ℓ2) (non_empty: List.length s > 0)
         tl (tl_non_empty: List.length tl > 0) t c_idx,
           (* tl => A list of tuples. *)
-          tl = (env_slice_get_tuples (get_env_slice s e non_empty)) →
+          tl = (env_slice_get_tuples (hd_ok s non_empty) (get_env_slice s e non_empty)) →
           (* t => The first tuple. *)
           t = hd_ok tl tl_non_empty →
           (* we now get the label encodings. *)
           None = Policy.label_lookup c_idx Γ →
           ⟨ s Γ β e p ⟩ >[ f ]> config_error
   | E_CTransError2:
-      ∀ ℓ1 ℓ2 ℓcur ℓdisc s Γ Γ' β e p (f: trans_func ℓ1 ℓ2) (non_empty: List.length e > 0)
-        tl (tl_non_empty: List.length tl > 0) t c c' c_idx (idx_bound: c_idx < List.length s),
+      ∀ ℓ1 ℓ2 ℓcur ℓdisc s Γ Γ' β e p (f: trans_func ℓ1 ℓ2) (non_empty: List.length s > 0)
+        tl (tl_non_empty: List.length tl > 0) t c c' c_idx
+        (idx_bound: c_idx < List.length (hd_ok s non_empty)),
           (* tl => A list of tuples. *)
-          tl = (env_slice_get_tuples (get_env_slice s e non_empty)) →
+          tl = (env_slice_get_tuples (hd_ok s non_empty) (get_env_slice s e non_empty)) →
           (* t => The first tuple. *)
           t = hd_ok tl tl_non_empty →
           (* we now get the label encodings. *)
@@ -382,11 +389,13 @@ Inductive step_cell: ∀ ℓ1 ℓ2, trans_func ℓ1 ℓ2 → config → config �
           (* update the environment. *)
           ⟨ s Γ β e p ⟩ >[ f ]> config_error
   (* This transition is ok. *)
+  (* TODO: Perhaps we need to add some sort of provenance update? *)
   | E_CTransOk:
-      ∀ ℓ1 ℓ2 ℓcur ℓdisc s Γ Γ' β e e' p p' (f: trans_func ℓ1 ℓ2) (non_empty: List.length e > 0)
-        tl tl' (tl_non_empty: List.length tl > 0) t t' c c' c_idx (idx_bound: c_idx < List.length s),
+      ∀ ℓ1 ℓ2 ℓcur ℓdisc s Γ Γ' β e e' p p' (f: trans_func ℓ1 ℓ2) (non_empty: List.length s > 0)
+        tl tl' (tl_non_empty: List.length tl > 0) t t' c c' c_idx
+        (idx_bound: c_idx < List.length (hd_ok s non_empty)),
           (* tl => A list of tuples. *)
-          tl = (env_slice_get_tuples (get_env_slice s e non_empty)) →
+          tl = (env_slice_get_tuples (hd_ok s non_empty) (get_env_slice s e non_empty)) →
           (* t => The first tuple. *)
           t = hd_ok tl tl_non_empty →
           (* we now get the label encodings. *)
@@ -404,6 +413,14 @@ Inductive step_cell: ∀ ℓ1 ℓ2, trans_func ℓ1 ℓ2 → config → config �
 where "c1 '>[' f ']>' c2" := (step_cell _ _ f c1 c2).
 
 (* 
+  A helper function that applies the projection list in the environment.
+  It returns a new environment, a new policy environment, and a new provenance context.
+*)
+Definition apply_proj_in_env s s' (evidence: List.length s > 0)
+                            (e: ℰ s) (ℓ: project_list) (Γ: Policy.context) (p: prov_ctx)
+  : ℰ s' * Policy.context * prov_ctx. Admitted.
+
+(* 
   `step_config` is an inductive type representing the transition rules for configurations. 
   It defines how a configuration changes from one state to another by the query.
 
@@ -418,17 +435,24 @@ where "c1 '>[' f ']>' c2" := (step_cell _ _ f c1 c2).
 Reserved Notation "c1 '=[' o ']=>' c2" (at level 50, left associativity).
 Inductive step_config: Operator → config → config → Prop :=
   (* Empty operator clears the environment. *)
-  | E_Empty: ∀ s1 Γ β p (e: ℰ s1),
-      ⟨ s1 Γ β e p ⟩ =[ operator_empty ]=> ⟨ nil nil β nil nil ⟩
+  | E_Empty1: ∀ s Γ β p (e: ℰ s),
+      ⟨ s Γ β e p ⟩ =[ operator_empty ]=> ⟨ nil nil β tt nil ⟩
+  (* If the operator returns an empty schema list or context, we do nothing. *)
+  | E_Empty2: ∀ s Γ β p (e: ℰ s) o,
+      s = nil ∨ p = nil ∨ Γ = nil →
+      ⟨ s Γ β e p ⟩ =[ o ]=> ⟨ nil nil β tt nil ⟩
   (* If the operator returns an empty environment, we do nothing. *)
   | E_ProjEmpty: ∀ s1 s2 Γ Γ' β β' p p' (e: ℰ s1) (e': ℰ s2) project_list o,
       ⟨ s1 Γ β e p ⟩ =[ o ]=> ⟨ s2 Γ' β' e' p' ⟩ →
-      List.length e' = 0 →
-      ⟨ s1 Γ β e p ⟩ =[ operator_project project_list o ]=> ⟨ s2 Γ' β' nil nil ⟩
+      List.length s2 = 0 →
+      ⟨ s1 Γ β e p ⟩ =[ operator_project project_list o ]=> ⟨ nil Γ' β' tt nil ⟩
+  (* If the operator returns a valid environment, we can then apply projection. *)
   | E_Proj: ∀ s1 s2 s3 Γ Γ' β β' p p' (e: ℰ s1) (e'': ℰ s2) (e': ℰ s3) project_list ℓ o,
       ⟨ s1 Γ β e p ⟩ =[ o ]=> ⟨ s2 Γ' β' e'' p'⟩ →
-      List.length e' > 0 →
-      ℓ = normalize_project_list s2 project_list →
-      s3 = determine_schema s2 ℓ →
-      ⟨ s1 Γ β e p ⟩ =[ operator_project project_list o]=> ⟨ s3 Γ' β' e' p' ⟩
+        ∀ (evidence: List.length s2 > 0) schm,
+          ℓ = normalize_project_list (hd_ok s2 evidence) project_list →
+          schm = determine_schema (hd_ok s2 evidence) ℓ →
+          s3 = schm :: (tail s2) →
+          (e', Γ', p') = apply_proj_in_env s2 s3 evidence e'' ℓ Γ p →
+          ⟨ s1 Γ β e p ⟩ =[ operator_project project_list o]=> ⟨ s3 Γ' β' e' p' ⟩
 where "c1 '=[' o ']=>' c2" := (step_config o c1 c2).

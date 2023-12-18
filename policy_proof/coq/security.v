@@ -44,6 +44,7 @@ Definition valid_transition (τ: prov_type) (ℓ1 ℓ2: Policy.policy): Prop :=
     | prov_trans _ => ℓ1 ⊑ Policy.policy_transform ∧ ℓ2 = Policy.policy_agg
     | prov_agg _ => ℓ1 ⊑ Policy.policy_agg ∧ ℓ2 = Policy.policy_noise
     | prov_noise => ℓ1 ⊑ Policy.policy_transform ∧ ℓ2 = Policy.policy_bot
+    | prov_join => ℓ1 ⊑ ℓ2
   end.
 
 (*
@@ -53,7 +54,7 @@ Definition valid_transition (τ: prov_type) (ℓ1 ℓ2: Policy.policy): Prop :=
 *)
 Fixpoint prov_ok (Γ Γ': Policy.context) (ε': Policy.policy_encoding)
                       (p: prov_ctx) (prv: prov)
-:Prop :=
+  :Prop :=
   match prv with
     | prov_none => True
     | prov_list τ l =>
