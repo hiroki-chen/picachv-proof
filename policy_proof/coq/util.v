@@ -61,3 +61,10 @@ Fixpoint lookup {A: Type} (n: nat) (l: list (nat * A)) : option A :=
   | nil => None
   | (n', a) :: t => if Nat.eqb n n' then Some a else lookup n t
   end.
+
+Theorem list_has_head_gt_zero:
+  ∀ (A: Type) (a: A) (l l': list A),
+    l = (a :: l') → length l > 0.
+Proof.
+  intros. rewrite H. simpl. lia.
+Qed.

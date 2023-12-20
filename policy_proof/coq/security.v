@@ -31,11 +31,11 @@ Fixpoint policy_ok_relation s (Γ: Policy.context) (r: relation s) : Prop :=
     | t :: r' => policy_ok_tuple _ Γ t ∧ policy_ok_relation _ Γ r'
   end.
 
-Definition policy_ok s (Γ: Policy.context) (e : ℰ s) : Prop :=
+(* Definition policy_ok s (Γ: Policy.context) (e : ℰ s) : Prop :=
   match e with
-    | nil => True
+    | tt => True
     | (r, _, _, _) :: _ => policy_ok_relation _ Γ r
-  end.
+  end. *)
 (* =========================================================================================== *)
 
 
@@ -54,7 +54,7 @@ Definition valid_transition (τ: prov_type) (ℓ1 ℓ2: Policy.policy): Prop :=
 *)
 Fixpoint prov_ok (Γ Γ': Policy.context) (ε': Policy.policy_encoding)
                       (p: prov_ctx) (prv: prov)
-  :Prop :=
+  : Prop :=
   match prv with
     | prov_none => True
     | prov_list τ l =>
@@ -96,12 +96,14 @@ Fixpoint label_transition_valid' (Γ Γ': Policy.context) (p: prov_ctx) (lc: lis
       end ∧ label_transition_valid' Γ Γ' p lc'
   end. 
 
-Definition label_transition_valid s (Γ Γ': Policy.context) (e: ℰ s) (p: prov_ctx) : Prop :=
-  match e with
-    | nil => True
-    | (r, _, _, _) :: _ =>
-        label_transition_valid' Γ Γ' p (extract_as_cell_list _ r)
-  end.
+Definition label_transition_valid s (Γ Γ': Policy.context) (e: ℰ s) (p: prov_ctx) : Prop.
+  induction s.
+  - exact True.
+  - apply fst in e. (* We just throw away its tails because by default
+                       we are interested in the first term. *)
+    apply env_slice_get_relation in e. rename e into r.
+    exact (label_transition_valid' Γ Γ' p (extract_as_cell_list _ r)).
+Defined.
 
 (* 
     ∀Γ, Γ′.Γ −→ Γ′ =⇒ ∀c′ ∈ Γ′.ℓ′1 ⊑ ℓ =⇒
@@ -115,7 +117,7 @@ Theorem secure_query:
       (* TODO: Add something for privacy parameter. *)
 Proof.
   induction o.
-  - exists nil, nil, β, nil, nil. intros. clear H.
+  - exists nil, nil, β, tt, nil. intros. clear H.
     simpl. trivial.
   - 
 Admitted.
