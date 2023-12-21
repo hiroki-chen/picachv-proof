@@ -120,11 +120,10 @@ Lemma determine_schema_concat: ∀ s a ℓ,
     determine_schema s (project ℓ) =
   determine_schema s (project (a :: ℓ)).
 Proof.
-  induction ℓ; destruct a; auto.
+  induction a; auto; intros.
   - simpl. destruct (Tuple.nth_nocheck s n); auto.
   - simpl. destruct (determine_bt_from_args s l); auto.
-  - 
-Admitted.
+Qed.
 
 (*
   `normalize_project_star` is a function that takes a schema and a natural number `n` and
