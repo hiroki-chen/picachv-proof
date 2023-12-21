@@ -50,3 +50,5 @@ Fixpoint extract_as_cell_list s (r: relation s) : list nat :=
   | nil => nil
   | cons t r' => (Tuple.extract_as_cell_id s t) ++ (extract_as_cell_list s r')
   end.
+
+Definition relation_join s1 s2 (r1: relation s1) (r2: relation s2) : relation (s1 ++ s2). Admitted.

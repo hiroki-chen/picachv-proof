@@ -115,6 +115,17 @@ Definition determine_schema (s: schema) (pl: project_list): schema :=
           end) ℓ
   end.
 
+Lemma determine_schema_concat: ∀ s a ℓ,
+  determine_schema s (project (a :: @nil simple_atomic_expression)) ++
+    determine_schema s (project ℓ) =
+  determine_schema s (project (a :: ℓ)).
+Proof.
+  induction ℓ; destruct a; auto.
+  - simpl. destruct (Tuple.nth_nocheck s n); auto.
+  - simpl. destruct (determine_bt_from_args s l); auto.
+  - 
+Admitted.
+
 (*
   `normalize_project_star` is a function that takes a schema and a natural number `n` and
   returns a list of simple atomic expressions. The list of simple atomic expressions is
@@ -206,10 +217,10 @@ Proof.
     specialize IHs with (n := S n). rewrite <- IHs. auto.
 Qed.
 
-Definition normalize_project_list (s: schema) (pl: project_list): project_list :=
+Definition normalize_project_list (s: schema) (pl: project_list): list (simple_atomic_expression) :=
   match pl with
-    | project_star => project (normalize_project_star s 0)
-    | project ℓ => project (normalize_project_list_list s ℓ)
+    | project_star => normalize_project_star s 0
+    | project ℓ => normalize_project_list_list s ℓ
   end.
 
 Lemma normalize_preserve_length: ∀ s pl,
@@ -439,6 +450,15 @@ Inductive step_cell: ∀ ℓ1 ℓ2, trans_func ℓ1 ℓ2 → config → config �
 where "c1 '>[' f ']>' c2" := (step_cell _ _ f c1 c2).
 
 (*
+   `apply_proj_elem` is a function that applies a projection operation to a
+   single column of a relation.
+*)
+Definition apply_proj_elem s (r: relation s) (expr: simple_atomic_expression)
+                           (Γ: Policy.context) (p: prov_ctx)
+  : relation (determine_schema s (project (expr :: nil))) * Policy.context * prov_ctx.
+Admitted.
+
+(*
   Since `relation` is a dependent type, we need to apply a helper function to
   update the relation with regard to the schema. This means we cannot simply
   quantify over `s` in the definition since that would make the type of `relation`
@@ -448,20 +468,44 @@ where "c1 '>[' f ']>' c2" := (step_cell _ _ f c1 c2).
   and the project list. We can thus manipulate the output schema on which the
   output relation depends.
 *)
-Definition apply_proj_in_relation s (r: relation s) (ℓ: project_list)
-                                        (Γ: Policy.context) (p: prov_ctx)
-  : relation (determine_schema s ℓ) * Policy.context * prov_ctx. Admitted.
-(* refine (
-  fix apply s r ℓ Γ p :=
-    match s with
-    | nil => _
-    | h :: t => _
-    end
-). *)
+Definition apply_proj_in_relation s (r: relation s) (ℓ: list (simple_atomic_expression))
+                                    (Γ: Policy.context) (p: prov_ctx)
+  : relation (determine_schema s (project ℓ)) * Policy.context * prov_ctx.
+Proof.
+  induction ℓ.
+  - exact (nil, Γ, p).
+  - (* We apply `a` to the relation s and obtain the output. *)
+    pose (apply_proj_elem s r a Γ p) as col.
+    pose (fst (fst IHℓ)) as r'.
+    pose (fst (fst col)) as r''.
+    pose (snd (fst IHℓ)) as Γ'.
+    pose (snd (fst col)) as Γ''.
+    pose (snd IHℓ) as p'.
+    pose (snd col) as p''.
 
-Definition apply_proj_in_env_slice s (es: env_slice s) (ℓ: project_list)
+    apply (merge p'') in p'.
+    apply (merge Γ'') in Γ'.
+
+    (* The next thing to do is merge relations, but this could
+       be not so straightforward since we need to merge the
+       schemas that are hidden in `determine_schema` function.
+
+       We also need to prove that
+        ```
+        determine_schema s (project (a :: @nil simple_atomic_expression)) ++
+        determine_schema s (project ℓ)
+        =
+        determine_schema s (project (a :: ℓ))
+        ```
+    *)
+    apply (relation_join _ _ r'') in r'.
+    rewrite (determine_schema_concat s a ℓ) in r'.
+    exact (r', Γ', p').
+Defined.
+
+Definition apply_proj_in_env_slice s (es: env_slice s) (ℓ: list (simple_atomic_expression))
                                      (Γ: Policy.context) (p: prov_ctx)
-  : env_slice (determine_schema s ℓ) * Policy.context * prov_ctx :=
+  : env_slice (determine_schema s (project ℓ)) * Policy.context * prov_ctx :=
   match es with
   | (r, a, b, _) =>
       let r := (apply_proj_in_relation s r ℓ Γ p) in
@@ -477,8 +521,8 @@ Definition apply_proj_in_env_slice s (es: env_slice s) (ℓ: project_list)
   Note that `ℓ` is the normalized projection list.
 *)
 Definition apply_proj_in_env s (evidence: List.length s > 0): ∀ (e: ℰ s)
-                             (ℓ: project_list) (Γ: Policy.context) (p: prov_ctx),
-                             ℰ ((determine_schema (hd_ok s evidence) ℓ) :: (tail s)) *
+                             (ℓ: list simple_atomic_expression) (Γ: Policy.context) (p: prov_ctx),
+                             ℰ ((determine_schema (hd_ok s evidence) (project ℓ)) :: (tail s)) *
                              Policy.context * prov_ctx.
   destruct s.
   - simpl in evidence. lia.
@@ -521,7 +565,7 @@ Inductive step_config: Operator → config → config → Prop :=
       (* Introduce terms into the scope to avoid identifier problems. *)
         ∀ (evidence: List.length s2 > 0) e',
           let input_schema := (hd_ok s2 evidence) in
-            let output_schema := determine_schema input_schema ℓ in
+            let output_schema := determine_schema input_schema (project ℓ) in
               ℓ = normalize_project_list input_schema project_list →
               (e', Γ', p') = apply_proj_in_env s2 evidence e'' ℓ Γ p →
               ⟨ s1 Γ β e p ⟩ =[ operator_project project_list o]=>

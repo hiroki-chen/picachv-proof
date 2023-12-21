@@ -29,6 +29,40 @@ Fixpoint eqb_list {A: Type} (eqb: A → A → bool) (l1 l2: list A): bool :=
   | h1 :: t1, h2 :: t2 => if eqb h1 h2 then eqb_list eqb t1 t2 else false
   end.
 
+Fixpoint lookup {A: Type} (n: nat) (l: list (nat * A)) : option A :=
+  match l with
+  | nil => None
+  | (n', a) :: t => if Nat.eqb n n' then Some a else lookup n t
+  end.
+
+Fixpoint update {A: Type} (l: list (nat * A)) (n: nat) (a: A) : list (nat * A) :=
+  match l with
+  | nil => nil
+  | (n', a') :: t => if Nat.eqb n n' then (n, a) :: t else (n', a') :: update t n a
+  end.
+
+(*
+  This function merges two lists of (nat * A) pairs. The first list is the new
+  list, and the second list is the old list. The function returns a new list.
+
+  The function works as follows:
+  - If the new list is empty, then the old list is returned.
+  - If the old list is empty, then the new list is returned.
+  - If the element of the new list is not in the old list, then the element is
+    added to the old list.
+  - If the element of the new list is in the old list, then the element is
+    replaced in the old list.
+*) 
+Fixpoint merge {A: Type} (new old: list (nat * A)) : list (nat * A) :=
+  match new with
+  | nil => old
+  | (n, a) :: t =>
+    match lookup n old with
+    | None => (n, a) :: merge t old
+    | Some _ => merge t (update old n a)
+    end
+  end.
+
 Theorem eqb_list_refl :
   ∀ (A : Type) (eqb : A → A → bool),
     (∀ a, eqb a a = true) → ∀ l, eqb_list eqb l l = true.
@@ -55,12 +89,6 @@ Proof.
   - intros. destruct l2. inversion H. simpl. apply eq_S.
     apply IHl1. inversion H. trivial.
 Qed.
-
-Fixpoint lookup {A: Type} (n: nat) (l: list (nat * A)) : option A :=
-  match l with
-  | nil => None
-  | (n', a) :: t => if Nat.eqb n n' then Some a else lookup n t
-  end.
 
 Theorem list_has_head_gt_zero:
   ∀ (A: Type) (a: A) (l l': list A),
