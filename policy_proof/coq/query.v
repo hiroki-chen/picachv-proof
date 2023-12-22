@@ -17,11 +17,17 @@ Set Printing Coercions.
 Set Printing Implicit.
 Set Printing Projections.
 
-Inductive trans_func (ℓ1 ℓ2: Policy.policy): Set :=
-  | trans_func_with_label: ∀ bt, transform_func bt → trans_func ℓ1 ℓ2
+Inductive trans_func: Type :=
+  | trans_func_with_label: Policy.policy → Policy.policy →
+                           ∀ bt, transform_func bt → trans_func
 .
 
-Definition trans_func_denote ℓ1 ℓ2 (f: trans_func ℓ1 ℓ2) : basic_type -> basic_type. Admitted.
+Definition trans_func_denote (f: trans_func): basic_type -> basic_type. Admitted.
+
+Definition get_policy_label (f: trans_func) :=
+  match f with
+  | trans_func_with_label ℓ1 ℓ2 _ _ => (ℓ1, ℓ2)
+  end.
 
 Inductive project_list: Set :=
   (* Denotes a "*" projection list. *)
@@ -30,31 +36,44 @@ Inductive project_list: Set :=
   | project: list (simple_atomic_expression) → project_list
 .
 
-(* (*
-  We say that the project list is "normalized" if the list contains no column names and no constants.
+(*
+  This function checks whether an expression is properly normalized. For an expression `expr`
+  to be normalized, it must satisfy the following conditions:
+  * If it is a function application, then either:
+    - The function contains only one argument and the argument is a column name, or
+    - The function contains more than one argument and all arguments are normalized.
+  * If it is a column name, then it is not normalized (because no identity function is applied).
+  * If it is a constant, then it is normalized.
+
+  Normalization is just ensure that each column is applied with a function so that we can easily
+  determine the basic type of the column as well as the label provenance of the column.
 *)
+Definition normalized_expr (expr: simple_atomic_expression): Prop :=
+  (fix helper expr (in_func: bool) (len: nat) :=
+    match expr with
+    | simple_atomic_expression_column _ => if in_func then len = 1 else False
+    | simple_atomic_expression_const _ => True
+    | simple_atomic_expression_func _ ℓ =>
+        (fix normalized' (ℓ: list simple_atomic_expression) :=
+          match ℓ with
+          (* Should be impossible. *)
+          | nil => True
+          | h :: t => helper h true (List.length ℓ) ∧ normalized' t
+          end
+        ) ℓ
+  end) expr false 0.
+  
 Definition normalized (pl: project_list): Prop :=
   match pl with
-  | project_star => False
-  | project ℓ =>
-      (fix check ℓ := match ℓ with
-                      | nil => True
-                      | x :: ℓ' => match x with
-                                  | simple_atomic_expression_column _ => False
-                                  | simple_atomic_expression_const _ => False
-                                  | simple_atomic_expression_func _ ℓ'' => 
-                                             (fix check' ℓ := match ℓ with
-                                                        | nil => True
-                                                        | cur :: ℓ' =>
-                                                          match cur with
-                                                          | simple_atomic_expression_column _ => check' ℓ'
-                                                          | simple_atomic_expression_const _ => check' ℓ'
-                                                          | _ => False
-                                                          end
-                                                        end) ℓ''
-                                  end
-                        end) ℓ
-  end. *)
+    | project_star => False
+    | project ℓ =>
+        (fix normalized' ℓ :=
+          match ℓ with
+          | nil => True
+          | h :: t => normalized_expr h ∧ normalized' t
+          end
+        ) ℓ
+  end.
 
 (*
   `determine_bt_from_args` is a function that takes a schema and a list of simple atomic expressions
@@ -216,11 +235,12 @@ Proof.
     specialize IHs with (n := S n). rewrite <- IHs. auto.
 Qed.
 
-Definition normalize_project_list (s: schema) (pl: project_list): list (simple_atomic_expression) :=
-  match pl with
+Definition normalize_project_list (s: schema) (pl: project_list): project_list :=
+  project
+  (match pl with
     | project_star => normalize_project_star s 0
     | project ℓ => normalize_project_list_list s ℓ
-  end.
+  end).
 
 Lemma normalize_preserve_length: ∀ s pl,
   List.length pl = List.length (normalize_project_list_list s pl).
@@ -239,17 +259,73 @@ Compute normalize_project_list
     ) :: nil)
   ).
 
-(* 
-Lemma normalize_normalized: ∀ s pl, normalized (normalize_project_list s pl).
+Lemma normalize_star_normalized: ∀ s n, normalized (project (normalize_project_star s n)).
 Proof.
-  destruct pl.
-  - induction s; simpl; auto.
+  induction s.
+  - simpl. auto.
+  - intros. simpl. 
+    specialize IHs with (n := S n).
+    simpl in IHs. auto. intuition. unfold normalized_expr. simpl. auto.
+Qed.
+
+Lemma normalized_cons: ∀ e pl, normalized (project (e :: pl)) →
+  normalized_expr e ∧ normalized (project pl).
+Proof.
+  induction pl.
+  - simpl. auto.
+  - intros. simpl in *. intuition.
+Qed.
+
+Lemma normalized_implies_each_expr: ∀ ℓ,
+  normalized (project ℓ) →
+  ∀ e, List.In e ℓ → normalized_expr e.
+Proof.
+  induction ℓ.
+  - intros. simpl in H0. inversion H0.
+  - intros. simpl in H0. intuition.
+    + rewrite <- H1. simpl in H. intuition.
+    + apply IHℓ; auto.
+      simpl in H. intuition.
+Qed.
+
+Lemma normalized_list_cons: ∀ e ℓ,
+  normalized_expr e → normalized (project ℓ) → normalized (project (e :: ℓ)).
+Proof.
+  induction ℓ.
+  - intros. simpl. auto.
+  - intros. 
+    apply normalized_cons in H0. intuition.
+    simpl. intuition.
+Qed.
+
+Definition normalized_list_list_cons: ∀ s pl e,
+  normalized (project (normalize_project_list_list s pl)) →
+  normalized (project (normalize_project_list_list s (e :: pl))).
+refine (
+  fix func s pl e :=
+    match e with
+    | simple_atomic_expression_column n => fun pred => _
+    | simple_atomic_expression_const _ => fun pred => _
+    | simple_atomic_expression_func _ ℓ => fun pred => _
+    end
+).
+  - clear func. simpl in *. unfold normalized_expr. auto.
+  - clear func. simpl in *. unfold normalized_expr. auto.
+  - 
+Admitted.
+
+Lemma normalize_is_normalized: ∀ s ℓ ℓ', ℓ' = (normalize_project_list s ℓ) → normalized ℓ'.
+Proof.
+  destruct ℓ; intros; subst.
+  - simpl. apply normalize_star_normalized.
   - induction l.
     + simpl. auto.
-    + destruct a; simpl; auto.
-      induction l0; simpl; auto with *.
-      destruct a; simpl; auto.
-Qed. *)
+    + induction a.
+      * simpl in *. intuition. unfold normalized_expr. simpl. auto.
+      * simpl in *. intuition. unfold normalized_expr. simpl. auto.
+      * unfold normalize_project_list in *.
+        apply normalized_list_list_cons. auto.
+Qed.
 
 Definition groupby_list := (list nat)%type.
 Definition agg_list s := (list (∀ bt, agg_expression s bt))%type.
@@ -371,33 +447,35 @@ Notation "'⟨' s Γ β ℰ p '⟩'":= (config_ok s Γ β ℰ p)
   is a function that transforms the cell.
 *)
 Reserved Notation "c1 '>[' f ']>' c2" (at level 50, no associativity).
-Inductive step_cell: ∀ ℓ1 ℓ2, trans_func ℓ1 ℓ2 → config → config → Prop :=
+Inductive step_cell: trans_func → config → config → Prop :=
   (* If the environment is empty, then we cannot do anything.  *)
   | E_CTransSkip1:
-      ∀ ℓ1 ℓ2 s Γ β e p (f: trans_func ℓ1 ℓ2), 
+      ∀ s Γ β e p f, 
           List.length s = 0 →
           ⟨ s Γ β e p ⟩ >[ f ]> ⟨ s Γ β e p ⟩
   (* If the environment is not empty but there is no active tuples, we cannot do anything. *)
   | E_CTransSkip2:
-      ∀ ℓ1 ℓ2 s Γ β e p (f: trans_func ℓ1 ℓ2) (non_empty: List.length s > 0) tl,
+      ∀ s Γ β e p f (non_empty: List.length s > 0) tl,
           tl = (env_slice_get_tuples (hd_ok s non_empty) (get_env_slice s e non_empty)) →
           List.length tl = 0 → 
           ⟨ s Γ β e p ⟩ >[ f ]> ⟨ s Γ β e p ⟩
   (* The label does not flow to the current one. *)
   | E_CTransSkip3:
-      ∀ ℓ1 ℓ2 ℓcur ℓdisc s Γ β e p (f: trans_func ℓ1 ℓ2) (non_empty: List.length s > 0)
+      ∀ ℓ1 ℓ2 ℓcur ℓdisc s Γ β e p f (non_empty: List.length s > 0)
         tl (tl_non_empty: List.length tl > 0) t c_idx,
           (* tl => A list of tuples. *)
           tl = (env_slice_get_tuples (hd_ok s non_empty) (get_env_slice s e non_empty)) →
           (* t => The first tuple. *)
           t = hd_ok tl tl_non_empty →
+          (* match the function. *)
+          (ℓ1, ℓ2) = get_policy_label f →
           (* we now get the label encodings. *)
           Some (ℓcur, Some ℓdisc) = Policy.label_lookup c_idx Γ →
           ~ (ℓcur ⊑ ℓ1) →
           ⟨ s Γ β e p ⟩ >[ f ]> ⟨ s Γ β e p ⟩
   (* No active labels are found; this should be an error. *)
   | E_CTransError1:
-      ∀ ℓ1 ℓ2 s Γ β e p (f: trans_func ℓ1 ℓ2) (non_empty: List.length s > 0)
+      ∀ s Γ β e p f (non_empty: List.length s > 0)
         tl (tl_non_empty: List.length tl > 0) t c_idx,
           (* tl => A list of tuples. *)
           tl = (env_slice_get_tuples (hd_ok s non_empty) (get_env_slice s e non_empty)) →
@@ -406,8 +484,9 @@ Inductive step_cell: ∀ ℓ1 ℓ2, trans_func ℓ1 ℓ2 → config → config �
           (* we now get the label encodings. *)
           None = Policy.label_lookup c_idx Γ →
           ⟨ s Γ β e p ⟩ >[ f ]> config_error
+  (* Type error: we do not support casting for the time being. *)
   | E_CTransError2:
-      ∀ ℓ1 ℓ2 ℓcur ℓdisc s Γ Γ' β e p (f: trans_func ℓ1 ℓ2) (non_empty: List.length s > 0)
+      ∀ ℓ1 ℓ2 ℓcur ℓdisc s Γ Γ' β e p f (non_empty: List.length s > 0)
         tl (tl_non_empty: List.length tl > 0) t c c' c_idx
         (idx_bound: c_idx < List.length (hd_ok s non_empty)),
           (* tl => A list of tuples. *)
@@ -416,18 +495,18 @@ Inductive step_cell: ∀ ℓ1 ℓ2, trans_func ℓ1 ℓ2 → config → config �
           t = hd_ok tl tl_non_empty →
           (* we now get the label encodings. *)
           Some (ℓcur, Some ℓdisc) = Policy.label_lookup c_idx Γ →
+          (ℓ1, ℓ2) = get_policy_label f →
           (* udpate the policy environment. *)
           ℓcur ⊑ ℓ1 → Γ' = Policy.update_label c_idx Γ (ℓ2, Some ℓdisc) →
           (* update the cell *)
-          c = Tuple.nth _ c_idx idx_bound → c' = (trans_func_denote _ _ f) c →
+          c = Tuple.nth _ c_idx idx_bound → c' = (trans_func_denote f) c →
           (* update the tuple by updating this cell. *)
           None = Tuple.set_nth_type_match _ c_idx c' idx_bound t →
-          (* update the environment. *)
           ⟨ s Γ β e p ⟩ >[ f ]> config_error
   (* This transition is ok. *)
   (* TODO: Perhaps we need to add some sort of provenance update? *)
   | E_CTransOk:
-      ∀ ℓ1 ℓ2 ℓcur ℓdisc s Γ Γ' β e e' p p' (f: trans_func ℓ1 ℓ2) (non_empty: List.length s > 0)
+      ∀ ℓ1 ℓ2 ℓcur ℓdisc s Γ Γ' β e e' p p' f (non_empty: List.length s > 0)
         tl tl' (tl_non_empty: List.length tl > 0) t t' c c' c_idx
         (idx_bound: c_idx < List.length (hd_ok s non_empty)),
           (* tl => A list of tuples. *)
@@ -436,26 +515,26 @@ Inductive step_cell: ∀ ℓ1 ℓ2, trans_func ℓ1 ℓ2 → config → config �
           t = hd_ok tl tl_non_empty →
           (* we now get the label encodings. *)
           Some (ℓcur, Some ℓdisc) = Policy.label_lookup c_idx Γ →
+          (ℓ1, ℓ2) = get_policy_label f →
           (* udpate the policy environment. *)
           ℓcur ⊑ ℓ1 → Γ' = Policy.update_label c_idx Γ (ℓ2, Some ℓdisc) →
           (* update the cell. *)
-          c = Tuple.nth _ c_idx idx_bound → c' = (trans_func_denote _ _ f) c →
+          c = Tuple.nth _ c_idx idx_bound → c' = (trans_func_denote f) c →
           (* update the tuple by updating this cell. *)
           Some t' = Tuple.set_nth_type_match _ c_idx c' idx_bound t →
           (* update the tuple environment. *)
           tl' = set_nth tl 0 t' →
           (* update the environment. *)
           ⟨ s Γ β e p ⟩ >[ f ]> ⟨ s Γ' β e' p' ⟩
-where "c1 '>[' f ']>' c2" := (step_cell _ _ f c1 c2).
+where "c1 '>[' f ']>' c2" := (step_cell f c1 c2).
 
 (*
    `apply_proj_elem` is a function that applies a projection operation to a
    single column of a relation.
 *)
 Definition apply_proj_elem s (r: relation s) (expr: simple_atomic_expression)
-                           (Γ: Policy.context) (p: prov_ctx)
-  : relation (determine_schema s (project (expr :: nil))) * Policy.context * prov_ctx.
-Admitted.
+                             (Γ: Policy.context) (p: prov_ctx) (normalized: normalized_expr expr)
+  : relation (determine_schema s (project (expr :: nil))) * Policy.context * prov_ctx. Admitted.
 
 (*
   Since `relation` is a dependent type, we need to apply a helper function to
@@ -469,12 +548,18 @@ Admitted.
 *)
 Definition apply_proj_in_relation s (r: relation s) (ℓ: list (simple_atomic_expression))
                                     (Γ: Policy.context) (p: prov_ctx)
+                                    (normalized: normalized (project ℓ))
   : relation (determine_schema s (project ℓ)) * Policy.context * prov_ctx.
 Proof.
   induction ℓ.
   - exact (nil, Γ, p).
   - (* We apply `a` to the relation s and obtain the output. *)
-    pose (apply_proj_elem s r a Γ p) as col.
+    pose (normalized_implies_each_expr _ normalized a) as norm.
+    pose (in_eq a ℓ) as pred. apply norm in pred.
+    pose (apply_proj_elem s r a Γ p pred) as col.
+    pose (normalized_cons _ _ normalized) as norm'.
+    destruct norm'. apply IHℓ in H0. clear IHℓ. rename H0 into IHℓ.
+
     pose (fst (fst IHℓ)) as r'.
     pose (fst (fst col)) as r''.
     pose (snd (fst IHℓ)) as Γ'.
@@ -504,10 +589,11 @@ Defined.
 
 Definition apply_proj_in_env_slice s (es: env_slice s) (ℓ: list (simple_atomic_expression))
                                      (Γ: Policy.context) (p: prov_ctx)
+                                     (norm: normalized (project ℓ))
   : env_slice (determine_schema s (project ℓ)) * Policy.context * prov_ctx :=
   match es with
   | (r, a, b, _) =>
-      let r := (apply_proj_in_relation s r ℓ Γ p) in
+      let r := (apply_proj_in_relation s r ℓ Γ p norm) in
         match r with 
         | (r', Γ', p') => ((r', a, b, nil), Γ', p')
         end
@@ -520,16 +606,20 @@ Definition apply_proj_in_env_slice s (es: env_slice s) (ℓ: list (simple_atomic
   Note that `ℓ` is the normalized projection list.
 *)
 Definition apply_proj_in_env s (evidence: List.length s > 0): ∀ (e: ℰ s)
-                             (ℓ: list simple_atomic_expression) (Γ: Policy.context) (p: prov_ctx),
-                             ℰ ((determine_schema (hd_ok s evidence) (project ℓ)) :: (tail s)) *
+                             (ℓ: project_list) (norm: normalized ℓ)
+                             (Γ: Policy.context) (p: prov_ctx),
+                             ℰ ((determine_schema (hd_ok s evidence) ℓ) :: (tail s)) *
                              Policy.context * prov_ctx.
   destruct s.
   - simpl in evidence. lia.
   - intros. 
     simpl. intros.
+    destruct ℓ.
+    (* Since we have the evidence that `ℓ` is normalized, it cannot be a `project_star`. *)
+    + inversion norm.
     (* We now apply the projection list in the environment slice. *)
-    pose (apply_proj_in_env_slice s (fst e) ℓ Γ p) as config'.
-    exact (fst (fst config'), snd e, (snd (fst config')), snd config').
+    + pose (apply_proj_in_env_slice s (fst e) l Γ p norm) as config'.
+      exact (fst (fst config'), snd e, (snd (fst config')), snd config').
 Defined.
 
 (* 
@@ -559,14 +649,15 @@ Inductive step_config: Operator → config → config → Prop :=
       List.length s2 = 0 →
       ⟨ s1 Γ β e p ⟩ =[ operator_project project_list o ]=> ⟨ nil Γ' β' tt nil ⟩
   (* If the operator returns a valid environment, we can then apply projection. *)
-  | E_Proj: ∀ s1 s2 Γ Γ' β β' p p' (e: ℰ s1) (e'': ℰ s2) project_list ℓ o,
+  | E_Proj: ∀ s1 s2 Γ Γ' β β' p p' (e: ℰ s1) (e'': ℰ s2) ℓ ℓ' o,
       ⟨ s1 Γ β e p ⟩ =[ o ]=> ⟨ s2 Γ' β' e'' p'⟩ →
       (* Introduce terms into the scope to avoid identifier problems. *)
         ∀ (evidence: List.length s2 > 0) e',
           let input_schema := (hd_ok s2 evidence) in
-            let output_schema := determine_schema input_schema (project ℓ) in
-              ℓ = normalize_project_list input_schema project_list →
-              (e', Γ', p') = apply_proj_in_env s2 evidence e'' ℓ Γ p →
-              ⟨ s1 Γ β e p ⟩ =[ operator_project project_list o]=>
-                ⟨ (output_schema :: (tail s2)) Γ' β' e' p' ⟩
+            let output_schema := determine_schema input_schema ℓ' in
+              ∀ (prop: ℓ' = normalize_project_list input_schema ℓ),
+                  (e', Γ', p') = apply_proj_in_env s2 evidence e'' ℓ'
+                                 (normalize_is_normalized _ _ _ prop) Γ p →
+                    ⟨ s1 Γ β e p ⟩ =[ operator_project ℓ o]=>
+                      ⟨ (output_schema :: (tail s2)) Γ' β' e' p' ⟩
 where "c1 '=[' o ']=>' c2" := (step_config o c1 c2).
