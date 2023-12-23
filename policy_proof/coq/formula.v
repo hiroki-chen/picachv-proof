@@ -36,7 +36,7 @@ Inductive simple_atomic_expression: Set :=
       ∀ (n: nat), simple_atomic_expression
   (* For well-formed types, this cannot be wrapped in infinite function calls. *)
   | simple_atomic_expression_func:
-      simple_transform_func → list simple_atomic_expression → simple_atomic_expression
+      simple_transform_func → list (simple_atomic_expression) → simple_atomic_expression
   .
 
 Inductive predicate (ty: Tuple.tuple_type) (bt: basic_type): Type :=

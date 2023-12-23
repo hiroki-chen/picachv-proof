@@ -298,21 +298,77 @@ Proof.
     simpl. intuition.
 Qed.
 
-Definition normalized_list_list_cons: ∀ s pl e,
+Lemma normalized_list_list_cons: ∀ s pl e,
+  normalized (project (normalize_project_list_list s (e :: pl))) →
+  normalized (project (normalize_project_list_list s pl)).
+Proof.
+  induction pl.
+  - intros. simpl in *. auto.
+  - intros. simpl in *. intuition.
+Qed.
+
+Lemma normalized_list_fuse_func: ∀ s ty h t ℓ,
+  normalized (project (normalize_project_list_list s 
+    (simple_atomic_expression_func ty t :: ℓ))) →
+  normalized (project (normalize_project_list_list s 
+    (simple_atomic_expression_func ty (h :: t) :: ℓ))).
+Proof.
+  refine (
+    fix func s ty h t ℓ :=
+    match h with
+      | simple_atomic_expression_column n =>_
+      | simple_atomic_expression_const _ => _
+      | simple_atomic_expression_func _ ℓ' =>
+      (fix func' ℓ :=
+        match ℓ with
+        | nil =>  _
+        | h' :: t' => _
+        end
+      ) ℓ'
+    end
+  ).
+
+Admitted.
+
+Definition normalized_list_list_cons' s pl: ∀ e,
   normalized (project (normalize_project_list_list s pl)) →
   normalized (project (normalize_project_list_list s (e :: pl))).
+Proof.
 refine (
-  fix func s pl e :=
-    match e with
+    fix func e := match e with
     | simple_atomic_expression_column n => fun pred => _
     | simple_atomic_expression_const _ => fun pred => _
-    | simple_atomic_expression_func _ ℓ => fun pred => _
+    | simple_atomic_expression_func _ ℓ =>
+      (fix func' ℓ :=
+        match ℓ with
+        | nil => fun pred => _
+        | h :: t => fun pred => _
+        end
+      ) ℓ
     end
 ).
-  - clear func. simpl in *. unfold normalized_expr. auto.
-  - clear func. simpl in *. unfold normalized_expr. auto.
-  - 
-Admitted.
+  - clear func. simpl. unfold normalized_expr. intuition.
+  - clear func. destruct e; simpl; unfold normalized_expr; intuition.
+  - clear func'. clear func. simpl. unfold normalized_expr. intuition.
+  - specialize func' with (ℓ := t).
+    specialize func with (e := h).
+    apply normalized_list_fuse_func. intuition.
+Defined.
+
+(* (fix normalize e := match e with
+                    | simple_atomic_expression_func f ℓ =>
+                        let ℓ' := (fix normalize' ℓ :=
+                          match ℓ with
+                          | nil => nil
+                          | h :: t => normalize h :: normalize' t
+                          end
+                        ) ℓ
+                        in
+                        simple_atomic_expression_func f ℓ'
+                  end) e 
+                    :: normalize_project_list_list s pl'
+  end.
+ *)
 
 Lemma normalize_is_normalized: ∀ s ℓ ℓ', ℓ' = (normalize_project_list s ℓ) → normalized ℓ'.
 Proof.
@@ -324,7 +380,7 @@ Proof.
       * simpl in *. intuition. unfold normalized_expr. simpl. auto.
       * simpl in *. intuition. unfold normalized_expr. simpl. auto.
       * unfold normalize_project_list in *.
-        apply normalized_list_list_cons. auto.
+        apply normalized_list_list_cons'. auto.
 Qed.
 
 Definition groupby_list := (list nat)%type.
