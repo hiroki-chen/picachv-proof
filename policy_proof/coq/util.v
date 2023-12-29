@@ -80,6 +80,12 @@ Fixpoint set_nth {A: Type} (l: list A) (n: nat) (a: A): list A :=
   | h :: t, S n' => h :: set_nth t n' a
   end.
 
+Fixpoint list_of_length_n {A: Type} (n: nat) (a: A): list A :=
+  match n with
+  | 0 => nil
+  | S n' => a :: list_of_length_n n' a
+  end.
+
 Theorem eq_length_list_zip_preserves_length :
   ∀ (A B: Type) (l1: list A) (l2: list B),
     length l1 = length l2 → length (zip_lists l1 l2) = length l1.
@@ -95,4 +101,11 @@ Theorem list_has_head_gt_zero:
     l = (a :: l') → length l > 0.
 Proof.
   intros. rewrite H. simpl. lia.
+Qed.
+
+Theorem nat_eqb_refl: ∀ n, Nat.eqb n n = true.
+Proof.
+  intros. induction n.
+  - trivial.
+  - simpl. apply IHn.
 Qed.

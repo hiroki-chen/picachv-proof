@@ -8,7 +8,7 @@ Require Import ordering.
 Inductive atomic_expression (ty: Tuple.tuple_type) : basic_type → Set :=
   (* v *)
   | atomic_expression_const:
-      ∀ bt (c : type_to_coq_type bt), atomic_expression ty bt
+      ∀ bt (c: type_to_coq_type bt), atomic_expression ty bt
   (* a *)
   | atomic_expression_column:
       ∀ n (extract: n < length ty), atomic_expression ty (Tuple.nth_np ty n extract)
@@ -30,7 +30,7 @@ Inductive agg_expression (ty: Tuple.tuple_type) (bt: basic_type): Set :=
 Inductive simple_atomic_expression: Set :=
   (* v *)
   | simple_atomic_expression_const:
-      ∀ (bt: basic_type), simple_atomic_expression
+      ∀ (bt: basic_type), type_to_coq_type bt → simple_atomic_expression
   (* a *)
   | simple_atomic_expression_column:
       ∀ (n: nat), simple_atomic_expression

@@ -31,10 +31,10 @@ Require Import ordering.
 
 (* We require that the element must have ordering. *)
 (* A bag is a multiset. *)
-Class FiniteBag (elt: Set) (E: Ordered elt) := {
+Class FiniteBag (elt: Set) (E: Ordered elt): Type := {
     (* The bag type. *)
     bag: Set;
-    ord :: Ordered bag;
+    (* ord :: Ordered bag; *)
 
     (* Creates an empty bag. *)
     empty: bag;
@@ -282,5 +282,14 @@ Section FB.
           red in e1. red in e2. assert (a == e0). eapply transitivity. eauto. assumption.
           symmetry in H1. intuition.
 Defined.
+(* 
+Global Instance fbag_is_fbag: FiniteBag elt E := {
+  bag := fbag;
+
+  empty := @nil elt;
+}.
+Admitted. *)
+Global Instance fbag_is_fbag: FiniteBag elt E.
+Admitted.
 
 End FB.

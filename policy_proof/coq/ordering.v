@@ -15,7 +15,7 @@ Require Import Compare_dec.
    See also: https://coq.inria.fr/refman/addendum/generalized-rewriting.html
 *)
 (* Strict order. *)
-Class Ordered (A: Set) := {
+Class Ordered (A: Type) := {
   eq :: Setoid A;
 
   lt: A → A → Prop;

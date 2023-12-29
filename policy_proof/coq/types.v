@@ -59,7 +59,7 @@ Global Instance can_order (t: basic_type): Ordered (type_to_coq_type t).
 Defined.
 
 (* Attributes are themselves string representation of the name. *)
-Definition Attribute := basic_type%type.
+Definition Attribute := (basic_type * string)%type.
 Definition Symbol := string.
 Definition Aggregate := string.
 
@@ -67,10 +67,12 @@ Inductive transform_func (bt: basic_type): Set :=
   | tf_id: transform_func bt
   | tf_other: transform_func bt
 .
+
 Inductive simple_transform_func: Set :=
   | stf_id: simple_transform_func
   | stf_other: simple_transform_func
 .
+
 Inductive aggregate_func (bt: basic_type): Set.
 Inductive simple_aggregate_func: Set.
 Inductive func: Set :=
@@ -87,4 +89,20 @@ Definition func_list: Set := list func%type.
 *)
 
 (* A schema is a list of attributes. *)
-Definition schema:= (list Attribute).
+Definition schema := (list Attribute).
+Definition schema_no_name := (list basic_type).
+
+(* Trasforms a schema into a list of pure basic types. *)
+Fixpoint schema_to_no_name (s: schema): schema_no_name :=
+  match s with
+  | nil => nil
+  | (t, _) :: s' => t :: schema_to_no_name s'
+  end.
+
+Lemma schema_to_no_name_length: ∀ s,
+  length (schema_to_no_name s) = length s.
+Proof.
+  induction s.
+  - auto.
+  - simpl. destruct a. rewrite <- IHs. auto.
+Qed.

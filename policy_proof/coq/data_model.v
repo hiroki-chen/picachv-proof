@@ -170,9 +170,6 @@ Global Instance policy_lattice: lattice policy.
 Defined.
 Hint Resolve policy_lattice : typeclass_instances.
 
-(* Global Instance policy_option_lattice: lattice (option policy).
-Admitted. *)
-
 Global Instance policy_setoid: Setoid policy.
 refine (
   @Build_Setoid policy policy_eq policy_eq_eqv
@@ -264,12 +261,16 @@ Defined.
 
 (* The active policy context. *)
 (* release policy: option policy *)
-Definition policy_encoding := (policy * option policy)%type.
+Definition policy_encoding := (bool * (policy * option policy))%type.
 Definition context := list (nat * policy_encoding)%type.
 Definition can_release (p: policy_encoding): Prop := 
   match p with
-    | (cur, None) => False
-    | (cur, Some disc) => disc <<= cur
+  | (false, (_, _)) => True
+  | (true, p) =>
+    match p with
+      | (cur, None) => False
+      | (cur, Some disc) => disc <<= cur
+    end
   end.
 
 Definition cannot_release (p: policy_encoding): Prop := ~ can_release p.
@@ -290,16 +291,23 @@ Fixpoint update_label (id: nat) (ctx: context) (pe: policy_encoding): context :=
       if Nat.eqb id id' then (id, pe) :: l' else (id', pe') :: update_label id l' pe
   end.
 
-Lemma update_valid: forall id ctx pe pe',
+Lemma update_valid: ∀ id ctx pe pe',
   label_lookup id ctx = Some pe →
   label_lookup id (update_label id ctx pe') = Some pe'.
 Proof.
-Admitted.
+  induction ctx.
+  - simpl in *. intros. inversion H.
+  - destruct a.
+    + simpl in *. destruct (Nat.eqb id n) eqn: Heq.
+      * intros. simpl. rewrite nat_eqb_refl. destruct pe'. reflexivity.
+      * intros. simpl in *. rewrite Heq. specialize IHctx with (pe := pe) (pe' := pe').
+        destruct p. auto.
+Qed.
 End Policy.
 
 Module Cell.
-
 (* A cell that does not carry policies. *)
+
 (* A cell that carries policies . *)
 Definition cell: Set := basic_type % type.
 Definition cell_denote (c: cell): Set := (type_to_coq_type c) % type.
@@ -411,7 +419,7 @@ Fixpoint tuple_value_eq (ty: tuple_type): ∀ (lhs rhs: tuple ty), Prop :=
     | nil => fun _ _ => True
     | _ :: tl => fun lhs rhs => 
       (fst (fst lhs)) == (fst (fst rhs)) ∧ tuple_value_eq tl (snd lhs) (snd rhs)
-  end. 
+  end.
 
 Fixpoint tuple_total_eq (ty: tuple_type): ∀ (lhs rhs: tuple ty), Prop :=
   match ty return (∀ (lhs rhs: tuple ty), Prop) with
@@ -843,3 +851,5 @@ Section Facts.
     type_scope.
 
 End Facts.
+
+Notation "'[[' x , y , .. , z ']]'" := ((x, 0), ((y, 0), .. ((z, 0), tt) ..)) (at level 0, x at next level, y at next level, z at next level).

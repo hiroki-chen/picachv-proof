@@ -71,7 +71,8 @@ Fixpoint prov_ok (Γ Γ': Policy.context) (ε': Policy.policy_encoding)
             match Policy.label_lookup c Γ with
               | Some ε => Policy.can_release ε ∨
                   match (ε, ε') with
-                  | ((ℓ1, _), (ℓ1', _)) => valid_transition τ ℓ1 ℓ1' ∧ 
+                  | ((false, _), _) => True
+                  | ((_, (ℓ1, _)), (_, (ℓ1', _))) => valid_transition τ ℓ1 ℓ1' ∧ 
                                            prov_list_ok Γ Γ' ε' p τ l'
                   end 
               | None => False
