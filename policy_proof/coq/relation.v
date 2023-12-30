@@ -263,7 +263,6 @@ Lemma find_common_bounded: ∀ s1 s2 n join_by lhs rhs ℓ x y z,
       * simpl in *. *)
 Admitted.
 
-
 Definition check_value s1 s2
   (common_join_list: list ((nat * nat) * Attribute)) (join_by: list string)
   (proof: ∀ elem, List.In elem common_join_list →
@@ -325,6 +324,55 @@ refine (
     * exact false.
 Defined.
 
+Fixpoint remove_common (s: schema) (common: list nat) (n: nat): schema :=
+  match s with
+  | nil => nil
+  | h :: t =>
+    if List.existsb (fun x => x =? n) common then
+      remove_common t common (n + 1)
+    else h :: remove_common t common (n + 1)
+  end.
+
+Lemma remove_common_nil: ∀ s n, remove_common s nil n = s.
+Proof.
+  induction s.
+  - reflexivity.
+  - intros. simpl. destruct (existsb (λ x : nat, (x =? n)%nat) nil) eqn: H.
+    + simpl in H. inversion H.
+    + simpl in H. rewrite IHs. reflexivity.
+Qed.
+
+(*
+  This function removes the common columns from the two schemas specified by the `common`
+  list that contains the indices of the common columns that need to be removed.
+*)
+Definition remove_common_part s (tp: Tuple.tuple (schema_to_no_name s)) (n: nat)
+ (common: list nat): Tuple.tuple (schema_to_no_name (remove_common s common n)).
+refine (
+  (fix remove_common_part s tp n :=
+    (* Pose s = s' for the ease of knowing the structure of `s`. *)
+    match s as s' return s = s' → Tuple.tuple (schema_to_no_name (remove_common s common n)) with
+    | nil => fun _ => _ 
+    | h :: t => _
+    end eq_refl) s tp n
+).
+  - subst. exact tt.
+  - intros. subst.
+    destruct h. simpl in *. specialize remove_common_part with (s := t).
+    destruct tp. pose (remove_common_part t0) as rest.
+    destruct (existsb (λ x : nat, (x =? n)%nat) common) eqn: H.
+    + exact (rest (n + 1)).
+    + simpl. exact (p, rest (n + 1)).
+Defined.
+
+Lemma join_type_eq: ∀s1 s2 join_by lhs rhs index_lhs index_rhs common_join_list,
+  lhs = join_list_to_index s1 join_by 0 → rhs = join_list_to_index s2 join_by 0 → common_join_list = find_common lhs rhs →
+    index_lhs = List.map (fun x => fst (fst x)) common_join_list →
+    index_rhs = List.map (fun x => snd (fst x)) common_join_list →
+    schema_to_no_name (remove_common s1 index_lhs 0) ++ schema_to_no_name (remove_common s2 index_rhs 0) =
+    schema_to_no_name (output_schema_join_by s1 s2 join_by).
+Admitted.
+
 (* Useful for joining two databases with a join list. *)
 Definition tuple_concat_by s1 s2 join_by
   (lhs: Tuple.tuple (schema_to_no_name s1))
@@ -369,14 +417,29 @@ Definition tuple_concat_by s1 s2 join_by
     pose (index_lhs := List.map (fun x => fst (fst x)) common_join_list).
     pose (index_rhs := List.map (fun x => snd (fst x)) common_join_list).
     
-    (* TODOs:
+    (* In the next step, we need to:
        1. Remove unneeded columns of `rhs`.
        2. Concatenate `lhs` and `rhs`.
+       3. Prove that the output types are equivalent.
 
        Note that since tuples are dependently typed, we may also need helper functions
        to determine the output type.
     *)
-Admitted.
+    pose (remove_common_part _ lhs 0 index_lhs) as lhs'.
+    pose (remove_common_part _ rhs 0 index_rhs) as rhs'.
+    pose (Tuple.tuple_concat _ _ lhs' rhs') as result.
+    specialize join_type_eq with
+      (s1 := (a :: s1)) (s2 := (a0 :: s2)) (join_by := join_by)
+      (lhs := lhs_join_list) (rhs := rhs_join_list)
+      (index_lhs := index_lhs) (index_rhs := index_rhs) (common_join_list := common_join_list).
+    intros.
+    assert (schema_to_no_name (remove_common (a :: s1) index_lhs 0) ++
+            schema_to_no_name (remove_common (a0 :: s2) index_rhs 0) =
+    schema_to_no_name (output_schema_join_by (a :: s1) (a0 :: s2) join_by))
+      by auto.
+    rewrite <- H1.
+    exact (Some result).
+Defined.
 
 (*
   This function computes the joined result of two relations provided a join list.
@@ -439,6 +502,24 @@ Example simple_schema_rhs :=
 
 Example join_by_test := output_schema_join_by simple_schema_lhs simple_schema_rhs ("baz"%string :: nil).
 Example join_by_test': join_by_test = (IntegerType, "foo"%string) :: (IntegerType, "bar"%string) :: (IntegerType, "baz"%string)  :: (StringType, "qux"%string) :: nil.
+Proof.
+  reflexivity.
+Qed.
+
+Example tuple_a := [[ 1, 2, 3, ("abcd"%string) ]].
+Example tuple_b := [[ 4, 2, 3, ("abcd"%string) ]].
+Example tuple_schema_lhs := (IntegerType, "foo"%string) :: (IntegerType, "bar"%string) :: (IntegerType, "baz"%string) :: (StringType, "qux"%string) :: nil.
+Example tuple_schema_rhs := (IntegerType, "a"%string) :: (IntegerType, "bar"%string) :: (IntegerType, "baz"%string) :: (StringType, "b"%string) :: nil.
+Example remove_common_test1 := remove_common tuple_schema_lhs (0 :: 1 :: nil) 0.
+Example remove_common_test2 := remove_common_part tuple_schema_lhs tuple_a 0 (0 :: 1 :: nil).
+Example tuple_concat_by_test := tuple_concat_by tuple_schema_lhs tuple_schema_rhs nil tuple_a tuple_b.
+
+Example remove_common_test1_correct: remove_common_test1 = (IntegerType, "baz"%string) :: (StringType, "qux"%string) :: nil.
+Proof.
+  reflexivity.
+Qed.
+
+Example remove_common_test2_correct: remove_common_test2 = [[ 3, "abcd"%string ]].
 Proof.
   reflexivity.
 Qed.
