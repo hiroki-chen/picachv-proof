@@ -100,7 +100,7 @@ Definition func_list: Set := list func%type.
 Definition schema := (list Attribute).
 Definition schema_no_name := (list basic_type).
 
-(* Trasforms a schema into a list of pure basic types. *)
+(* Transforms a schema into a list of pure basic types. *)
 Fixpoint schema_to_no_name (s: schema): schema_no_name :=
   match s with
   | nil => nil

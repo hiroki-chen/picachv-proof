@@ -125,3 +125,36 @@ Proof.
   unfold sublist. intros.
   apply H0. apply H. assumption.
 Qed.
+
+(*
+  [filter_true] is a theorem that states that filtering a list with a predicate that always returns true
+  will result in the same list.
+*)
+Theorem filter_true: ∀ (A: Type) (ℓ: list A),
+  List.filter (λ _, true) ℓ = ℓ.
+Proof.
+  intros. induction ℓ.
+  - trivial.
+  - simpl. rewrite IHℓ. trivial.
+Qed.
+
+(*
+  [filter_false] is a theorem that states that filtering a list with a predicate that always returns false results in an empty list.
+*)
+Theorem filter_false: ∀ (A: Type) (ℓ: list A),
+  List.filter (λ _, false) ℓ = nil.
+Proof.
+  intros. induction ℓ.
+  - trivial.
+  - simpl. rewrite IHℓ. trivial.
+Qed.
+
+(* This is needed since we need to let Coq reduce `app_assoc'`. *)
+Lemma app_assoc': ∀ A (l1 l2 l3: list A),
+  l1 ++ l2 ++ l3 = (l1 ++ l2) ++ l3.
+Proof.
+  intros.
+  induction l1.
+  - reflexivity.
+  - simpl. rewrite IHl1. reflexivity.
+Defined.

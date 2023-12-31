@@ -46,6 +46,12 @@ Proof.
 *)
 Defined.
 
+Lemma schema_to_no_name_eq: ∀ s1 s2,
+  s1 = s2 → schema_to_no_name s1 = schema_to_no_name s2.
+Proof.
+  intros. subst. reflexivity.
+Defined.
+
 (**
   [inject_tuple_id_relation] is a function that takes a tuple type [ty], a relation [r] of type [relation_np ty] and an id [id] as arguments and returns a relation of type [relation ty].
   This function is used to inject an id into a relation. This is useful when we want to inject a policy into a relation.
@@ -150,33 +156,6 @@ Proof.
     + inversion H.
     +
 Admitted.
-(*
-  This `join_by` argument is a list of natural numbers that specifies which columns to join on.
-  This function will do a pass on `join_by` by looking up the column names in the schema and
-  removing the column names that do not exist in one of the schemas to be joined.
-*)
-Fixpoint output_schema_join_by_helper (s1 s2: schema) (join_by: list string): schema :=
-  match join_by with
-  | nil => nil
-  | h :: t =>
-      match (find (fun x => (snd x) =? h)%string s1), (find (fun x => (snd x) =? h)%string s2) with
-      | Some (ty1, _), Some (ty2, _) =>
-        if type_matches ty1 ty2 then
-          (ty1, h) :: output_schema_join_by_helper s1 s2 t
-        else output_schema_join_by_helper s1 s2 t
-      | _, _ => output_schema_join_by_helper s1 s2 t
-      end
-  end.
-Hint Unfold output_schema_join_by_helper: core.
-
-(*
-  This function computes the schema of the joined result of two relations provided a join list.
-*)
-Definition output_schema_join_by s1 s2 (join_by: list string): schema :=
-  let common_col := output_schema_join_by_helper s1 s2 join_by in
-    let s1' := List.filter (fun x => negb (List.existsb (fun y => (snd x) =? y)%string join_by)) s1 in
-      let s2' := List.filter (fun x => negb (List.existsb (fun y => (snd x) =? y)%string join_by)) s2 in
-        s1' ++ common_col ++ s2'.
 
 Fixpoint join_list_to_index (s: schema) (join_by: list string) (n: nat): list (nat * Attribute) :=
   match s with
@@ -263,6 +242,16 @@ Proof.
 Qed.
 Hint Resolve find_common_nil_l: core.
 
+(*
+  This lemma states that if a triple (x, y, z) is in the result of finding the common elements
+  between two lists lhs and rhs, then (x, z) must be in lhs and (y, z) must be in rhs. The proof
+  for this lemma is seemingly trivial, but the formal proof is hard. The difficulty comes from
+  the fact that we need to reason about how the triple (x, y, z) is obtained from the two lists
+  lhs and rhs. In particular, we need to reason about how the pair (x, z) is obtained from lhs
+  and how the pair (y, z) is obtained from rhs.
+
+  The case analysis can be complex and requires careful reasoning.
+*)
 Lemma find_common_in_lhs_or_rhs: ∀ lhs rhs x y z,
   List.In (x, y, z) (find_common lhs rhs) →
   List.In (x, z) lhs ∧ List.In (y, z) rhs.
@@ -276,7 +265,8 @@ Proof.
         destruct (((snd a =? snd a0)%string && type_matches (fst a) (fst a0))%bool).
         -- inversion H. inversion H0. left. reflexivity.
            right. apply IHlhs with (x := x) (y := y) (z := z) in H0. destruct H0. assumption.
-        -- destruct (find (λ x : nat * (basic_type * string), ((snd a =? snd (snd x))%string && type_matches (fst a) (fst (snd x)))%bool) rhs).
+        -- destruct (find (λ x : nat * (basic_type * string), ((snd a =? snd (snd x))%string &&
+                     type_matches (fst a) (fst (snd x)))%bool) rhs).
            ++ inversion H. inversion H0. left. reflexivity.
               right. apply IHlhs with (x := x) (y := y) (z := z) in H0. destruct H0. assumption.
            ++ specialize IHlhs with (rhs := ((n0, a0) :: rhs)).
@@ -288,7 +278,8 @@ Proof.
                 apply String.eqb_eq in H1. apply type_matches_eq in H2.
                 apply pair_equal_spec. split; auto. apply injective_projections; auto.
              ++ apply IHlhs with (rhs := (n0, a0) :: rhs) (x := x) (y := y) (z := z). assumption.
-          -- destruct (find (λ x : nat * (basic_type * string), ((snd a =? snd (snd x))%string && type_matches (fst a) (fst (snd x)))%bool) rhs) eqn: H''.
+          -- destruct (find (λ x : nat * (basic_type * string), ((snd a =? snd (snd x))%string &&
+                       type_matches (fst a) (fst (snd x)))%bool) rhs) eqn: H''.
           (* Adding the hypothesis `H''` is important for the proof since we can
              reason about how `p` is obtained by which we substitute some terms.
           *)
@@ -412,6 +403,15 @@ Fixpoint remove_common (s: schema) (common: list nat) (n: nat): schema :=
     else h :: remove_common t common (n + 1)
   end.
 
+Fixpoint get_common (s: schema) (common: list nat) (n: nat): schema :=
+  match s with
+  | nil => nil
+  | h :: t =>
+    if List.existsb (fun x => x =? n) common then
+      h :: get_common t common (n + 1)
+    else get_common t common (n + 1)
+  end.
+
 Lemma remove_common_nil: ∀ s n, remove_common s nil n = s.
 Proof.
   induction s.
@@ -420,6 +420,28 @@ Proof.
     + simpl in H. inversion H.
     + simpl in H. rewrite IHs. reflexivity.
 Qed.
+
+Lemma get_common_nil: ∀ s n, get_common s nil n = nil.
+Proof.
+  induction s.
+  - reflexivity.
+  - intros. simpl. destruct (existsb (λ x : nat, (x =? n)%nat) nil) eqn: H.
+    + simpl in H. inversion H.
+    + simpl in H. rewrite IHs. reflexivity.
+Qed.
+
+(*
+  This function computes the schema of the joined result of two relations provided a join list.
+*)
+Definition output_schema_join_by s1 s2 (join_by: list string): schema :=
+  let lhs := join_list_to_index s1 join_by 0 in
+    let rhs := join_list_to_index s2 join_by 0 in
+      let common_join_list := find_common lhs rhs in
+        let index_lhs := List.map (fun x => fst (fst x)) common_join_list in
+          let index_rhs := List.map (fun x => snd (fst x)) common_join_list in
+            (remove_common s1 index_lhs 0) ++
+            (get_common s1 index_lhs 0) ++
+            (remove_common s2 index_rhs 0).
 
 (*
   This function removes the common columns from the two schemas specified by the `common`
@@ -439,19 +461,44 @@ refine (
   - intros. subst.
     destruct h. simpl in *. specialize remove_common_part with (s := t).
     destruct tp. pose (remove_common_part t0) as rest.
-    destruct (existsb (λ x : nat, (x =? n)%nat) common) eqn: H.
+    destruct (existsb (λ x : nat, (x =? n)%nat) common).
     + exact (rest (n + 1)).
     + simpl. exact (p, rest (n + 1)).
+Defined.
+
+Definition get_common_part s (tp: Tuple.tuple (schema_to_no_name s)) (n: nat)
+ (common: list nat): Tuple.tuple (schema_to_no_name (get_common s common n)).
+refine (
+  (fix get_common_part s tp n :=
+    (* Pose s = s' for the ease of knowing the structure of `s`. *)
+    match s as s' return s = s' → Tuple.tuple (schema_to_no_name (get_common s common n)) with
+    | nil => fun _ => _ 
+    | h :: t => _
+    end eq_refl) s tp n
+).
+  - subst. exact tt.
+  - intros. subst.
+    destruct h. simpl in *. specialize get_common_part with (s := t).
+    destruct tp. pose (get_common_part t0) as rest.
+    destruct (existsb (λ x : nat, (x =? n)%nat) common).
+    + simpl. exact (p, rest (n + 1)).
+    + exact (rest (n + 1)).
 Defined.
 
 Lemma join_type_eq: ∀ s1 s2 join_by lhs rhs index_lhs index_rhs common_join_list,
   lhs = join_list_to_index s1 join_by 0 → rhs = join_list_to_index s2 join_by 0 →
   common_join_list = find_common lhs rhs →
-    index_lhs = List.map (fun x => fst (fst x)) common_join_list →
-    index_rhs = List.map (fun x => snd (fst x)) common_join_list →
-    schema_to_no_name (remove_common s1 index_lhs 0) ++ schema_to_no_name (remove_common s2 index_rhs 0) =
-    schema_to_no_name (output_schema_join_by s1 s2 join_by).
-Admitted.
+  index_lhs = List.map (fun x => fst (fst x)) common_join_list →
+  index_rhs = List.map (fun x => snd (fst x)) common_join_list →
+  (schema_to_no_name (remove_common s1 index_lhs 0) ++
+  schema_to_no_name (get_common s1 index_lhs 0) ++
+  schema_to_no_name (remove_common s2 index_rhs 0)) =
+  schema_to_no_name (output_schema_join_by s1 s2 join_by).
+Proof.
+    intros. subst.
+    repeat rewrite app_assoc'. repeat rewrite <- schema_concat_eq. apply schema_to_no_name_eq.
+    unfold output_schema_join_by. rewrite <- app_assoc'. reflexivity.
+Defined.
 
 (* Useful for joining two databases with a join list. *)
 Definition tuple_concat_by s1 s2 join_by
@@ -507,17 +554,21 @@ Definition tuple_concat_by s1 s2 join_by
     *)
     pose (remove_common_part _ lhs 0 index_lhs) as lhs'.
     pose (remove_common_part _ rhs 0 index_rhs) as rhs'.
-    pose (Tuple.tuple_concat _ _ lhs' rhs') as result.
+    pose (get_common_part _ lhs 0 index_lhs) as com.
+    (* Find the shared part. *)
+    pose (Tuple.tuple_concat _ _ lhs' com) as tmp.
+    pose (Tuple.tuple_concat _ _ tmp rhs') as result.
     specialize join_type_eq with
       (s1 := (a :: s1)) (s2 := (a0 :: s2)) (join_by := join_by)
       (lhs := lhs_join_list) (rhs := rhs_join_list)
       (index_lhs := index_lhs) (index_rhs := index_rhs) (common_join_list := common_join_list).
     intros.
     assert (schema_to_no_name (remove_common (a :: s1) index_lhs 0) ++
+            schema_to_no_name (get_common (a :: s1) index_lhs 0) ++
             schema_to_no_name (remove_common (a0 :: s2) index_rhs 0) =
     schema_to_no_name (output_schema_join_by (a :: s1) (a0 :: s2) join_by))
       by auto.
-    rewrite <- H1.
+    rewrite <- H1. rewrite app_assoc'.
     exact (Some result).
 Defined.
 
@@ -624,6 +675,18 @@ Qed.
 
 Example tuple_concat_by_test := tuple_concat_by tuple_schema_lhs tuple_schema_rhs ("bar"%string :: "baz"%string :: nil) tuple_a tuple_b.
 
-Compute tuple_concat_by_test.
+Example tuple_concat_by_test_correct:
+  tuple_concat_by_test = Some [[ 1, ("abcd"%string), 2, 3, 4, ("abcd"%string) ]].
+Proof.
+  (*
+    This is tricky because although Coq uses `eq_refl` to inhabit the refl type. The concrete form
+    of the term appears rather complex. This is due to the heavy use of dependent types.
+
+    Nevertheless, we can still use `reflexivity` to check the equivalance between terms as Coq can
+    reduce the term recursively since the term is determined; thus the computation must terminate.
+    To check if we are obtaining the correct result, we can just use `reflexivity`.
+   *)
+  reflexivity.
+Qed.
 
 End Test.
