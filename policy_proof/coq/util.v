@@ -14,6 +14,8 @@ Definition hd_ok {A: Type} (l: list A) (non_empty: length l > 0) : A.
   - exact a.
 Defined.
 
+Definition sublist A ℓ ℓ' := ∀ (a: A), In a ℓ → In a ℓ'.
+
 Fixpoint zip_lists {A B: Type} (l1: list A) (l2: list B): list (A * B) :=
   match l1, l2 with
   | nil, _ => nil
@@ -108,4 +110,18 @@ Proof.
   intros. induction n.
   - trivial.
   - simpl. apply IHn.
+Qed.
+
+(*
+  This theorem states that if a list is a sublist of another list, then if a given
+  property holds for an element of the sublist, then the property holds for the
+  element of the list.
+*)
+Theorem sublist_holds: ∀ (A: Type) (ℙ: A → Prop) (ℓ ℓ': list A),
+  sublist A ℓ ℓ' →
+  (∀ a, In a ℓ' → ℙ a) →
+  (∀ a, In a ℓ → ℙ a).
+Proof.
+  unfold sublist. intros.
+  apply H0. apply H. assumption.
 Qed.

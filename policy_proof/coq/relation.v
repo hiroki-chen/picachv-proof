@@ -11,6 +11,7 @@ Require Import data_model.
 Require Import ordering.
 Require Import finite_bags.
 Require Import types.
+Require Import util.
 
 (** 
   [relation_np] is a function that takes a tuple type [ty] as an argument and returns a finite bag (fbag) of tuples of type [ty]. 
@@ -166,6 +167,7 @@ Fixpoint output_schema_join_by_helper (s1 s2: schema) (join_by: list string): sc
       | _, _ => output_schema_join_by_helper s1 s2 t
       end
   end.
+Hint Unfold output_schema_join_by_helper: core.
 
 (*
   This function computes the schema of the joined result of two relations provided a join list.
@@ -200,32 +202,51 @@ Proof.
   - auto.
   - intros. simpl. specialize IHjoin_by with (n := n + 1). auto.
 Qed.
+Hint Resolve join_list_to_index_nil1 join_list_to_index_nil2: core.
 
-Lemma join_list_to_index_bounded: ∀ s join_by x y n,
-  List.In (x, y) (join_list_to_index s join_by n) → x < n + List.length s.
+(*
+  [join_list_to_index_bounded] is a lemma that states that for any list [s], join function [join_by], 
+  indices [x] and [y], and a natural number [n], if the pair [(x, y)] is in the result of applying 
+  [join_list_to_index] function on [s] with [join_by] and [n], then [x] is less than [n + length s].
+
+  The proof of this lemma is done by induction on the list [s]. In the base case, when [s] is empty, 
+  the assumption is contradicted. In the inductive case, we consider the head of the list [s] as a pair 
+  [(a, b)]. If [a] is in the list [join_by], then we have two cases: either [(x, y)] is equal to [(a, b)], 
+  in which case the inequality holds trivially, or [(x, y)] is in the rest of the list, in which case 
+  we apply the induction hypothesis on the tail of the list. If [a] is not in the list [join_by], then 
+  we also apply the induction hypothesis on the tail of the list.
+
+  Finally, the inequality is proven using the [lia] tactic, which is able to handle linear integer 
+  arithmetic.
+*)
+Lemma join_list_to_index_bounded: ∀ s join_by x n,
+  List.In x (join_list_to_index s join_by n) → fst x < n + List.length s.
 Proof.
   induction s.
   - intros. simpl in H. contradiction.
-  - simpl in *. destruct a. intros. simpl in H.
+  - simpl in *. destruct a. intros. destruct x as [x y]. simpl in H.
     destruct (existsb (λ x : string, (x =? s0)%string) join_by).
     + simpl in *. destruct H.
       * inversion H. subst. lia.
-      * specialize IHs with (join_by := join_by) (x := x) (n := n + 1). apply IHs in H. lia.
-    + specialize IHs with (join_by := join_by) (x := x) (n := n + 1). apply IHs in H. lia.
+      * specialize IHs with (join_by := join_by) (x := (x, y)) (n := n + 1). apply IHs in H. simpl in *. lia.
+    + specialize IHs with (join_by := join_by) (x := (x, y)) (n := n + 1). apply IHs in H. simpl in *. lia.
 Qed.
+Hint Resolve join_list_to_index_bounded: core.
 
 Lemma join_list_to_index_bounded': ∀ index s join_by n,
   index = join_list_to_index s join_by n →
-  ∀ x y, List.In (x, y) index → x < n + List.length s.
+  ∀ x, List.In x index → fst x < n + List.length s.
 Proof.
   intros. subst. apply join_list_to_index_bounded in H0. assumption.
 Qed.
+Hint Resolve join_list_to_index_bounded': core.
 
 Fixpoint find_common (lhs rhs: list (nat * Attribute)): list ((nat * nat) * Attribute) :=
   match lhs with
   | nil => nil
   | h :: t =>
-    match find (fun x => String.eqb (snd (snd h)) (snd (snd x))) rhs with
+    match find (fun x => andb (String.eqb (snd (snd h)) (snd (snd x)))
+                              (type_matches (fst (snd h)) (fst (snd x)))) rhs with
     | Some x => ((fst h, fst x), snd h) :: find_common t rhs
     | None => find_common t rhs
     end
@@ -240,28 +261,86 @@ Lemma find_common_nil_l: ∀rhs, find_common nil rhs = nil.
 Proof.
   intuition; induction rhs; auto. 
 Qed.
+Hint Resolve find_common_nil_l: core.
+
+Lemma find_common_in_lhs_or_rhs: ∀ lhs rhs x y z,
+  List.In (x, y, z) (find_common lhs rhs) →
+  List.In (x, z) lhs ∧ List.In (y, z) rhs.
+Proof.
+  induction lhs.
+  - simpl. intros. contradiction.
+  - destruct rhs as [|a0 rhs].
+    + rewrite find_common_nil_r. simpl. intros. contradiction.
+    + simpl. split.
+      * destruct a. destruct a0. simpl in H.
+        destruct (((snd a =? snd a0)%string && type_matches (fst a) (fst a0))%bool).
+        -- inversion H. inversion H0. left. reflexivity.
+           right. apply IHlhs with (x := x) (y := y) (z := z) in H0. destruct H0. assumption.
+        -- destruct (find (λ x : nat * (basic_type * string), ((snd a =? snd (snd x))%string && type_matches (fst a) (fst (snd x)))%bool) rhs).
+           ++ inversion H. inversion H0. left. reflexivity.
+              right. apply IHlhs with (x := x) (y := y) (z := z) in H0. destruct H0. assumption.
+           ++ specialize IHlhs with (rhs := ((n0, a0) :: rhs)).
+              apply IHlhs with (x := x) (y := y) (z := z) in H. destruct H. right. assumption.
+      * destruct a. destruct a0. simpl in H.
+        destruct (((snd a =? snd a0)%string && type_matches (fst a) (fst a0))%bool) eqn: H'.
+          -- inversion H.
+             ++ inversion H0. left. subst. apply Bool.andb_true_iff in H'. destruct H'.
+                apply String.eqb_eq in H1. apply type_matches_eq in H2.
+                apply pair_equal_spec. split; auto. apply injective_projections; auto.
+             ++ apply IHlhs with (rhs := (n0, a0) :: rhs) (x := x) (y := y) (z := z). assumption.
+          -- destruct (find (λ x : nat * (basic_type * string), ((snd a =? snd (snd x))%string && type_matches (fst a) (fst (snd x)))%bool) rhs) eqn: H''.
+          (* Adding the hypothesis `H''` is important for the proof since we can
+             reason about how `p` is obtained by which we substitute some terms.
+          *)
+            ** apply find_some in H''.  destruct H''.
+               apply Bool.andb_true_iff in H1. destruct H1.
+                apply String.eqb_eq in H1. apply type_matches_eq in H2.
+                assert (a = (snd p)).
+                { destruct a. destruct p. simpl. destruct p. apply pair_equal_spec. split; auto. }
+                destruct p. subst. simpl in H. clear H1. clear H2.
+                destruct H.
+                --- right. inversion H. subst. assumption.
+                --- apply IHlhs with (rhs := (n0, a0) :: rhs) (x := x) (y := y) (z := z). assumption.
+            ** apply IHlhs with (rhs := (n0, a0) :: rhs) (x := x) (y := y) (z := z). assumption.
+Defined.
+
+(*
+  [prop_find_common_holds] states that if for every attribute [a] in [lhs], [ℙ1 a] holds,
+  and for every attribute [a] in [rhs], [ℙ2 a] holds, then for every triple [(x, y, z)]
+  in the result of [find_common lhs rhs], either [ℙ1 (x, z)] or [ℙ2 (y, z)] holds.
+*)
+Lemma prop_find_common_holds: ∀ lhs rhs (ℙ1 ℙ2: (nat * Attribute) → Prop),
+  (∀ a, List.In a lhs → ℙ1 a) ∧ (∀ a, List.In a rhs → ℙ2 a) →
+  ∀ x y z, List.In (x, y, z) (find_common lhs rhs) → ℙ1 (x, z) ∧ ℙ2 (y, z).
+Proof.
+  intros. destruct H.
+  specialize find_common_in_lhs_or_rhs with (lhs := lhs) (rhs := rhs) (x := x) (y := y) (z := z).
+  intros. apply H2 in H0. clear H2.
+  destruct H0. split.
+  - specialize H with (a := (x, z)). apply H. assumption.
+  - specialize H1 with (a := (y, z)). apply H1. assumption.
+Defined.
 
 Lemma find_common_bounded: ∀ s1 s2 n join_by lhs rhs ℓ x y z,
   lhs = join_list_to_index s1 join_by n → rhs = join_list_to_index s2 join_by n →
-  List.In (x, y, z) ℓ → (∀ elem, List.In elem ℓ → List.In elem (find_common lhs rhs)) →
+  List.In (x, y, z) ℓ → sublist _ ℓ (find_common lhs rhs) → 
   x < n + List.length s1 ∧ y < n + List.length s2.
-(* Proof.
-  induction s1.
-  - intros. subst. simpl in *. contradiction.
-  - induction s2.
-    + simpl in *. intuition.
-      * subst. destruct a. simpl in *. destruct (existsb (λ x : string, (x =? s)%string) join_by).
-        -- simpl in *. rewrite find_common_nil_r in H1. inversion H1.
-        -- simpl in *. rewrite find_common_nil_r in H1. inversion H1.
-      * subst. destruct a. simpl in *. destruct (existsb (λ x : string, (x =? s)%string) join_by).
-        -- simpl in *. rewrite find_common_nil_r in H1. inversion H1.
-        -- simpl in *. rewrite find_common_nil_r in H1. inversion H1.
-    + intros. subst. simpl in H1.
-      destruct (existsb (λ x : string, (x =? snd a)%string) join_by);
-      destruct (existsb (λ x : string, (x =? snd a0)%string) join_by); destruct a; destruct a0;
-      simpl in *; destruct ((s =? s0)%string); destruct (existsb (λ x0 : string, (x0 =? s)%string) join_by).
-      * simpl in *. *)
-Admitted.
+Proof.
+  intros. subst.
+  unfold sublist in H2.
+  specialize H2 with (a := (x, y, z)). apply H2 in H1.
+  specialize prop_find_common_holds with
+    (lhs := (join_list_to_index s1 join_by n))
+    (rhs :=  (join_list_to_index s2 join_by n))
+    (ℙ1 := fun x => fst x < n + List.length s1)
+    (ℙ2 := fun x => fst x < n + List.length s2).
+  specialize join_list_to_index_bounded with (s := s1) (join_by := join_by) (n := n).
+  specialize join_list_to_index_bounded with (s := s2) (join_by := join_by) (n := n).
+  intros.
+  simpl in *. pose (H3 (conj H0 H)).
+  specialize a with (x := x) (y := y) (z := z).
+  apply a. assumption.
+Defined.
 
 Definition check_value s1 s2
   (common_join_list: list ((nat * nat) * Attribute)) (join_by: list string)
@@ -282,9 +361,9 @@ refine (
   - destruct h as [(n1, n2) attr].
   specialize find_common_bounded with (s1 := s1) (s2 := s2) (n := 0) (join_by := join_by)
     (lhs := (join_list_to_index s1 join_by 0)) (rhs := (join_list_to_index s2 join_by 0))
-    (x := n1) (y := n2) (z := attr).
+    (x := n1) (y := n2) (z := attr). unfold sublist.
   intros.
-  simpl in H.
+  simpl in H. 
   (* This is to obtain the proof that indices are bounded. *)
   assert (n1 < Datatypes.length s1 ∧ n2 < Datatypes.length s2).
     { apply (H0 common_join_list); auto. subst. apply in_eq. rewrite H. auto. }
@@ -365,8 +444,9 @@ refine (
     + simpl. exact (p, rest (n + 1)).
 Defined.
 
-Lemma join_type_eq: ∀s1 s2 join_by lhs rhs index_lhs index_rhs common_join_list,
-  lhs = join_list_to_index s1 join_by 0 → rhs = join_list_to_index s2 join_by 0 → common_join_list = find_common lhs rhs →
+Lemma join_type_eq: ∀ s1 s2 join_by lhs rhs index_lhs index_rhs common_join_list,
+  lhs = join_list_to_index s1 join_by 0 → rhs = join_list_to_index s2 join_by 0 →
+  common_join_list = find_common lhs rhs →
     index_lhs = List.map (fun x => fst (fst x)) common_join_list →
     index_rhs = List.map (fun x => snd (fst x)) common_join_list →
     schema_to_no_name (remove_common s1 index_lhs 0) ++ schema_to_no_name (remove_common s2 index_rhs 0) =
@@ -467,6 +547,8 @@ Definition relation_natural_join s1 s2 (r1: relation s1) (r2: relation s2):
   relation (output_schema_join_by s1 s2 (natural_join_list s1 s2)) :=
   relation_join_by s1 s2 r1 r2 (natural_join_list s1 s2).
 
+(* =================== Some Test Cases ==================== *)
+Section Test.
 Example relation_a :=
   [[ 4, 5, 6, ("abcd"%string) ]] ::
     [[ 7, 8, 9, ("abcd"%string) ]] :: nil.
@@ -510,16 +592,38 @@ Example tuple_a := [[ 1, 2, 3, ("abcd"%string) ]].
 Example tuple_b := [[ 4, 2, 3, ("abcd"%string) ]].
 Example tuple_schema_lhs := (IntegerType, "foo"%string) :: (IntegerType, "bar"%string) :: (IntegerType, "baz"%string) :: (StringType, "qux"%string) :: nil.
 Example tuple_schema_rhs := (IntegerType, "a"%string) :: (IntegerType, "bar"%string) :: (IntegerType, "baz"%string) :: (StringType, "b"%string) :: nil.
-Example remove_common_test1 := remove_common tuple_schema_lhs (0 :: 1 :: nil) 0.
-Example remove_common_test2 := remove_common_part tuple_schema_lhs tuple_a 0 (0 :: 1 :: nil).
-Example tuple_concat_by_test := tuple_concat_by tuple_schema_lhs tuple_schema_rhs nil tuple_a tuple_b.
 
-Example remove_common_test1_correct: remove_common_test1 = (IntegerType, "baz"%string) :: (StringType, "qux"%string) :: nil.
+Example common_join_list := find_common (join_list_to_index tuple_schema_lhs ("bar"%string :: "baz"%string :: nil) 0)
+                                        (join_list_to_index tuple_schema_rhs ("bar"%string :: "baz"%string :: nil) 0).
+Example common_join_list_correct: common_join_list = ((1, 1), (IntegerType, "bar"%string)) :: ((2, 2), (IntegerType, "baz"%string)) :: nil.
 Proof.
   reflexivity.
 Qed.
 
-Example remove_common_test2_correct: remove_common_test2 = [[ 3, "abcd"%string ]].
+Example removed_schema_lhs := remove_common tuple_schema_lhs (List.map (fun x => fst (fst x)) common_join_list) 0.
+Example removed_schema_rhs := remove_common tuple_schema_rhs (List.map (fun x => snd (fst x)) common_join_list) 0.
+Example removed_schema_lhs_correct: removed_schema_lhs = (IntegerType, "foo"%string) :: (StringType, "qux"%string) :: nil.
 Proof.
   reflexivity.
 Qed.
+Example removed_schema_rhs_correct: removed_schema_rhs = (IntegerType, "a"%string) :: (StringType, "b"%string) :: nil.
+Proof.
+  reflexivity.
+Qed.
+
+Example removed_common_lhs := remove_common_part tuple_schema_lhs tuple_a 0 (List.map (fun x => fst (fst x)) common_join_list).
+Example removed_common_rhs := remove_common_part tuple_schema_rhs tuple_b 0 (List.map (fun x => snd (fst x)) common_join_list).
+Example removed_common_lhs_correct: removed_common_lhs = [[ 1, ("abcd"%string) ]].
+Proof.
+  reflexivity.
+Qed.
+Example removed_common_rhs_correct: removed_common_rhs = [[ 4, ("abcd"%string) ]].
+Proof.
+  reflexivity.
+Qed.
+
+Example tuple_concat_by_test := tuple_concat_by tuple_schema_lhs tuple_schema_rhs ("bar"%string :: "baz"%string :: nil) tuple_a tuple_b.
+
+Compute tuple_concat_by_test.
+
+End Test.

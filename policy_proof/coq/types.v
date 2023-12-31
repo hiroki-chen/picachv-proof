@@ -32,6 +32,14 @@ Definition type_matches (lhs rhs: basic_type): bool :=
   | _, _ => false
   end.
 
+Lemma type_matches_eq: ∀ t1 t2, type_matches t1 t2 = true ↔ t1 = t2.
+Proof.
+  intros.
+  split.
+  - destruct t1, t2; simpl; intros; try discriminate; auto.
+  - intros. subst. destruct t2; auto.
+Qed.
+
 Definition type_to_coq_type (t: basic_type): Set :=
   match t with
   | IntegerType => nat
