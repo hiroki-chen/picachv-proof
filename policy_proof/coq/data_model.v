@@ -852,4 +852,7 @@ Section Facts.
 
 End Facts.
 
-Notation "'[[' x , y , .. , z ']]'" := ((x, 0), ((y, 0), .. ((z, 0), tt) ..)) (at level 0, x at next level, y at next level, z at next level).
+Notation "'<<' x '>>'" := (x, 0) (at level 0, x at next level).
+Notation "'<<' x ; x0 '>>'" := (x, x0) (at level 0, x at next level, x0 at next level).
+Notation "'[[' x , y , .. , z ']]'" := (x, (y, .. (z, tt) ..)) (at level 0, x at next level, y at next level, z at next level).
+Notation "'[[' x ']]'" := (x, tt) (at level 0, x at next level).

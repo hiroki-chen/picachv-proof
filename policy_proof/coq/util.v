@@ -75,6 +75,20 @@ Proof.
   - simpl.  specialize (H a). rewrite H. apply IHl.
 Qed.
 
+Definition nth {A: Type} (l: list A) (n: nat): n < length l → A.
+refine (
+  (fix nth l n :=
+    match l as l', n as n' return l = l' → n = n' → n' < length l → A with
+    | nil, _ => _
+    | h :: t, 0 => _
+    | h :: t, S n' => _
+    end eq_refl eq_refl) l n
+).
+  - intros. subst. simpl in H1. lia.
+  - intros. exact h.
+  - intros. subst. apply nth with t n'. simpl in H1. lia.
+Defined.
+
 Fixpoint set_nth {A: Type} (l: list A) (n: nat) (a: A): list A :=
   match l, n with
   | nil, _ => nil

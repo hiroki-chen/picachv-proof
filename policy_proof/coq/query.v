@@ -54,6 +54,7 @@ Inductive project_list: Set :=
   *)
   | project: list (simple_atomic_expression * string) → project_list
 .
+Hint Constructors project_list: core.
 
 (*
   This function checks whether an expression is properly normalized. For an expression `expr`
@@ -236,7 +237,12 @@ Fixpoint normalize_project_list_list
                         let ℓ' := (fix normalize' ℓ :=
                           match ℓ with
                           | nil => nil
-                          | h :: t => normalize h :: normalize' t
+                          | h :: nil => 
+                           match h with
+                            | simple_atomic_expression_func _ l => normalize h
+                            | _ => h
+                            end :: nil
+                            | h :: t => normalize h :: normalize' t
                           end
                         ) ℓ
                         in
@@ -336,74 +342,53 @@ Lemma normalized_list_fuse_func: ∀ s ty h t ℓ name,
   normalized (project (normalize_project_list_list s 
     ((simple_atomic_expression_func ty (h :: t), name) :: ℓ))).
 Proof.
-  refine (
-    fix func s ty h t ℓ name :=
-    match h with
-      | simple_atomic_expression_column n =>_
+  intros.
+  induction t.
+  - refine (
+    (fix expr h :=
+      match h with
+      | simple_atomic_expression_column _ => _
       | simple_atomic_expression_const _ _ => _
-      | simple_atomic_expression_func _ ℓ' =>
-      (fix func' ℓ :=
-        match ℓ with
-        | nil =>  _
-        | h' :: t' => _
-        end
-      ) ℓ'
-    end
-  ).
-
+      | simple_atomic_expression_func _ l => _
+      end) h
+    ).
+    + simpl in *. unfold normalized_expr in *. intuition.
+    + simpl in *. unfold normalized_expr in *. intuition.
+    + induction l.
+      * simpl in *. unfold normalized_expr. intuition.
+      * specialize expr with a.
 Admitted.
-
-Definition normalized_list_list_cons' s pl: ∀ e,
-  normalized (project (normalize_project_list_list s pl)) →
-  normalized (project (normalize_project_list_list s (e :: pl))).
-Proof.
-refine (
-    fix func e := match e with
-    | (simple_atomic_expression_column n, _) => fun pred => _
-    | (simple_atomic_expression_const _ _, _) => fun pred => _
-    | (simple_atomic_expression_func _ ℓ, _) =>
-      (fix func' ℓ :=
-        match ℓ with
-        | nil => fun pred => _
-        | h :: t => fun pred => _
-        end
-      ) ℓ
-    end
-).
-  - clear func. simpl. unfold normalized_expr. intuition.
-  - clear func. destruct e; simpl; unfold normalized_expr; intuition.
-  - clear func'. clear func. simpl. unfold normalized_expr. intuition.
-  - specialize func' with (ℓ := t).
-    specialize func with (e := (h, ""%string)).
-    apply normalized_list_fuse_func. intuition.
-Admitted.
-
-(* (fix normalize e := match e with
-                    | simple_atomic_expression_func f ℓ =>
-                        let ℓ' := (fix normalize' ℓ :=
-                          match ℓ with
-                          | nil => nil
-                          | h :: t => normalize h :: normalize' t
-                          end
-                        ) ℓ
-                        in
-                        simple_atomic_expression_func f ℓ'
-                  end) e 
-                    :: normalize_project_list_list s pl'
-  end.
- *)
 
 Lemma normalize_is_normalized: ∀ s ℓ ℓ', ℓ' = (normalize_project_list s ℓ) → normalized ℓ'.
 Proof.
   destruct ℓ; intros; subst.
   - simpl. apply normalize_star_normalized.
-  - induction l.
-    + simpl. auto.
-    + destruct a. destruct s0.
-      * simpl in *. intuition. unfold normalized_expr. simpl. auto.
-      * simpl in *. intuition. unfold normalized_expr. simpl. auto.
-      * unfold normalize_project_list in *.
-        apply normalized_list_list_cons'. auto.
+  - refine (
+    (fix func l :=
+      match l with
+      | nil => _
+      | (e, name) :: l' =>
+        (fix expr e := 
+          match e with
+          | simple_atomic_expression_column _ => _
+          | simple_atomic_expression_const _ _ => _
+          | simple_atomic_expression_func _ l'' => _
+          end) e
+      end) l
+    ).
+      + simpl. auto.
+      + simpl in *. intuition. unfold normalized_expr. simpl; auto. apply func.
+      + simpl in *. intuition. unfold normalized_expr. simpl; auto. apply func.
+      + refine (
+          (fix func' l :=
+            match l with
+            | nil => _
+            | e :: l' => _
+            end) l''
+        ).
+        * simpl. unfold normalized_expr. intuition; auto. apply func.
+        * specialize expr with e. specialize func' with l'.
+          apply normalized_list_fuse_func. assumption.
 Qed.
 
 Definition groupby_list := (list nat)%type.
@@ -510,7 +495,8 @@ Inductive Operator: Set :=
     - `p` => The provenance context.
 *)
 Inductive config: Type :=
-  | config_terminal: config
+  (* Terminal wraps a configuration by which we can easily analyze the final state. *)
+  | config_terminal: config → config
   | config_error: config
   | config_ok: ∀ s, Policy.context → Configuration.privacy → ℰ s → prov_ctx -> config
 .
@@ -636,10 +622,11 @@ match n with
 
 (*
   `apply_proj_elem` is a function that applies a projection operation to a
-  single column of a relation.
+  single column of a relation. This will further consult the `c [ f ] c'` relation to determine the output relation.
 
-  This will further consult the `c [ f ] c'` relation to determine the output
-  relation.
+  Note that if this function returns `None` then it means that something is wrong with the input.
+  `None` does not imply that the policy is violated. For example, if the input relation is empty,
+  then we cannot apply the projection operation to any column.
 *)
 Definition apply_proj_elem s (r: relation s) (expr: simple_atomic_expression * string)
                              (Γ: Policy.context) (p: prov_ctx) (normalized: normalized_expr (fst expr))
@@ -647,19 +634,41 @@ Definition apply_proj_elem s (r: relation s) (expr: simple_atomic_expression * s
 refine (
   match expr with
   | (expr, name) =>
-    match expr with
-    (* This is not possible. *)
-    | simple_atomic_expression_column _ => None
-    (* TODO: Propate the single value to a whole list. *)
-    | simple_atomic_expression_const ty c =>
-        let res := (tuple_of_length_n ((ty, name) :: nil) (List.length r) ((c, 0), tt)) in
-          Some (res, Γ, p)
-          (* None *)
-    | simple_atomic_expression_func ty args => None
+      match expr with
+      (*
+        This is not possible since we have already ensured that all columns must be applied
+        with a function by a normalization function.
+      *)
+      | simple_atomic_expression_column _ => None
+      | simple_atomic_expression_const ty c =>
+          let res := (tuple_of_length_n ((ty, name) :: nil) (List.length r) ((c, 0), tt)) in
+            Some (res, Γ, p)
+      | simple_atomic_expression_func ty args =>
+          (fix eval_func ty args :=
+            match args with
+            | nil => None
+            | e :: nil => 
+              match e with
+              | simple_atomic_expression_column c => _
+              | simple_atomic_expression_const _ _ => _
+              | simple_atomic_expression_func ty' args' => _
+              end
+            | e :: t => _
+            end
+          ) ty args
+      end
     end
-  end
 ).
-Defined.
+  (*
+    The function has only one argument which is a column. In this case, we need to:
+    1. Obtain the whole column from the relation.
+    2. Obtain the label, provenance from the environment.
+    3. Check the permission against the policy label.
+    4. Evaluate the function.
+    5. Update provenance and label.
+  *)
+  - 
+Admitted.
 
 (*
   Since `relation` is a dependent type, we need to apply a helper function to
@@ -782,7 +791,7 @@ Inductive step_config: Operator → config → config → Prop :=
       List.length s2 = 0 →
       ⟨ s1 Γ β e p ⟩ =[ operator_project project_list o ]=> ⟨ nil Γ' β' tt nil ⟩
   (* If the operator returns a valid environment, we can then apply projection. *)
-  | E_Proj: ∀ s1 s2 Γ Γ' β β' p p' (e: ℰ s1) (e'': ℰ s2) ℓ ℓ' o,
+  | E_ProjOk: ∀ s1 s2 Γ Γ' β β' p p' (e: ℰ s1) (e'': ℰ s2) ℓ ℓ' o,
       ⟨ s1 Γ β e p ⟩ =[ o ]=> ⟨ s2 Γ' β' e'' p'⟩ →
       (* Introduce terms into the scope to avoid identifier problems. *)
         ∀ (evidence: List.length s2 > 0) e',
@@ -793,4 +802,38 @@ Inductive step_config: Operator → config → config → Prop :=
                                  (normalize_is_normalized _ _ _ prop) Γ p →
                     ⟨ s1 Γ β e p ⟩ =[ operator_project ℓ o]=>
                       ⟨ (output_schema :: (tail s2)) Γ' β' e' p' ⟩
+  (* If the operator returns a valid environment, we can then apply projection. Then if the
+     projection fails, we return `config_error`.
+  *)
+  | E_ProjError: ∀ s1 s2 Γ Γ' β β' p p' (e: ℰ s1) (e'': ℰ s2) ℓ ℓ' o,
+      ⟨ s1 Γ β e p ⟩ =[ o ]=> ⟨ s2 Γ' β' e'' p'⟩ →
+      (* Introduce terms into the scope to avoid identifier problems. *)
+        ∀ (evidence: List.length s2 > 0),
+          let input_schema := (hd_ok s2 evidence) in
+            let output_schema := determine_schema input_schema ℓ' in
+              ∀ (prop: ℓ' = normalize_project_list input_schema ℓ),
+                  (* Here, we use `option` rather than `config` since `config` is dependent
+                     on schema, but we do need the evidence dependent on schema. This forces
+                     us to pattern match on `config` to get the schema so that we cannot
+                     pass `evidence` to `apply_proj_in_env` function.
+                  *)
+                  None = apply_proj_in_env s2 evidence e'' ℓ'
+                         (normalize_is_normalized _ _ _ prop) Γ p →
+                    ⟨ s1 Γ β e p ⟩ =[ operator_project ℓ o]=> config_error
 where "c1 '=[' o ']=>' c2" := (step_config o c1 c2).
+
+Example simple_project_list := project ((simple_atomic_expression_column 0, "foo"%string) :: nil).
+Example simple_project_list_res := normalize_project_list sample_schema simple_project_list.
+Example simple_project_list_res_correct : simple_project_list_res = project ((simple_atomic_expression_func stf_id (simple_atomic_expression_column 0 :: @nil simple_atomic_expression), "foo"%string) :: @nil (simple_atomic_expression * string)).
+Proof.
+  reflexivity.
+Qed.
+
+Example simple_project_list' := project (
+  (simple_atomic_expression_func stf_id (simple_atomic_expression_column 0 :: nil), "foo"%string) ::
+  (simple_atomic_expression_func stf_id (simple_atomic_expression_column 1 :: nil), "bar"%string) ::
+  (simple_atomic_expression_func stf_id (simple_atomic_expression_column 2 :: nil), "baz"%string) ::
+  nil
+).
+Example simple_project_list_res' := normalize_project_list sample_schema simple_project_list'.
+Compute simple_project_list_res'.

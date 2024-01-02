@@ -46,10 +46,29 @@ Proof.
 *)
 Defined.
 
+Lemma nth_type_eq: ∀ s n (ok: n < List.length s) (ok': n < List.length (schema_to_no_name s)),
+  schema_to_no_name ((nth s n ok) :: nil) = Tuple.nth (schema_to_no_name s) n ok' :: nil.
+Proof.
+  induction s; intros.
+  - simpl in ok. inversion ok.
+  - destruct a. simpl in ok, ok'.
+    destruct n.
+    + simpl. reflexivity.
+    + simpl. apply IHs.
+Defined.
+  
 Lemma schema_to_no_name_eq: ∀ s1 s2,
   s1 = s2 → schema_to_no_name s1 = schema_to_no_name s2.
 Proof.
   intros. subst. reflexivity.
+Defined.
+
+Lemma schema_to_no_name_len: ∀ s,
+  List.length (schema_to_no_name s) = List.length s.
+Proof.
+  intros. induction s.
+  - reflexivity.
+  - destruct a. simpl. rewrite IHs. reflexivity.
 Defined.
 
 (**
@@ -79,6 +98,39 @@ Fixpoint extract_as_cell_list s (r: relation s) : list nat :=
                  (extract_as_cell_list s r')
   end.
 
+(*
+  @param s The schema, which is a list of attributes.
+  @param r The relation, which is a list of tuples.
+  @param n The index of the column to extract.
+  @return A list of natural numbers representing the extracted column.
+
+  [extract_column] is a function that takes a schema [s], a relation [r], and a natural number [n], and returns a list of natural numbers representing the column at index [n] in the relation.
+
+  The function works by iterating over the relation. For each tuple in the relation, it extracts the element at index [n] using the [Tuple.extract_column] function and adds it to the result list. If the relation is empty, it returns an empty list.
+*)
+Fixpoint extract_column s (r: relation s) (n: nat):
+  ∀ (ok: n < List.length s), relation ((nth s n ok) :: nil).
+refine (
+  match r with
+  | nil => fun _ => nil
+  | cons t r' => _
+  end
+).
+  intros ok.
+  assert (H': n < List.length (schema_to_no_name s)).
+  { rewrite schema_to_no_name_len. assumption. }
+  pose (Tuple.nth_col_tuple (schema_to_no_name s) n H' t) as cur.
+  pose (extract_column s r' n ok) as rest.
+  specialize nth_type_eq with (s := s) (n := n) (ok := ok) (ok' := H'). intros.
+  rewrite <- H in cur.
+  exact (cons cur rest). 
+Defined.
+
+(*
+  [cartesian_product_helper] is a recursive function that takes two schemas [s1] and [s2], a tuple [t] of type [Tuple.tuple (schema_to_no_name s1)], and a relation [r] of type [relation s2]. It returns a relation of type [relation (s1 ++ s2)].
+
+  The function recursively processes the relation [r] and performs a Cartesian product operation between the tuple [t] and each tuple in [r]. It concatenates the resulting tuples with the tuple [t] and returns the resulting relation.
+*)
 Fixpoint cartesian_product_helper (s1 s2: schema) (t: Tuple.tuple (schema_to_no_name s1)) (r: relation s2) : relation (s1 ++ s2).
 refine (
   match r with
@@ -93,6 +145,15 @@ refine (
   exact (cons hd tl).
 Defined.
 
+(*
+  @param s1 The first schema, which is a list of tuples where each tuple contains a type and a name.
+  @param s2 The second schema, which is a list of tuples where each tuple contains a type and a name.
+  @return A list of strings representing the names of the attributes that are in both schemas.
+
+  [natural_join_list] is a function that takes two schemas [s1] and [s2], and returns a list of attribute names that are in both schemas.
+
+  The function works by iterating over the first schema [s1]. For each attribute in [s1], it checks if the attribute's name is in the second schema [s2]. If it is, the attribute's name is not added to the result list and the function moves to the next attribute in [s1]. If it's not, the function moves to the next attribute in [s1] without adding anything to the result list.
+*)
 Fixpoint natural_join_list (s1 s2: schema): list string :=
   match s1 with
   | nil => nil
@@ -157,6 +218,16 @@ Proof.
     +
 Admitted.
 
+(*
+  @param s A schema, which is a list of attributes.
+  @param join_by A list of attribute names to join by.
+  @param n The starting index.
+  @return A list of tuples. Each tuple contains a natural number (the index) and an attribute from the schema that matches an attribute name in the [join_by] list.
+
+  [join_list_to_index] is a function that takes a schema [s], a list of strings [join_by], and a natural number [n], and returns a list of tuples. Each tuple contains a natural number and an attribute.
+
+  The function works by iterating over the schema. For each attribute in the schema, it checks if the attribute's name is in the [join_by] list. If it is, it adds a tuple containing the current index [n] and the attribute to the result list. If it's not, it simply moves to the next attribute, incrementing the index [n].
+*)
 Fixpoint join_list_to_index (s: schema) (join_by: list string) (n: nat): list (nat * Attribute) :=
   match s with
   | nil => nil
@@ -220,6 +291,15 @@ Proof.
 Qed.
 Hint Resolve join_list_to_index_bounded': core.
 
+(*
+  @param lhs The first list of tuples, where each tuple contains two natural numbers and an attribute.
+  @param rhs The second list of tuples, where each tuple contains two natural numbers and an attribute.
+  @return A list of tuples. Each tuple contains two pairs of natural numbers and an attribute.
+
+  [find_common] is a function that takes two lists of tuples [lhs] and [rhs], and returns a list of tuples that are common to both lists.
+
+  The function works by iterating over the first list [lhs]. For each tuple in [lhs], it checks if there is a tuple in the second list [rhs] that has the same attribute name and type. If there is, it adds a new tuple to the result list that contains the pair of natural numbers from both tuples and the common attribute. If there isn't, it simply moves to the next tuple in [lhs].
+*)
 Fixpoint find_common (lhs rhs: list (nat * Attribute)): list ((nat * nat) * Attribute) :=
   match lhs with
   | nil => nil
@@ -243,14 +323,17 @@ Qed.
 Hint Resolve find_common_nil_l: core.
 
 (*
-  This lemma states that if a triple (x, y, z) is in the result of finding the common elements
-  between two lists lhs and rhs, then (x, z) must be in lhs and (y, z) must be in rhs. The proof
-  for this lemma is seemingly trivial, but the formal proof is hard. The difficulty comes from
-  the fact that we need to reason about how the triple (x, y, z) is obtained from the two lists
-  lhs and rhs. In particular, we need to reason about how the pair (x, z) is obtained from lhs
-  and how the pair (y, z) is obtained from rhs.
+  @param lhs A list of tuples, each containing two elements.
+  @param rhs A list of tuples, each containing two elements.
+  @param x The first element of the tuple from the common list.
+  @param y The second element of the tuple from the common list.
+  @param z The third element of the tuple from the common list.
+  @return A proposition that asserts if a tuple (x, y, z) is in the common list of lhs and rhs, then
+  (x, z) is in lhs and (y, z) is in rhs.
 
-  The case analysis can be complex and requires careful reasoning.
+  This proposition asserts a condition about the relationship between two lists of tuples [lhs] and
+  [rhs] and a common list derived from them. If a tuple (x, y, z) is in the common list, then the
+  tuple (x, z) must be in the list [lhs] and the tuple (y, z) must be in the list [rhs].
 *)
 Lemma find_common_in_lhs_or_rhs: ∀ lhs rhs x y z,
   List.In (x, y, z) (find_common lhs rhs) →
@@ -495,9 +578,9 @@ Lemma join_type_eq: ∀ s1 s2 join_by lhs rhs index_lhs index_rhs common_join_li
   schema_to_no_name (remove_common s2 index_rhs 0)) =
   schema_to_no_name (output_schema_join_by s1 s2 join_by).
 Proof.
-    intros. subst.
-    repeat rewrite app_assoc'. repeat rewrite <- schema_concat_eq. apply schema_to_no_name_eq.
-    unfold output_schema_join_by. rewrite <- app_assoc'. reflexivity.
+  intros. subst.
+  repeat rewrite app_assoc'. repeat rewrite <- schema_concat_eq. apply schema_to_no_name_eq.
+  unfold output_schema_join_by. rewrite <- app_assoc'. reflexivity.
 Defined.
 
 (* Useful for joining two databases with a join list. *)
@@ -601,11 +684,11 @@ Definition relation_natural_join s1 s2 (r1: relation s1) (r2: relation s2):
 (* =================== Some Test Cases ==================== *)
 Section Test.
 Example relation_a :=
-  [[ 4, 5, 6, ("abcd"%string) ]] ::
-    [[ 7, 8, 9, ("abcd"%string) ]] :: nil.
+  [[ << 4 >>, << 5 >>, << 6 >>, << ("abcd"%string) >> ]] ::
+    [[ << 7 >>, << 8 >>, << 9 >>, << ("abcd"%string) >> ]] :: nil.
 Example relation_b :=
-  [[ 1, 2, 3, ("abcd"%string) ]] ::
-    [[ 114, 514, 114, ("abcd"%string) ]] :: nil.
+  [[ << 1 >>, << 2 >>, << 3 >>, << ("abcd"%string) >> ]] ::
+    [[ << 114 >>, << 514 >>, << 114 >>, << ("abcd"%string) >> ]] :: nil.
 Example simple_schema :=
   (IntegerType, "foo"%string) ::
     (IntegerType, "bar"%string) ::
@@ -614,6 +697,16 @@ Example simple_schema :=
 Example cartesian_product_test := relation_product simple_schema simple_schema relation_a relation_b.
 
 Example cartesian_product_test': cartesian_product_test = (4, 0, (5, 0, (6, 0, ("abcd"%string, 0, (1, 0, (2, 0, (3, 0, ("abcd"%string, 0, tt)))))))) :: (4, 0, (5, 0, (6, 0, ("abcd"%string, 0, (114, 0, (514, 0, (114, 0, ("abcd"%string, 0, tt)))))))) :: (7, 0, (8, 0, (9, 0, ("abcd"%string, 0, (1, 0, (2, 0, (3, 0, ("abcd"%string, 0, tt)))))))) :: (7, 0, (8, 0, (9, 0, ("abcd"%string, 0, (114, 0, (514, 0, (114, 0, ("abcd"%string, 0, tt)))))))) :: nil.
+Proof.
+  reflexivity.
+Qed.
+
+Example ok: 0 < List.length (simple_schema ++ simple_schema).
+Proof.
+  simpl. lia.
+Qed.
+Example extract_column_test := extract_column _ cartesian_product_test 0 ok.
+Example extract_column_correct: extract_column_test = [[ << 4 >> ]] :: [[ << 4 >> ]] :: [[ << 7 >> ]] :: [[ << 7 >> ]] :: nil.
 Proof.
   reflexivity.
 Qed.
@@ -639,8 +732,8 @@ Proof.
   reflexivity.
 Qed.
 
-Example tuple_a := [[ 1, 2, 3, ("abcd"%string) ]].
-Example tuple_b := [[ 4, 2, 3, ("abcd"%string) ]].
+Example tuple_a := [[ << 1 >>, << 2 >>, << 3 >>, << ("abcd"%string) >> ]].
+Example tuple_b := [[ << 4 >>, << 2 >>, << 3 >>, << ("dcba"%string) >> ]].
 Example tuple_schema_lhs := (IntegerType, "foo"%string) :: (IntegerType, "bar"%string) :: (IntegerType, "baz"%string) :: (StringType, "qux"%string) :: nil.
 Example tuple_schema_rhs := (IntegerType, "a"%string) :: (IntegerType, "bar"%string) :: (IntegerType, "baz"%string) :: (StringType, "b"%string) :: nil.
 
@@ -664,11 +757,11 @@ Qed.
 
 Example removed_common_lhs := remove_common_part tuple_schema_lhs tuple_a 0 (List.map (fun x => fst (fst x)) common_join_list).
 Example removed_common_rhs := remove_common_part tuple_schema_rhs tuple_b 0 (List.map (fun x => snd (fst x)) common_join_list).
-Example removed_common_lhs_correct: removed_common_lhs = [[ 1, ("abcd"%string) ]].
+Example removed_common_lhs_correct: removed_common_lhs = [[ << 1 >>, << ("abcd"%string) >> ]].
 Proof.
   reflexivity.
 Qed.
-Example removed_common_rhs_correct: removed_common_rhs = [[ 4, ("abcd"%string) ]].
+Example removed_common_rhs_correct: removed_common_rhs = [[ << 4 >>, << ("dcba"%string) >> ]].
 Proof.
   reflexivity.
 Qed.
@@ -676,10 +769,11 @@ Qed.
 Example tuple_concat_by_test := tuple_concat_by tuple_schema_lhs tuple_schema_rhs ("bar"%string :: "baz"%string :: nil) tuple_a tuple_b.
 
 Example tuple_concat_by_test_correct:
-  tuple_concat_by_test = Some [[ 1, ("abcd"%string), 2, 3, 4, ("abcd"%string) ]].
+  tuple_concat_by_test =
+  Some [[ << 1 >>, << ("abcd"%string) >>, << 2 >>, << 3 >>, << 4 >>, << ("dcba"%string) >> ]].
 Proof.
   (*
-    This is tricky because although Coq uses `eq_refl` to inhabit the refl type. The concrete form
+    This is tricky because although Coq uses `eq_refl` to inhabit the refl type, the concrete form
     of the term appears rather complex. This is due to the heavy use of dependent types.
 
     Nevertheless, we can still use `reflexivity` to check the equivalance between terms as Coq can
