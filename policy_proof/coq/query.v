@@ -17,18 +17,6 @@ Set Printing Coercions.
 Set Printing Implicit.
 Set Printing Projections.
 
-Inductive trans_func: Type :=
-  | trans_func_with_label: Policy.policy → Policy.policy →
-                           ∀ bt, transform_func bt → trans_func
-.
-
-Definition trans_func_denote (f: trans_func): basic_type -> basic_type. Admitted.
-
-Definition get_policy_label (f: trans_func) :=
-  match f with
-  | trans_func_with_label ℓ1 ℓ2 _ _ => (ℓ1, ℓ2)
-  end.
-
 Inductive project_list: Set :=
   (* Denotes a "*" projection list. *)
   | project_star: project_list
@@ -68,21 +56,19 @@ Hint Constructors project_list: core.
   Normalization is just ensure that each column is applied with a function so that we can easily
   determine the basic type of the column as well as the label provenance of the column.
 *)
-Definition normalized_expr (expr: simple_atomic_expression): Prop :=
-  (fix helper expr (in_func: bool) (len: nat) :=
-    match expr with
-    | simple_atomic_expression_column _ => if in_func then len = 1 else False
-    | simple_atomic_expression_const _ _ => True
-    | simple_atomic_expression_func _ ℓ =>
-        (fix normalized' (ℓ: list simple_atomic_expression) :=
-          match ℓ with
-          (* Should be impossible. *)
-          | nil => True
-          | h :: t => helper h true (List.length ℓ) ∧ normalized' t
-          end
-        ) ℓ
-  end) expr false 0.
-  
+Fixpoint normalized_expr (expr: simple_atomic_expression): Prop :=
+  match expr with
+  | simple_atomic_expression_column _ => False
+  | simple_atomic_expression_const _ _ => True
+  | simple_atomic_expression_func_unary _ expr' =>
+      match expr' with
+      | simple_atomic_expression_column _ => True
+      | simple_atomic_expression_const _ _ => True
+      | _ => normalized_expr expr'
+      end
+  | simple_atomic_expression_func_binary _ lhs rhs => normalized_expr lhs ∧ normalized_expr rhs
+  end.
+
 Definition normalized (pl: project_list): Prop :=
   match pl with
     | project_star => False
@@ -95,28 +81,31 @@ Definition normalized (pl: project_list): Prop :=
         ) ℓ
   end.
 
-(*
-  `determine_bt_from_args` is a function that takes a schema and a list of simple atomic expressions
-  and returns a basic type. This function calculates the output basic type for a function application
-  given the input schema and the list of simple atomic expressions.
+(** 
+  @param s The schema, which is a list of attributes.
+  @param arg The simple atomic expression to evaluate.
+  @return An optional basic type that represents the type of the evaluated expression.
 
-  HACK: This function uses `option` which is inconsistent with the `nth` function in `Tuple.v`.
-        `nth` requires a proof that the index is within the bounds of the list. However, this
-        function does not require such a proof.
+  [bt_from_expr] is a function that takes a schema [s] and a simple atomic expression [arg], and returns an optional basic
+  type that represents the type of the evaluated expression.
 
-        The major difficulty is that we cannot easily obtain the proof that the bound is satisfied,
-        although is might appear quite intuitive for us after the project list is normalized.
-
-        We thus use `option` to avoid the proof obligation. This is a hack, though.
+  The function works by pattern matching on the simple atomic expression [arg]. If [arg] is a column, it uses the [Tuple
+  nth_nocheck] function to get the type of the column from the schema. If [arg] is a constant, it simply returns the type of
+  the constant. If [arg] is a unary function, it recursively calls [determine_bt_from_expr] on the argument of the function.
+  If [arg] is a binary function, it recursively calls [determine_bt_from_expr] on both arguments of the function and checks if
+  their types match. If they do, it returns the type of the first argument. If they don't, it returns None.
 *)
-Fixpoint determine_bt_from_args (s: schema) (ℓ: list simple_atomic_expression): option basic_type :=
-  match ℓ with
-  | nil => None
-  | x :: ℓ' => match x with
-                | simple_atomic_expression_column c => Tuple.nth_nocheck (schema_to_no_name s) c
-                | simple_atomic_expression_const bt _ => Some bt
-                | simple_atomic_expression_func _ _ => determine_bt_from_args s ℓ'
-                end
+Fixpoint determine_bt_from_expr (s: schema) (arg: simple_atomic_expression): option basic_type :=
+  match arg with
+    | simple_atomic_expression_column c => Tuple.nth_nocheck (schema_to_no_name s) c
+    | simple_atomic_expression_const bt _ => Some bt
+    | simple_atomic_expression_func_unary _ expr => determine_bt_from_expr s expr
+    | simple_atomic_expression_func_binary _ lhs rhs =>
+      match determine_bt_from_expr s lhs, determine_bt_from_expr s rhs with
+      | Some ty1, Some ty2 =>
+        if type_matches ty1 ty2 then Some ty1 else None
+      | _, _ => None
+      end
   end.
 
 (*
@@ -145,11 +134,17 @@ Definition determine_schema (s: schema) (pl: project_list): schema :=
                               | None => determine ℓ'
                             end
                         | simple_atomic_expression_const bt _ => (bt, name) :: determine ℓ'
-                        | simple_atomic_expression_func _ ℓ'' =>
-                            match determine_bt_from_args s ℓ'' with
-                              | Some bt => (bt, name) :: determine ℓ'
-                              | None => determine ℓ'
+                        | simple_atomic_expression_func_unary _ expr =>
+                          match determine_bt_from_expr s expr with
+                            | Some ty => (ty, name) :: determine ℓ'
+                            | None => determine ℓ'
                             end
+                        | simple_atomic_expression_func_binary _ lhs rhs =>
+                          match determine_bt_from_expr s lhs, determine_bt_from_expr s rhs with
+                          | Some ty1, Some ty2 =>
+                            if type_matches ty1 ty2 then (ty1, name) :: determine ℓ' else determine ℓ'
+                          | _, _ => determine ℓ'
+                          end
                       end
           end) ℓ
   end.
@@ -161,41 +156,54 @@ Lemma determine_schema_concat: ∀ s a ℓ,
 Proof.
   induction a; induction a; auto; intros.
   - simpl. destruct (Tuple.nth_nocheck (schema_to_no_name s) n); auto.
-  - simpl. destruct (determine_bt_from_args s l); auto.
+  - simpl. destruct (determine_bt_from_expr s a); auto.
+  - simpl. destruct (determine_bt_from_expr s a1);
+           destruct (determine_bt_from_expr s a2);
+           try destruct (type_matches b1 b2); auto.
 Qed.
 
-(*
-  `normalize_project_star` is a function that takes a schema and a natural number `n` and
-  returns a list of simple atomic expressions. The list of simple atomic expressions is
-  the same length as the schema. Each simple atomic expression is a function application
-  of the identity function to a column name.
+(** 
+  @param s The schema, which is a list of tuples where each tuple contains a type and a name.
+  @param n The starting index.
+  @return A list of tuples. Each tuple contains a simple atomic expression and a string.
 
-  For example, if we have a schema `(IntegerType :: StringType :: BoolType :: nil)%type`,
-  then the result of `normalize_project_star` is:
-  ```
-  (simple_atomic_expression_func stf_id
-    (cons (simple_atomic_expression_column 0) nil)
-  )
-  ::
-  (simple_atomic_expression_func stf_id
-    (cons (simple_atomic_expression_column 1) nil)
-  )
-  ::
-  (simple_atomic_expression_func stf_id
-    (cons (simple_atomic_expression_column 2) nil)
-  )
-  ::
-  nil
-  ```
+  [normalize_project_star] is a function that takes a schema [s] and a natural number [n], and returns a list of tuples. Each
+  tuple contains a simple atomic expression and a string.
+
+  The function works by iterating over the schema. For each attribute in the schema, it creates a new tuple. The first element of
+  the tuple is a simple atomic expression that represents the attribute's column in the relation, and the second element is the
+  attribute's name. The function uses the natural number [n] to keep track of the current column index. If the schema is empty,
+  it returns an empty list.
 *)
 Fixpoint normalize_project_star (s: schema) (n: nat): list (simple_atomic_expression * string) :=
   match s with
     | nil => nil
     | (_, name) :: s' =>
-      ((simple_atomic_expression_func stf_id
-        (cons (simple_atomic_expression_column n) nil)
-      ), name)
+      ((stf_id (simple_atomic_expression_column n)), name)
           :: normalize_project_star s' (S n)
+  end.
+
+(*
+  @param e The simple atomic expression to normalize.
+  @return The normalized simple atomic expression.
+
+  [normalize_expr] is a function that takes a simple atomic expression [e] and returns a normalized version of it.
+
+  The function works by pattern matching on the simple atomic expression [e]. If [e] is a column, it applies the Identity unary function to it. If [e] is a constant, it returns [e] as it is. If [e] is a unary function, it checks if the argument of the function is a column or a constant. If it is, it returns [e] as it is. If it's not, it recursively calls [normalize_expr] on the argument. If [e] is a binary function, it recursively calls [normalize_expr] on both arguments of the function.
+*)
+Fixpoint normalize_expr (e: simple_atomic_expression): simple_atomic_expression :=
+  match e with
+  | simple_atomic_expression_column c => 
+        (stf_id (simple_atomic_expression_column c))
+  | simple_atomic_expression_const _ _ => e
+  | simple_atomic_expression_func_unary f arg =>
+      match arg with
+        | simple_atomic_expression_column _ => e
+        | simple_atomic_expression_const _ _ => e
+        | _ => simple_atomic_expression_func_unary f (normalize_expr arg)
+      end
+  | simple_atomic_expression_func_binary f arg1 args2 =>
+      simple_atomic_expression_func_binary f (normalize_expr arg1) (normalize_expr args2)
   end.
 
 (* 
@@ -214,42 +222,8 @@ Fixpoint normalize_project_list_list
   (s: schema) (pl: list (simple_atomic_expression * string)): list (simple_atomic_expression * string) :=
   match pl with
     | nil => nil
-    | (e, name) :: pl' => let e' := (fix normalize e := match e with
-                    | simple_atomic_expression_column c => 
-                          (simple_atomic_expression_func stf_id
-                            (cons (simple_atomic_expression_column c) nil)
-                          )
-                    | simple_atomic_expression_const _ _ => e
-                    (* This branch of the `normalize` function handles the case where the
-                       simple atomic expression is a function. It recursively normalizes
-                       the list of arguments `ℓ` to the function using the helper function
-                       `normalize'`. 
-
-                      The normalized list of arguments `ℓ'` is then used to construct a
-                      new simple atomic expression with the same function `f` and the
-                      normalized arguments `ℓ'`.
-
-                      We do not explicitly define any recursive helpers outside this function
-                      body since that would be too cumbersome. We also define two anonymous
-                      functions so that we can let Coq know that the two functions terminate.
-                    *)
-                    | simple_atomic_expression_func f ℓ =>
-                        let ℓ' := (fix normalize' ℓ :=
-                          match ℓ with
-                          | nil => nil
-                          | h :: nil => 
-                           match h with
-                            | simple_atomic_expression_func _ l => normalize h
-                            | _ => h
-                            end :: nil
-                            | h :: t => normalize h :: normalize' t
-                          end
-                        ) ℓ
-                        in
-                        simple_atomic_expression_func f ℓ'
-                  end) e
-                    in
-                    (e', name) :: normalize_project_list_list s pl'
+    | (e, name) :: pl' =>
+        let e' := (normalize_expr e) in (e', name) :: normalize_project_list_list s pl'
   end.
 
 Lemma normalize_project_star_length: ∀ s n,
@@ -281,12 +255,10 @@ Example sample_schema: schema :=
 Compute normalize_project_list sample_schema project_star.
 Compute normalize_project_list
   sample_schema
-  (project (
-    ((simple_atomic_expression_func
-      stf_other
-      ((simple_atomic_expression_column 0) :: nil)
-    ), "foo"%string) :: nil)
-  ).
+  (project
+    (((simple_atomic_expression_func_unary Lower
+      (simple_atomic_expression_column 0)
+    ), "foo"%string) :: nil)).
 
 Lemma normalize_star_normalized: ∀ s n, normalized (project (normalize_project_star s n)).
 Proof.
@@ -336,60 +308,85 @@ Proof.
   - intros. simpl in *. intuition.
 Qed.
 
-Lemma normalized_list_fuse_func: ∀ s ty h t ℓ name,
-  normalized (project (normalize_project_list_list s 
-    ((simple_atomic_expression_func ty t, name) :: ℓ) )) →
-  normalized (project (normalize_project_list_list s 
-    ((simple_atomic_expression_func ty (h :: t), name) :: ℓ))).
+Lemma normalize_expr_is_normalized: ∀ e, normalized_expr (normalize_expr e).
 Proof.
-  intros.
-  induction t.
-  - refine (
-    (fix expr h :=
-      match h with
-      | simple_atomic_expression_column _ => _
-      | simple_atomic_expression_const _ _ => _
-      | simple_atomic_expression_func _ l => _
-      end) h
-    ).
-    + simpl in *. unfold normalized_expr in *. intuition.
-    + simpl in *. unfold normalized_expr in *. intuition.
-    + induction l.
-      * simpl in *. unfold normalized_expr. intuition.
-      * specialize expr with a.
-Admitted.
+  intros. subst. induction e; simpl; auto.
+  - induction e.
+    + simpl. auto.
+    + simpl. auto.
+    + induction e.
+      * simpl. auto.
+      * simpl. auto.
+      * intuition.
+      * intuition.
+    + induction e1; induction e2; intuition.
+Qed.
 
 Lemma normalize_is_normalized: ∀ s ℓ ℓ', ℓ' = (normalize_project_list s ℓ) → normalized ℓ'.
 Proof.
-  destruct ℓ; intros; subst.
-  - simpl. apply normalize_star_normalized.
-  - refine (
-    (fix func l :=
-      match l with
-      | nil => _
-      | (e, name) :: l' =>
-        (fix expr e := 
-          match e with
-          | simple_atomic_expression_column _ => _
-          | simple_atomic_expression_const _ _ => _
-          | simple_atomic_expression_func _ l'' => _
-          end) e
-      end) l
-    ).
-      + simpl. auto.
-      + simpl in *. intuition. unfold normalized_expr. simpl; auto. apply func.
-      + simpl in *. intuition. unfold normalized_expr. simpl; auto. apply func.
-      + refine (
-          (fix func' l :=
-            match l with
-            | nil => _
-            | e :: l' => _
-            end) l''
-        ).
-        * simpl. unfold normalized_expr. intuition; auto. apply func.
-        * specialize expr with e. specialize func' with l'.
-          apply normalized_list_fuse_func. assumption.
+  intros. subst. destruct ℓ.
+  - apply normalize_star_normalized.
+  - induction l.
+    + simpl. auto.
+    + simpl. destruct a.
+      intuition. apply normalize_expr_is_normalized.
 Qed.
+
+(*
+  @param s The schema, which is a list of tuples where each tuple contains a type and a name.
+  @param op The unary operation to be applied.
+  @param arg The simple atomic expression to evaluate.
+  @param name The name of the attribute.
+  @return A proposition that asserts the type of the evaluated expression remains the same when a
+          unary function is applied.
+=
+  [unary_function_preserves_type] is a lemma that asserts that applying a unary function [op] to a
+  simple atomic expression [arg] does not change the type of the evaluated expression. This is
+  demonstrated by showing that the schema determined by projecting the evaluated expression with the
+  unary function applied is the same as the schema determined by projecting the evaluated expression
+  without the unary function applied.
+*)
+Lemma unary_function_preserves_type: ∀ s op arg name,
+  (determine_schema s (project (
+    (simple_atomic_expression_func_unary op arg, name) :: nil
+  ))) =
+  (determine_schema s (project (<< (arg); (name) >> :: nil))).
+Proof.
+  intros. simpl.
+  destruct (determine_bt_from_expr s arg) eqn: Heq; destruct arg eqn: Harg.
+  - inversion Heq. subst. reflexivity.
+  - inversion Heq. subst. simpl in *.
+    destruct (Tuple.nth_nocheck (schema_to_no_name s)).
+    + inversion Heq. subst. reflexivity.
+    + inversion Heq.
+  - destruct (determine_bt_from_expr s s0) eqn: Heq'.
+    + simpl in *.
+      assert (Some b = Some b0).
+      {
+        eapply trans_eq. symmetry in Heq. eauto. eauto.
+      }
+      inversion H. subst. reflexivity.
+    + assert (Some b = None).
+      {
+        eapply trans_eq. symmetry in Heq. eauto. eauto.
+      }
+      inversion H.
+  - inversion Heq.
+    destruct (determine_bt_from_expr s s0_1) eqn: Heq1;
+    destruct (determine_bt_from_expr s s0_2) eqn: Heq2.
+    try destruct (type_matches b1 b2) eqn: Heq3; inversion H0.
+    + apply type_matches_eq in Heq3. subst. inversion H0. reflexivity.
+    + inversion H0.
+    + inversion H0.
+    + inversion H0.
+  - inversion Heq.
+  - inversion Heq. rewrite H0. reflexivity.
+  - inversion Heq. rewrite H0. reflexivity.
+  - inversion Heq.
+    destruct (determine_bt_from_expr s s0_1) eqn: Heq1;
+    destruct (determine_bt_from_expr s s0_2) eqn: Heq2;
+    try destruct (type_matches b0 b1) eqn: Heq3; try inversion H0; reflexivity.
+Defined.
 
 Definition groupby_list := (list nat)%type.
 Definition agg_list s := (list (∀ bt, agg_expression s bt))%type.
@@ -509,38 +506,38 @@ Notation "'⟨' s Γ β ℰ p '⟩'":= (config_ok s Γ β ℰ p)
 (*
   `step_cell` is an inductive type that defines a relation between two configurations except that
   it works on the level of cells. This transition is defined by a notation `c1 >[ f ]> c2` where `f`
-  is a function that transforms the cell.
+  is a function that transforms cell(s).
 *)
-Reserved Notation "c1 '>[' f ']>' c2" (at level 50, no associativity).
-Inductive step_cell: trans_func → config → config → Prop :=
+Reserved Notation "c1 '>[' f ':' arg ']>' c2" (
+  at level 50, no associativity, f at next level, arg at next level, c2 at next level
+).
+Inductive step_cell_single: UnOp → simple_atomic_expression → config → config → Prop :=
   (* If the environment is empty, then we cannot do anything.  *)
-  | E_CTransSkip1:
-      ∀ s Γ β e p f, 
+  | E_CTransError1:
+      ∀ s Γ β e p f arg,
           List.length s = 0 →
-          ⟨ s Γ β e p ⟩ >[ f ]> ⟨ s Γ β e p ⟩
+          ⟨ s Γ β e p ⟩ >[ f : arg ]> config_error
   (* If the environment is not empty but there is no active tuples, we cannot do anything. *)
-  | E_CTransSkip2:
-      ∀ s Γ β e p f (non_empty: List.length s > 0) tl,
+  | E_CTransError2:
+      ∀ s Γ β e p f arg (non_empty: List.length s > 0) tl,
           tl = (env_slice_get_tuples (hd_ok s non_empty) (get_env_slice s e non_empty)) →
           List.length tl = 0 → 
-          ⟨ s Γ β e p ⟩ >[ f ]> ⟨ s Γ β e p ⟩
+          ⟨ s Γ β e p ⟩ >[ f : arg ]> config_error
   (* The label does not flow to the current one. *)
-  | E_CTransSkip3:
-      ∀ ℓ1 ℓ2 ℓcur ℓdisc s Γ β e p f (non_empty: List.length s > 0)
+  | E_CTransError3:
+      ∀ (ℓ1 ℓ2: Policy.policy) ℓcur ℓdisc s Γ β e p f arg (non_empty: List.length s > 0)
         tl (tl_non_empty: List.length tl > 0) t c_idx,
           (* tl => A list of tuples. *)
           tl = (env_slice_get_tuples (hd_ok s non_empty) (get_env_slice s e non_empty)) →
           (* t => The first tuple. *)
           t = hd_ok tl tl_non_empty →
-          (* match the function. *)
-          (ℓ1, ℓ2) = get_policy_label f →
           (* we now get the label encodings. *)
           Some (true, (ℓcur, Some ℓdisc)) = Policy.label_lookup c_idx Γ →
           ~ (ℓcur ⊑ ℓ1) →
-          ⟨ s Γ β e p ⟩ >[ f ]> ⟨ s Γ β e p ⟩
+          ⟨ s Γ β e p ⟩ >[ f : arg ]> config_error
   (* No active labels are found; this should be an error. *)
-  | E_CTransError1:
-      ∀ s Γ β e p f (non_empty: List.length s > 0)
+   (* | E_CTransError4:
+      ∀ s Γ β e p f arg (non_empty: List.length s > 0)
         tl (tl_non_empty: List.length tl > 0) t c_idx,
           (* tl => A list of tuples. *)
           tl = (env_slice_get_tuples (hd_ok s non_empty) (get_env_slice s e non_empty)) →
@@ -548,7 +545,8 @@ Inductive step_cell: trans_func → config → config → Prop :=
           t = hd_ok tl tl_non_empty →
           (* we now get the label encodings. *)
           None = Policy.label_lookup c_idx Γ →
-          ⟨ s Γ β e p ⟩ >[ f ]> config_error
+          ⟨ s Γ β e p ⟩ >[ f : arg ]> config_error *)
+(*
   (* Type error: we do not support casting for the time being. *)
   | E_CTransError2:
       ∀ ℓ1 ℓ2 ℓcur ℓdisc s Γ Γ' β e p f (non_empty: List.length s > 0)
@@ -564,7 +562,7 @@ Inductive step_cell: trans_func → config → config → Prop :=
           (* udpate the policy environment. *)
           ℓcur ⊑ ℓ1 → Γ' = Policy.update_label c_idx Γ (true, (ℓ2, Some ℓdisc)) →
           (* update the cell *)
-          c = Tuple.nth _ c_idx idx_bound → c' = (trans_func_denote f) c →
+          c = Tuple.nth _ c_idx idx_bound → c' = (interp_transformation f) c →
           (* update the tuple by updating this cell. *)
           None = Tuple.set_nth_type_match _ c_idx c' idx_bound t →
           ⟨ s Γ β e p ⟩ >[ f ]> config_error
@@ -584,7 +582,7 @@ Inductive step_cell: trans_func → config → config → Prop :=
           (* udpate the policy environment. *)
           ℓcur ⊑ ℓ1 → Γ' = Policy.update_label c_idx Γ (true, (ℓ2, Some ℓdisc)) →
           (* update the cell. *)
-          c = Tuple.nth _ c_idx idx_bound → c' = (trans_func_denote f) c →
+          c = Tuple.nth _ c_idx idx_bound → c' = (interp_transformation f) c →
           (* update the tuple by updating this cell. *)
           Some t' = Tuple.set_nth_type_match _ c_idx c' idx_bound t →
           (* update the tuple environment. *)
@@ -602,14 +600,14 @@ Inductive step_cell: trans_func → config → config → Prop :=
           (* we now get the label encodings. *)
           Some (false, (ℓ1, ℓ2)) = Policy.label_lookup c_idx Γ →
           (* update the cell. *)
-          c = Tuple.nth _ c_idx idx_bound → c' = (trans_func_denote f) c →
+          c = Tuple.nth _ c_idx idx_bound → c' = (interp_transformation f) c →
           (* update the tuple by updating this cell. *)
           Some t' = Tuple.set_nth_type_match _ c_idx c' idx_bound t →
           (* update the tuple environment. *)
           tl' = set_nth tl 0 t' →
           (* update the environment. *)
-          ⟨ s Γ β e p ⟩ >[ f ]> ⟨ s Γ β e' p ⟩
-where "c1 '>[' f ']>' c2" := (step_cell f c1 c2).
+          ⟨ s Γ β e p ⟩ >[ f ]> ⟨ s Γ β e' p ⟩ *)
+where "c1 '>[' f : arg ']>' c2" := (step_cell_single f arg c1 c2).
 
 (*
   This function returns a relation of `n` same tuples.
@@ -621,6 +619,31 @@ match n with
   end.
 
 (*
+  @param f The unary operation to be applied.
+  @param r The relation, which is a list of tuples where each tuple contains a single type.
+  @param Γ The policy context.
+  @return The result of applying the unary operation [f] to the relation [r].
+
+  This function takes a unary operation [f], a relation [r] that contains tuples of a single type, and a proof obligation [Γ]. It applies the unary operation [f] to the relation [r] and returns the result. The proof obligation [Γ] is used to ensure that the operation is valid.
+*)
+Definition apply_unary_function_in_relation ty (f: UnOp)
+                                            (ctx: relation ty * Policy.context * prov_ctx)
+  : option (relation ty * Policy.context * prov_ctx).
+refine (
+  match ctx with
+  | (r, Γ, p) =>
+    match f with
+    | Identity => Some (r, Γ, p)
+    (* TODO *)
+    | Redact len => _
+    (* Not implemented for the time being. *)
+    | _ => None
+    end
+  end
+).
+Admitted.
+
+(*
   `apply_proj_elem` is a function that applies a projection operation to a
   single column of a relation. This will further consult the `c [ f ] c'` relation to determine the output relation.
 
@@ -629,36 +652,35 @@ match n with
   then we cannot apply the projection operation to any column.
 *)
 Definition apply_proj_elem s (r: relation s) (expr: simple_atomic_expression * string)
-                             (Γ: Policy.context) (p: prov_ctx) (normalized: normalized_expr (fst expr))
+                             (Γ: Policy.context) (p: prov_ctx)
+                             (normalized: normalized_expr (fst expr))
   : option (relation (determine_schema s (project (expr :: nil))) * Policy.context * prov_ctx).
 refine (
-  match expr with
-  | (expr, name) =>
-      match expr with
-      (*
-        This is not possible since we have already ensured that all columns must be applied
-        with a function by a normalization function.
-      *)
-      | simple_atomic_expression_column _ => None
-      | simple_atomic_expression_const ty c =>
-          let res := (tuple_of_length_n ((ty, name) :: nil) (List.length r) ((c, 0), tt)) in
-            Some (res, Γ, p)
-      | simple_atomic_expression_func ty args =>
-          (fix eval_func ty args :=
-            match args with
-            | nil => None
-            | e :: nil => 
-              match e with
-              | simple_atomic_expression_column c => _
-              | simple_atomic_expression_const _ _ => _
-              | simple_atomic_expression_func ty' args' => _
-              end
-            | e :: t => _
-            end
-          ) ty args
-      end
-    end
+(fix eval_expr expr :=
+    match expr with
+    | (expr, name) =>
+        match expr with
+        (*
+          This is not possible since we have already ensured that all columns must be applied
+          with a function by a normalization function.
+        *)
+        | simple_atomic_expression_column _ => None
+        | simple_atomic_expression_const ty c => _
+        | simple_atomic_expression_func_unary op arg => _
+        | simple_atomic_expression_func_binary op arg1 arg2 => _
+        end
+      end) expr
 ).
+  - exact (let res := (tuple_of_length_n ((ty, name) :: nil) (List.length r) ((c, 0), tt)) in
+              Some (res, Γ, p)).
+  - pose (eval_expr (arg, name)) as arg'.
+    destruct arg' as [arg'|].
+    + pose (apply_unary_function_in_relation _ op arg') as arg''.
+      specialize unary_function_preserves_type with (s := s) (op := op) (arg := arg) (name := name).
+      intros.
+      rewrite <- H in arg''.
+      exact arg''.
+    + exact None.
   (*
     The function has only one argument which is a column. In this case, we need to:
     1. Obtain the whole column from the relation.
@@ -667,7 +689,11 @@ refine (
     4. Evaluate the function.
     5. Update provenance and label.
   *)
-  - 
+  - pose (eval_expr (arg1, name)) as arg1'.
+    pose (eval_expr (arg2, name)) as arg2'.
+    destruct arg1' as [arg1'|]; destruct arg2' as [arg2'|].
+
+
 Admitted.
 
 (*
@@ -824,16 +850,19 @@ where "c1 '=[' o ']=>' c2" := (step_config o c1 c2).
 
 Example simple_project_list := project ((simple_atomic_expression_column 0, "foo"%string) :: nil).
 Example simple_project_list_res := normalize_project_list sample_schema simple_project_list.
-Example simple_project_list_res_correct : simple_project_list_res = project ((simple_atomic_expression_func stf_id (simple_atomic_expression_column 0 :: @nil simple_atomic_expression), "foo"%string) :: @nil (simple_atomic_expression * string)).
+Example simple_project_list_res_correct : simple_project_list_res = project ((simple_atomic_expression_func_unary Identity (simple_atomic_expression_column 0), "foo"%string) :: @nil (simple_atomic_expression * string)).
 Proof.
   reflexivity.
 Qed.
 
 Example simple_project_list' := project (
-  (simple_atomic_expression_func stf_id (simple_atomic_expression_column 0 :: nil), "foo"%string) ::
-  (simple_atomic_expression_func stf_id (simple_atomic_expression_column 1 :: nil), "bar"%string) ::
-  (simple_atomic_expression_func stf_id (simple_atomic_expression_column 2 :: nil), "baz"%string) ::
+  (stf_id (simple_atomic_expression_column 0), "foo"%string) ::
+  (stf_id (simple_atomic_expression_column 1), "bar"%string) ::
+  (stf_id (simple_atomic_expression_column 2), "baz"%string) ::
   nil
 ).
 Example simple_project_list_res' := normalize_project_list sample_schema simple_project_list'.
-Compute simple_project_list_res'.
+Example simple_project_list_res_correct' : simple_project_list_res' = simple_project_list_res'.
+Proof.
+  reflexivity.
+Qed.

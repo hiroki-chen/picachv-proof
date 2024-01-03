@@ -5,7 +5,8 @@ Require Import types.
 Require Import data_model.
 
 Inductive prov_type: Set :=
-  | prov_trans: simple_transform_func -> prov_type
+  | prov_trans_unary: prov_type
+  | prov_trans_binary: prov_type
   | prov_agg: simple_aggregate_func -> prov_type
   | prov_noise: prov_type
   | prov_join: prov_type

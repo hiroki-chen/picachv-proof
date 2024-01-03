@@ -34,10 +34,24 @@ Inductive simple_atomic_expression: Set :=
   (* a *)
   | simple_atomic_expression_column:
       ∀ (n: nat), simple_atomic_expression
-  (* For well-formed types, this cannot be wrapped in infinite function calls. *)
-  | simple_atomic_expression_func:
-      simple_transform_func → list (simple_atomic_expression) → simple_atomic_expression
+  (*
+    Without loss of generality, we assume functions only take either:
+    1. One argument, or
+    2. Two arguments.
+
+    This is because we can always transform a function with more than two arguments
+    into a function with two arguments by *currying*.
+
+    For example, we can transform `f(a, b, c)` into `f'(a, f''(b, c))`, although we
+    do not actually do this in the code; we assume someone else has done this for us.
+  *)
+  | simple_atomic_expression_func_unary:
+      UnOp → simple_atomic_expression → simple_atomic_expression
+  | simple_atomic_expression_func_binary:
+      BinOp → simple_atomic_expression → simple_atomic_expression → simple_atomic_expression
   .
+
+Definition stf_id := simple_atomic_expression_func_unary Identity.
 
 Inductive predicate (ty: Tuple.tuple_type) (bt: basic_type): Type :=
   | predicate_true: predicate ty bt
@@ -246,4 +260,3 @@ Proof.
   - inversion e.
   - reflexivity.
 Qed.
-

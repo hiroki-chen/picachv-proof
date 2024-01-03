@@ -1,5 +1,6 @@
 Require Import List.
 Require Import Lia.
+Require Import String.
 Require Import Unicode.Utf8.
 
 Definition hd_option {A : Type} (l : list A) : option A :=
@@ -8,7 +9,7 @@ Definition hd_option {A : Type} (l : list A) : option A :=
   | cons h _ => Some h
   end.
 
-Definition hd_ok {A: Type} (l: list A) (non_empty: length l > 0) : A.
+Definition hd_ok {A: Type} (l: list A) (non_empty: List.length l > 0) : A.
   destruct l.
   - simpl in non_empty. lia.
   - exact a.
@@ -75,10 +76,10 @@ Proof.
   - simpl.  specialize (H a). rewrite H. apply IHl.
 Qed.
 
-Definition nth {A: Type} (l: list A) (n: nat): n < length l → A.
+Definition nth {A: Type} (l: list A) (n: nat): n < List.length l → A.
 refine (
   (fix nth l n :=
-    match l as l', n as n' return l = l' → n = n' → n' < length l → A with
+    match l as l', n as n' return l = l' → n = n' → n' < List.length l → A with
     | nil, _ => _
     | h :: t, 0 => _
     | h :: t, S n' => _
@@ -102,9 +103,47 @@ Fixpoint list_of_length_n {A: Type} (n: nat) (a: A): list A :=
   | S n' => a :: list_of_length_n n' a
   end.
 
+(*
+  Coq cannot guess if `n / 10` and `n mod 10` will terminate;
+  we use binary representation for the time being.
+*)
+Fixpoint nat_to_str (n: nat): String.string :=
+  match n with
+  | O => "0"%string
+  | S n' => append (nat_to_str n') "1"%string
+  end.
+
+Fixpoint rev_string (s: string): string :=
+  match s with
+  | EmptyString => EmptyString
+  | String c s' => append (rev_string s') (String c EmptyString)
+  end.
+
+Fixpoint redact_string_helper (s: string) (n: nat): string :=
+  match n with
+  | O => s
+  | S n' =>
+    match s with
+    | EmptyString => EmptyString
+    | String _ s' => append "*"%string (redact_string_helper s' n')
+    end
+  end.
+
+Definition redact_string (s: string) (n: nat) (rev: bool): string :=
+  match rev with
+  | true => rev_string (redact_string_helper (rev_string s) n)
+  | false => redact_string_helper s n
+  end.
+
+Example redact_string_example: redact_string "hello" 3 false = "***lo"%string.
+Proof. trivial. Qed.
+
+Example redact_string_example2: redact_string "hello" 3 true = "he***"%string.
+Proof. trivial. Qed.
+
 Theorem eq_length_list_zip_preserves_length :
   ∀ (A B: Type) (l1: list A) (l2: list B),
-    length l1 = length l2 → length (zip_lists l1 l2) = length l1.
+    List.length l1 = List.length l2 → List.length (zip_lists l1 l2) = List.length l1.
 Proof.
   induction l1.
   - intros. destruct l2. trivial. inversion H.
@@ -114,7 +153,7 @@ Qed.
 
 Theorem list_has_head_gt_zero:
   ∀ (A: Type) (a: A) (l l': list A),
-    l = (a :: l') → length l > 0.
+    l = (a :: l') → List.length l > 0.
 Proof.
   intros. rewrite H. simpl. lia.
 Qed.

@@ -41,7 +41,8 @@ Fixpoint policy_ok_relation s (Γ: Policy.context) (r: relation s) : Prop :=
 
 Definition valid_transition (τ: prov_type) (ℓ1 ℓ2: Policy.policy): Prop :=
   match τ with
-    | prov_trans _ => ℓ1 ⊑ Policy.policy_transform ∧ ℓ2 = Policy.policy_agg
+    | prov_trans_unary => ℓ1 ⊑ Policy.policy_transform ∧ ℓ2 = Policy.policy_agg
+    | prov_trans_binary => ℓ1 ⊑ Policy.policy_transform ∧ ℓ2 = Policy.policy_agg
     | prov_agg _ => ℓ1 ⊑ Policy.policy_agg ∧ ℓ2 = Policy.policy_noise
     | prov_noise => ℓ1 ⊑ Policy.policy_transform ∧ ℓ2 = Policy.policy_bot
     | prov_join => ℓ1 ⊑ ℓ2

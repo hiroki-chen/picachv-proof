@@ -202,6 +202,18 @@ Fixpoint relation_stitch s1 s2 (r1: relation s1) (r2: relation s2) : relation (s
       exact (cons hd (relation_stitch _ _ r1 r2)).
 Defined.
 
+Global Instance relation_proper:
+  Proper (equiv ==> equiv) (relation).
+Proof.
+  repeat red. intros.
+  induction x; destruct y.
+  - reflexivity.
+  - inversion H.
+  - inversion H.
+  - unfold relation. unfold fbag.
+    simpl. destruct a, a0. simpl in *. inversion H. subst. auto.
+Qed.
+
 Global Instance relation_product_proper s1 s2:
   Proper (equiv ==> equiv ==> equiv) (@relation_product s1 s2).
 Proof.

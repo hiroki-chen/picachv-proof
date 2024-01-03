@@ -1,5 +1,5 @@
 (* TODO: Make cells identifiable with some id. *)
-
+Require Import Arith.
 Require Import String.
 Require Import List.
 Require Import Bool.
@@ -11,12 +11,22 @@ Require Import Unicode.Utf8.
 
 Require Import ordering.
 
+(* Note that these operators are not designed to be exhaustive. *)
 (* Logical connections. *)
 Inductive LogOp: Type := And | Or.
 (* Comparison operators. *)
 Inductive ComOp: Type := Gt | Lt | Ge | Le | Eq | Neq.
-(* Binary arithmetic operators. *)
-Inductive BinOp: Type := Add | Sub | Mul | Div | Mod.
+(* Some example binary arithmetic operators. *)
+Inductive BinOp: Type := Add | Sub | Mul | Div | Mod | Concat.
+(* Some example unary arithmetic operators. *)
+Inductive UnOp: Type :=
+  | Identity
+  | Redact: nat → UnOp
+  | Ascii
+  | Strlen
+  | Lower
+  | Upper
+.
 
 (* Basic types in our column types. *)
 Inductive basic_type: Set :=
@@ -76,11 +86,6 @@ Inductive transform_func (bt: basic_type): Set :=
   | tf_other: transform_func bt
 .
 
-Inductive simple_transform_func: Set :=
-  | stf_id: simple_transform_func
-  | stf_other: simple_transform_func
-.
-
 Inductive aggregate_func (bt: basic_type): Set.
 Inductive simple_aggregate_func: Set.
 Inductive func: Set :=
@@ -106,6 +111,8 @@ Fixpoint schema_to_no_name (s: schema): schema_no_name :=
   | nil => nil
   | (t, _) :: s' => t :: schema_to_no_name s'
   end.
+
+(* Converts a list of numbers into a list of strings. *)
 
 Lemma schema_to_no_name_length: ∀ s,
   length (schema_to_no_name s) = length s.
