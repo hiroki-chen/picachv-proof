@@ -1,12 +1,12 @@
 Require Import List.
 Require Import Unicode.Utf8.
 
-Require Import query.
-Require Import types.
-Require Import relation.
 Require Import data_model.
-Require Import prov.
 Require Import lattice.
+Require Import prov.
+Require Import query.
+Require Import relation.
+Require Import types.
 Require Import util.
 
 (* ====================================== Deprecated =========================================== *)

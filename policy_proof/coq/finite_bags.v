@@ -22,9 +22,9 @@
      In CPP'19.
 *)
 
+Require Import List.
 Require Import RelationClasses.
 Require Import SetoidClass.
-Require Import List.
 Require Import Unicode.Utf8.
 
 Require Import ordering.

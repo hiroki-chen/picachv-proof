@@ -1,9 +1,9 @@
 Require Import List.
 Require Import Unicode.Utf8.
 
-Require Import types.
 Require Import data_model.
 Require Import ordering.
+Require Import types.
 
 Inductive atomic_expression (ty: Tuple.tuple_type) : basic_type → Set :=
   (* v *)

@@ -1,21 +1,19 @@
+Require Import Arith.
+Require Import Arith.Compare.
+Require Import Lia.
 Require Import List.
 Require Import String.
 Require Import Unicode.Utf8.
-Require Import Lia.
 
-Require Import types.
-Require Import relation.
-Require Import formula.
 Require Import data_model.
-Require Import ordering.
-Require Import lattice.
 Require Import finite_bags.
-Require Import util.
+Require Import formula.
+Require Import types.
+Require Import lattice.
+Require Import ordering.
 Require Import prov.
-
-Set Printing Coercions.
-Set Printing Implicit.
-Set Printing Projections.
+Require Import relation.
+Require Import util.
 
 Inductive project_list: Set :=
   (* Denotes a "*" projection list. *)
@@ -129,7 +127,7 @@ Definition determine_schema (s: schema) (pl: project_list): schema :=
           | nil => nil
           | (x, name) :: ℓ' => match x with
                         | simple_atomic_expression_column c => 
-                            match Tuple.nth_nocheck (schema_to_no_name s) c with
+                          match Tuple.nth_nocheck (schema_to_no_name s) c with
                               | Some bt => (bt, name) :: determine ℓ'
                               | None => determine ℓ'
                             end
@@ -149,10 +147,38 @@ Definition determine_schema (s: schema) (pl: project_list): schema :=
           end) ℓ
   end.
 
+Lemma determine_schema_length_le: ∀ s pl,
+  List.length (determine_schema s (project pl)) ≤ List.length pl.
+Proof.
+  induction pl.
+  - auto.
+  - apply Nat.lt_eq_cases in IHpl. destruct IHpl; destruct a.
+    + destruct s0.
+      * simpl in *. apply le_n_S. lia.
+      * simpl in *. destruct (Tuple.nth_nocheck (schema_to_no_name s) n); try lia; auto.
+      * simpl in *. destruct (determine_bt_from_expr s s0); try lia; auto.
+      * simpl in *.
+        destruct (determine_bt_from_expr s s0_1); 
+        destruct (determine_bt_from_expr s s0_2);
+        try destruct (type_matches b0 b1); try lia; auto.
+    + destruct s0.
+      * simpl in *. lia.
+      * simpl in *. destruct (Tuple.nth_nocheck (schema_to_no_name s) n).
+        -- simpl in *. apply le_n_S. lia.
+        -- simpl in *. lia.
+      * simpl in *. destruct (determine_bt_from_expr s s0).
+        -- simpl in *. apply le_n_S. lia.
+        -- simpl in *. lia.
+      * simpl in *. destruct (determine_bt_from_expr s s0_1);
+        destruct (determine_bt_from_expr s s0_2);
+        try destruct (type_matches b0 b1); simpl in *; lia.
+Qed.
+
 Lemma determine_schema_concat: ∀ s a ℓ,
   determine_schema s (project (a :: @nil (simple_atomic_expression * string))) ++
     determine_schema s (project ℓ) =
   determine_schema s (project (a :: ℓ)).
+
 Proof.
   induction a; induction a; auto; intros.
   - simpl. destruct (Tuple.nth_nocheck (schema_to_no_name s) n); auto.
@@ -469,7 +495,7 @@ Definition env_slice_get_relation s (es: env_slice s) : relation s :=
   end.
 (* ========================================================================================= *)
 
-Inductive Operator: Set :=
+Inductive Operator: Type :=
   | operator_empty: Operator
   | operator_relation: forall s, relation s → Operator
   | operator_union: Operator → Operator → Operator
@@ -618,22 +644,14 @@ match n with
   | S n' => t :: tuple_of_length_n s n' t
   end.
 
-(*
-  @param f The unary operation to be applied.
-  @param r The relation, which is a list of tuples where each tuple contains a single type.
-  @param Γ The policy context.
-  @return The result of applying the unary operation [f] to the relation [r].
-
-  This function takes a unary operation [f], a relation [r] that contains tuples of a single type, and a proof obligation [Γ]. It applies the unary operation [f] to the relation [r] and returns the result. The proof obligation [Γ] is used to ensure that the operation is valid.
-*)
-Definition apply_unary_function_in_relation ty (f: UnOp)
-                                            (ctx: relation ty * Policy.context * prov_ctx)
-  : option (relation ty * Policy.context * prov_ctx).
+Definition apply_unary_function_in_relation s (op: UnOp) (ok: List.length s = 1)
+                                            (ctx: relation s * Policy.context * prov_ctx)
+  : option (relation s * Policy.context * prov_ctx).
 refine (
   match ctx with
-  | (r, Γ, p) =>
-    match f with
-    | Identity => Some (r, Γ, p)
+    | (r, Γ, p) =>
+    match op with
+    | Identity => _
     (* TODO *)
     | Redact len => _
     (* Not implemented for the time being. *)
@@ -661,7 +679,7 @@ refine (
     | (expr, name) =>
         match expr with
         (*
-          This is not possible since we have already ensured that all columns must be applied
+          This is not possible since e have already ensured that all columns must be applied
           with a function by a normalization function.
         *)
         | simple_atomic_expression_column _ => None
@@ -673,14 +691,24 @@ refine (
 ).
   - exact (let res := (tuple_of_length_n ((ty, name) :: nil) (List.length r) ((c, 0), tt)) in
               Some (res, Γ, p)).
-  - pose (eval_expr (arg, name)) as arg'.
-    destruct arg' as [arg'|].
-    + pose (apply_unary_function_in_relation _ op arg') as arg''.
-      specialize unary_function_preserves_type with (s := s) (op := op) (arg := arg) (name := name).
-      intros.
-      rewrite <- H in arg''.
-      exact arg''.
+  - destruct (determine_schema s (project (<< (arg); (name) >> :: nil))).
     + exact None.
+    + pose (eval_expr (arg, name)) as arg'.
+      assert (len: List.length (determine_schema s (project (<< (arg); (name) >> :: nil))) ≤ 1).
+      {
+        specialize determine_schema_length_le with (s := s) (pl := << (arg); (name) >> :: nil).
+        intros. simpl in *. assumption. 
+      }
+      destruct arg' as [arg'|].
+      * apply le_decide in len. destruct len.
+        (* Len < 1. *)
+        -- exact None.
+        -- pose (apply_unary_function_in_relation _ op e arg') as arg''.
+           specialize unary_function_preserves_type with (s := s) (op := op) (arg := arg) (name := name).
+           intros.
+           rewrite <- H in arg''.
+           exact arg''.
+      * exact None.
   (*
     The function has only one argument which is a column. In this case, we need to:
     1. Obtain the whole column from the relation.

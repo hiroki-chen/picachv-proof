@@ -1,8 +1,8 @@
-Require Import Coq.Lists.List.
+Require Import List.
 Require Import Unicode.Utf8.
 
-Require Import types.
 Require Import data_model.
+Require Import types.
 
 Inductive prov_type: Set :=
   | prov_trans_unary: prov_type

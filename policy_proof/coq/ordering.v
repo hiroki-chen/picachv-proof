@@ -1,13 +1,13 @@
-Require Import SetoidDec.
-Require Import SetoidClass.
+Require Import Ascii.
 Require Import Decidable.
-Require Import OrderedType.
+Require Import Compare_dec.
 Require Import Equivalence.
 Require Import Lia.
-Require Import Ascii.
+Require Import OrderedType.
+Require Import SetoidDec.
+Require Import SetoidClass.
 Require Import String.
 Require Import Unicode.Utf8.
-Require Import Compare_dec.
 
 (*
    Working on user-defined structures that behave like setoids require some special rewriting techniques.

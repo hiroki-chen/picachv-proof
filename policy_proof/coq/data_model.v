@@ -1,9 +1,10 @@
-Require Import String.
-Require Import RelationClasses.
+Require Import Arith.
 Require Import Lia.
+Require Import List.
+Require Import RelationClasses.
 Require Import SetoidDec.
 Require Import SetoidClass.
-Require Import List.
+Require Import String.
 Require Import Unicode.Utf8.
 
 Require Import lattice.
@@ -299,7 +300,7 @@ Proof.
   - simpl in *. intros. inversion H.
   - destruct a.
     + simpl in *. destruct (Nat.eqb id n) eqn: Heq.
-      * intros. simpl. rewrite nat_eqb_refl. destruct pe'. reflexivity.
+      * intros. simpl. rewrite Nat.eqb_refl. destruct pe'. reflexivity.
       * intros. simpl in *. rewrite Heq. specialize IHctx with (pe := pe) (pe' := pe').
         destruct p. auto.
 Qed.
@@ -343,7 +344,7 @@ Fixpoint tuple_np (ty: tuple_type): Set :=
 Fixpoint bounded_list (l: list nat) (ty: tuple_type): Prop :=
   match l with
     | nil => True
-    | n :: l' => n < length ty ∧ bounded_list l' ty
+    | n :: l' => n < List.length ty ∧ bounded_list l' ty
   end.
 
 Fixpoint inject_tuple_id
@@ -437,6 +438,7 @@ Global Instance tuple_value_eq_eqv (ty: tuple_type): Equivalence (tuple_value_eq
     intros. induction ty; intuition auto with *. destruct a; simpl in *; intuition auto with *.
   - unfold Transitive.
     induction ty; intuition auto with *. destruct a; simpl in *; intuition auto with *.
+    eapply transitivity; eauto.
     specialize (IHty _ _ _ H2 H3). assumption.
     eapply transitivity; eauto.
     specialize (IHty _ _ _ H2 H3). assumption.
@@ -470,11 +472,11 @@ Definition tuple_total_eq_eqv (ty: tuple_type): Equivalence (tuple_total_eq ty).
         -- specialize (IHty _ _ _ H2 H3). assumption.
 Defined.
 
-Definition nth: ∀ (ty: tuple_type) (n: nat) (extract: n < length ty), Cell.cell.
+Definition nth: ∀ (ty: tuple_type) (n: nat) (extract: n < List.length ty), Cell.cell.
 refine
 (fix nth' (ty: tuple_type) (n: nat):
-  n < length ty → Cell.cell :=
-     match ty as ty' , n as n' return ty = ty' → n = n' → n' < length ty' → Cell.cell with
+  n < List.length ty → Cell.cell :=
+     match ty as ty' , n as n' return ty = ty' → n = n' → n' < List.length ty' → Cell.cell with
       | x :: y , 0 => fun _ _ _ => x
       | x :: y , S n' => fun _ _ _ => nth' y n' _
       | _ , _ => fun _ _ _ => False_rec _ _
@@ -496,13 +498,13 @@ Defined.
 
 (* FIXME: ensures that types match between `c` and `x`. *)
 (* Only matched types are allowed to transition. *)
-Definition set_nth_type_match: ∀ (ty: tuple_type) (n: nat) (c: Cell.cell) (extract: n < length ty),
+Definition set_nth_type_match: ∀ (ty: tuple_type) (n: nat) (c: Cell.cell) (extract: n < List.length ty),
   tuple ty -> option (tuple ty).
 refine
 (fix set_nth' (ty: tuple_type) (n: nat) (c: Cell.cell):
-  n < length ty -> tuple ty -> option (tuple ty) :=
+  n < List.length ty -> tuple ty -> option (tuple ty) :=
   match ty as ty', n as n'
-    return ty = ty' -> n = n' -> n' < length ty' -> tuple ty' -> option (tuple ty') with
+    return ty = ty' -> n = n' -> n' < List.length ty' -> tuple ty' -> option (tuple ty') with
       | x :: y, 0 => fun _ _ _ t => _
       | x :: y, S n' => fun _ _ _ t => match set_nth' y n' c _ (snd t) with
                                           | None => None
@@ -525,12 +527,12 @@ Definition ntypes (l: list nat) (ty: tuple_type) (bounded: bounded_list l ty): t
     apply IHl. apply H0.
 Defined.
 
-Definition nth_col_tuple: ∀ (ty: tuple_type) (n : nat) (extract: n < length ty), tuple ty → tuple ((nth ty n extract) :: nil).
+Definition nth_col_tuple: ∀ (ty: tuple_type) (n : nat) (extract: n < List.length ty), tuple ty → tuple ((nth ty n extract) :: nil).
 refine (
-  fix nth_col_tuple' (ty: tuple_type) (n : nat): ∀ (extract: n < length ty),
+  fix nth_col_tuple' (ty: tuple_type) (n : nat): ∀ (extract: n < List.length ty),
     tuple ty → tuple ((nth ty n extract) :: nil) :=
       match ty as ty', n as n' return ty = ty' → n = n' → 
-            ∀ (extract: n' < length ty'), tuple ty' → tuple ((nth ty' n' extract) :: nil) with
+            ∀ (extract: n' < List.length ty'), tuple ty' → tuple ((nth ty' n' extract) :: nil) with
         |_  :: l', 0 => fun _ _ _ t => ((fst t), tt)
         | _ :: l', S n' => fun _ _ _ t => nth_col_tuple' l' n' _ (snd t)
         | _, _ => fun _ _ _ => fun _ => False_rec _ _
@@ -555,25 +557,25 @@ Proof.
 Defined.
 
 Global Instance nth_col_tuple_proper_eq
-(ty: tuple_type) (n: nat) (extract: n < length ty):
+(ty: tuple_type) (n: nat) (extract: n < List.length ty):
   Proper (equiv ==> equiv) (nth_col_tuple ty n extract).
 Proof.
   unfold Proper, respectful. intros. rewrite H. reflexivity.
 Qed.
 
 (* Without `policy` extracted! *)
-Definition nth_np: ∀ (ty: tuple_type) (n: nat) (extract: n < length ty), basic_type.
+Definition nth_np: ∀ (ty: tuple_type) (n: nat) (extract: n < List.length ty), basic_type.
   intros.
   exact (nth ty n extract).
 Defined.
 
 (* Without `policy` extracted! *)
-Definition nth_col_tuple_np: ∀ (ty: tuple_type) (n : nat) (extract: n < length ty), tuple ty → tuple_np ((nth_np ty n extract) :: nil).
+Definition nth_col_tuple_np: ∀ (ty: tuple_type) (n : nat) (extract: n < List.length ty), tuple ty → tuple_np ((nth_np ty n extract) :: nil).
 refine (
-  fix nth_col_tuple_np' (ty: tuple_type) (n : nat): ∀ (extract: n < length ty),
+  fix nth_col_tuple_np' (ty: tuple_type) (n : nat): ∀ (extract: n < List.length ty),
     tuple ty → tuple_np ((nth_np ty n extract) :: nil) :=
       match ty as ty', n as n' return ty = ty' → n = n' → 
-            ∀ (extract: n' < length ty'), tuple ty' → tuple_np ((nth_np ty' n' extract) :: nil) with
+            ∀ (extract: n' < List.length ty'), tuple ty' → tuple_np ((nth_np ty' n' extract) :: nil) with
         | _ :: l', 0 => fun _ _ _ t => ((fst (fst t)), tt)
         | _ :: l', S n' => fun _ _ _ t => nth_col_tuple_np' l' n' _ (snd t)
         | _, _ => fun _ _ _ => fun _ => False_rec _ _
@@ -582,7 +584,7 @@ simpl in *. lia.
 Defined.
 
 Global Instance nth_col_tuple_np_proper_eq
-(ty: tuple_type) (n: nat) (extract: n < length ty):
+(ty: tuple_type) (n: nat) (extract: n < List.length ty):
   Proper (equiv ==> equiv) (nth_col_tuple_np ty n extract).
 Proof.
   unfold Proper, respectful. intros. rewrite H. reflexivity.
@@ -787,6 +789,7 @@ refine(
   - simpl in H. exfalso. assumption.
   - destruct a; simpl in *; unfold pair_lt, pair_eq in *; intuition.
     * rewrite H1 in H0. unfold nat_lt in H0. auto with *.
+      inversion H0; lia.
     * specialize (IHty _ _ H3 H2). assumption.
     * unfold bool_lt in H0. destruct H0. rewrite H in H1. rewrite H0 in H1. inversion H1.
     * specialize (IHty _ _ H3 H2). assumption.
@@ -794,7 +797,7 @@ refine(
     * specialize (IHty _ _ H3 H2). assumption.
 
   - intros. induction ty.
-    * apply OrderedType.EQ. simpl. red. auto.
+    * apply OrderedType.EQ. simpl. auto.
     * destruct a; destruct (cmp (fst (fst lhs)) (fst (fst rhs))).
       + apply OrderedType.LT. simpl. auto.
       + destruct (IHty (snd lhs) (snd rhs)).

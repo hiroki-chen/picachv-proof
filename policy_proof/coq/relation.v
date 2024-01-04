@@ -1,15 +1,15 @@
-Require Import Nat.
+Require Import Arith.
+Require Import Lia.
 Require Import List.
 Require Import RelationClasses.
 Require Import SetoidDec.
 Require Import SetoidClass.
 Require Import String.
-Require Import Lia.
 Require Import Unicode.Utf8.
 
 Require Import data_model.
-Require Import ordering.
 Require Import finite_bags.
+Require Import ordering.
 Require Import types.
 Require Import util.
 

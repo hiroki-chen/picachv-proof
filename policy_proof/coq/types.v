@@ -1,12 +1,12 @@
 (* TODO: Make cells identifiable with some id. *)
 Require Import Arith.
-Require Import String.
-Require Import List.
 Require Import Bool.
+Require Import Decidable.
+Require Import Lia.
+Require Import List.
 Require Import SetoidDec.
 Require Import SetoidClass.
-Require Import Lia.
-Require Import Decidable.
+Require Import String.
 Require Import Unicode.Utf8.
 
 Require Import ordering.
@@ -102,7 +102,7 @@ Definition func_list: Set := list func%type.
 *)
 
 (* A schema is a list of attributes. *)
-Definition schema := (list Attribute).
+Definition schema: Type := (list Attribute).
 Definition schema_no_name := (list basic_type).
 
 (* Transforms a schema into a list of pure basic types. *)
@@ -115,7 +115,7 @@ Fixpoint schema_to_no_name (s: schema): schema_no_name :=
 (* Converts a list of numbers into a list of strings. *)
 
 Lemma schema_to_no_name_length: ∀ s,
-  length (schema_to_no_name s) = length s.
+  List.length (schema_to_no_name s) = List.length s.
 Proof.
   induction s.
   - auto.

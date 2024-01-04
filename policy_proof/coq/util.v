@@ -1,5 +1,5 @@
-Require Import List.
 Require Import Lia.
+Require Import List.
 Require Import String.
 Require Import Unicode.Utf8.
 
@@ -156,13 +156,6 @@ Theorem list_has_head_gt_zero:
     l = (a :: l') → List.length l > 0.
 Proof.
   intros. rewrite H. simpl. lia.
-Qed.
-
-Theorem nat_eqb_refl: ∀ n, Nat.eqb n n = true.
-Proof.
-  intros. induction n.
-  - trivial.
-  - simpl. apply IHn.
 Qed.
 
 (*

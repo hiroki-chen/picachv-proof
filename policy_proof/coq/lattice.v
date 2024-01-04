@@ -1,4 +1,8 @@
-Require Import Setoid Coq.Classes.Morphisms Basics List PeanoNat Coq.Logic.FinFun Psatz Coq.Sorting.Mergesort Coq.Structures.Orders Coq.Logic.FinFun Coq.Program.Equality Unicode.Utf8.
+Require Import Basics. 
+Require Import List.
+Require Import Orders.
+Require Import Setoid.
+Require Import Unicode.Utf8.
 
 Reserved Notation "X '⊓' Y" (at level 39, left associativity).
 Reserved Notation "X '⊔' Y" (at level 40, left associativity).
