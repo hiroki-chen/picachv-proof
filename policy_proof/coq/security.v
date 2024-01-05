@@ -4,8 +4,8 @@ Require Import Unicode.Utf8.
 Require Import data_model.
 Require Import lattice.
 Require Import prov.
-Require Import query.
 Require Import relation.
+Require Import semantics.
 Require Import types.
 Require Import util.
 

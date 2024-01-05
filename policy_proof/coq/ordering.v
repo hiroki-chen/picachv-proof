@@ -91,7 +91,7 @@ Proof.
       red in e. rewrite H0 in e. apply neq in H1. auto with *.
       assert (lt x0 y0) by (eapply transitivity; eauto). apply neq in H2. auto with *.
 Qed.
-Hint Resolve ord_lt_proper_eq.
+Hint Resolve ord_lt_proper_eq: core.
 
 Global Instance le_proper_eq {A: Set} {ord: Ordered A}:
   Proper (equiv ==> equiv ==> iff) le.
@@ -281,7 +281,7 @@ Proof.
   intros. split. inversion H. auto.
   inversion H. reflexivity.
 Qed.
-Hint Resolve string_eq_two_parts.
+Hint Resolve string_eq_two_parts: core.
 
 Lemma string_lt_neq: ∀ (lhs rhs: string),
   string_lt lhs rhs → lhs =/= rhs.
@@ -313,7 +313,7 @@ Proof.
   induction rhs. simpl. simpl in H. inversion H. auto.
   inversion H. subst. reflexivity.
 Qed.
-Hint Resolve string_eq_two_parts'.
+Hint Resolve string_eq_two_parts': core.
 
 Lemma ord_dec {A: Set} {O: Ordered A} : ∀ (lhs rhs: A), decidable (lt lhs rhs).
 Proof.
@@ -323,7 +323,7 @@ Proof.
   - right. unfold not. intros. assert (lt lhs lhs) by (eapply transitivity in l; eauto).
     apply order_is_irreflexive in H0. assumption.
 Qed.
-(* Hint Resolve ord_dec. *)
+Hint Resolve ord_dec: core.
 
 Definition string_eq_setoid: Setoid string.
 refine (@Build_Setoid _ string_eq _).

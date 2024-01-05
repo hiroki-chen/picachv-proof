@@ -1,0 +1,13 @@
+[x] Refactor the `normalize`-related functionalities; perhaps we do not really
+need them. They are solely for the purposes of applying a dummy identity
+function to each column, but we can certainly implement this when pattern
+matching the `project_column` constructor.
+[x] Add the proof obligation for `simple_atomic_expression`'s constructor when we construct a column type.
+[ ] Refine the configuration for `cell` type. This is because cells are ignorant of the environment slices and they work with provenance and policy contexts.
+
+  ```coq
+    Inductive config_cell :=
+    | config_ok: ∀ bt, (type_to_coq_type bt * nat) → Policy.context → prov_ctx → config_cell
+    | config_error: config_cell 
+  ```
+  The thing is, why do we even bother with `ℰ` and `s: schema`? Evaluating cells won't use them at all.

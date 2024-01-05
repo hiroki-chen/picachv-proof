@@ -95,6 +95,24 @@ Inductive func: Set :=
 
 Definition func_list: Set := list func%type.
 
+Inductive unary_func :=
+  | unary_function: ∀ ty, (type_to_coq_type ty → type_to_coq_type ty) → unary_func
+.
+
+Inductive binary_func :=
+  | binary_function: ∀ty, (type_to_coq_type ty → type_to_coq_type ty → type_to_coq_type ty) → binary_func
+.
+
+Definition get_unary_type (f: unary_func): basic_type :=
+  match f with
+  | unary_function ty _ => ty
+  end.
+
+Definition get_binary_type (f: binary_func): basic_type :=
+  match f with
+  | binary_function ty _ => ty
+  end.
+
 (*
   A distinction is made between the database schema, which specifies the structure
   of the database, and the database instance, which specifies its actual content:

@@ -114,12 +114,12 @@ Class FiniteBag (elt: Set) (E: Ordered elt): Type := {
     exists_bool : ∀ (s : bag) (f : elt → bool), exists_element f s = existsb f (elements s);
 }.
 
-Hint Immediate @empty_is_empty.
+Hint Immediate @empty_is_empty: core.
 Hint Resolve
   @in_bag_is_in_bag_bool @member_is_not_empty @member_subbag
   @length_elements @eq_bag_count_eq @empty_bag_no_member @subbag_count_less
   @empty_bag_no_member @compare_spec @compare_eq_lt_trans @compare_eq_trans
-  @compare_lt_gt @compare_lt_trans @exists_bool.
+  @compare_lt_gt @compare_lt_trans @exists_bool: core.
 
 Section FB.
   Hypothesis elt: Set.

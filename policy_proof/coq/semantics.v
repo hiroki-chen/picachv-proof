@@ -537,20 +537,27 @@ Notation "'⟨' s Γ β ℰ p '⟩'":= (config_ok s Γ β ℰ p)
 Reserved Notation "c1 '>[' f ':' arg ']>' c2" (
   at level 50, no associativity, f at next level, arg at next level, c2 at next level
 ).
-Inductive step_cell_single: UnOp → simple_atomic_expression → config → config → Prop :=
+Inductive step_cell_single: unary_func → (Cell.cell * nat) → config → config → Prop :=
+  | E_CTerminal:
+      ∀ c f arg, config_terminal c >[ f : arg ]> config_terminal c
   (* If the environment is empty, then we cannot do anything.  *)
-  | E_CTransError1:
+  | E_CTransErrorEmptyEnv:
       ∀ s Γ β e p f arg,
           List.length s = 0 →
           ⟨ s Γ β e p ⟩ >[ f : arg ]> config_error
+  (* If the function works on a different type, we simply throw an error. *)
+  | E_CTransErrorType:
+      ∀ c f arg ty, ty = get_unary_type f →
+      type_matches (fst arg) ty = false →
+      c >[ f : arg ]> config_error
   (* If the environment is not empty but there is no active tuples, we cannot do anything. *)
-  | E_CTransError2:
+  | E_CTransErrorNoTuple:
       ∀ s Γ β e p f arg (non_empty: List.length s > 0) tl,
           tl = (env_slice_get_tuples (hd_ok s non_empty) (get_env_slice s e non_empty)) →
           List.length tl = 0 → 
           ⟨ s Γ β e p ⟩ >[ f : arg ]> config_error
   (* The label does not flow to the current one. *)
-  | E_CTransError3:
+  | E_CTransErrorLabel:
       ∀ (ℓ1 ℓ2: Policy.policy) ℓcur ℓdisc s Γ β e p f arg (non_empty: List.length s > 0)
         tl (tl_non_empty: List.length tl > 0) t c_idx,
           (* tl => A list of tuples. *)
@@ -634,9 +641,41 @@ Inductive step_cell_single: UnOp → simple_atomic_expression → config → con
           (* update the environment. *)
           ⟨ s Γ β e p ⟩ >[ f ]> ⟨ s Γ β e' p ⟩ *)
 where "c1 '>[' f : arg ']>' c2" := (step_cell_single f arg c1 c2).
+Hint Constructors step_cell_single: core.
 
 (*
-  This function returns a relation of `n` same tuples.
+  @param c The configuration of the cell.
+  @param f The unary operation to be applied.
+  @param arg The simple atomic expression to evaluate.
+  @return A configuration that results from applying the unary operation to the cell.
+
+  [step_cell_single_progress] is a theorem that asserts that for any cell configuration [c],
+  unary operation [f], and simple atomic expression [arg], there exists a configuration [c']
+  that results from applying the unary operation to the cell.
+*)
+Theorem step_cell_single_progress: ∀ c f arg, c ≠ config_error → ∃ c', c >[ f : arg ]> c'.
+Proof.
+  intros. induction c.
+  - exists (config_terminal c). auto.
+  - unfold not in H. exfalso. auto.
+  - destruct s.
+    + exists config_error. auto.
+    + destruct f. destruct (type_matches (fst arg) ty).
+      * assert (Hlen: List.length (s :: s0) > 0). simpl. lia.
+        destruct (env_slice_get_tuples (hd_ok (s :: s0) Hlen) (get_env_slice (s :: s0) ℰ0 _)) eqn: Henv.
+        -- exists config_error. eapply E_CTransErrorNoTuple; eauto.
+            simpl in *. rewrite Henv. auto.
+        --
+Admitted.
+
+(*
+  @param s The schema, which is a list of tuples where each tuple contains a type and a name.
+  @param n The length of the relation to be created.
+  @param t The tuple to be repeated.
+  @return A relation of length [n] where each tuple is [t].
+
+  [tuple_of_length_n] returns a relation of length [n] where each tuple is [t]. The function
+  works by recursively appending [t] to the relation until it reaches the desired length.
 *)
 Fixpoint tuple_of_length_n s (n: nat) (t: Tuple.tuple (schema_to_no_name s)): relation s :=
 match n with
@@ -644,22 +683,82 @@ match n with
   | S n' => t :: tuple_of_length_n s n' t
   end.
 
+(* TODO: Refine input and output? *)
+Definition apply_unary_function_in_cell  bt (f: unary_func) (arg: type_to_coq_type bt * nat)
+                                         (Γ: Policy.context) (p: prov_ctx)
+  : (type_to_coq_type bt * nat) * Policy.context * prov_ctx. Admitted.
+
+(** 
+  @param ty A tuple containing a type and a name.
+  @param r The relation, which is a list of tuples where each tuple contains a single type.
+  @param Γ The policy context.
+  @param p The proof context.
+  @return An optional tuple containing the relation, the policy context, and the proof context.
+
+  This function does the actual function application.
+*)
+Fixpoint do_apply_unary_function ty (f: unary_func) (r: relation (ty :: nil))
+                                    (Γ: Policy.context) (p: prov_ctx)
+  : option (relation (ty :: nil) * Policy.context * prov_ctx).
+refine (
+  match r with
+  | nil => Some (nil, Γ, p)
+  | t :: r' => _
+  end
+).
+  destruct ty as [bt name]. simpl in *.
+  destruct t as [cell _].
+  pose (apply_unary_function_in_cell bt f cell Γ p) as cell'.
+  destruct do_apply_unary_function.
+  specialize do_apply_unary_function with (ty := ty) (f := f) (r := r') (Γ := Γ) (p := p).
+
+Admitted.
+
+(*
+  @param s The schema, which is a list of tuples where each tuple contains a type and a name.
+  @param op The unary operation to be applied.
+  @param ok A proof that the length of the schema [s] is 1.
+  @param ctx A tuple containing the relation, the policy context, and the proof context.
+  @return An optional tuple containing the relation, the policy context, and the proof context
+          after applying the unary operation.
+
+  [apply_unary_function_in_relation] is a function that takes a schema [s], a unary operation
+  [op], a proof [ok] that the length of the schema is 1, and a context [ctx] that contains the
+  relation, the policy context, and the proof context. It applies the unary operation [op] to
+  the relation in the context and returns an optional tuple containing the updated relation,
+  policy context, and proof context. If the operation cannot be applied, it returns None.
+
+  This is just an entrypoint for the actual function [do_apply_unary_function].
+*)
 Definition apply_unary_function_in_relation s (op: UnOp) (ok: List.length s = 1)
                                             (ctx: relation s * Policy.context * prov_ctx)
   : option (relation s * Policy.context * prov_ctx).
 refine (
   match ctx with
     | (r, Γ, p) =>
-    match op with
-    | Identity => _
-    (* TODO *)
-    | Redact len => _
-    (* Not implemented for the time being. *)
-    | _ => None
-    end
+      match s as s' return s = s' → _ with
+        | nil => fun _ => _
+        | ty :: nil => fun _ => _
+        | _ => _
+      end eq_refl
   end
-).
-Admitted.
+); intros; subst; try inversion ok.
+  destruct op eqn: Hop.
+  (* Identity function. *)
+  - exact (do_apply_unary_function _ (unary_function (fst ty) (fun x => x)) r Γ p).
+  - destruct ty.
+    (* We need to check the type now. *)
+    destruct b eqn: Htype.
+    + exact None.
+    + exact None.
+    (* We need to explicitly give the type to Coq. *)
+    + exact (do_apply_unary_function << (StringType); (s) >> (unary_function StringType (fun x => redact_string x n false)) r Γ p).
+  (* Not implemented yet. *)
+  - exact None.
+  - exact None.
+  - exact None.
+  - exact None.
+Defined.
 
 (*
   `apply_proj_elem` is a function that applies a projection operation to a
@@ -875,6 +974,7 @@ Inductive step_config: Operator → config → config → Prop :=
                          (normalize_is_normalized _ _ _ prop) Γ p →
                     ⟨ s1 Γ β e p ⟩ =[ operator_project ℓ o]=> config_error
 where "c1 '=[' o ']=>' c2" := (step_config o c1 c2).
+Hint Constructors step_config: core.
 
 Example simple_project_list := project ((simple_atomic_expression_column 0, "foo"%string) :: nil).
 Example simple_project_list_res := normalize_project_list sample_schema simple_project_list.
