@@ -544,19 +544,49 @@ match n with
   | S n' => t :: tuple_of_length_n s n' t
   end.
 
-(* TODO: Refine input and output? *)
+(*
+  @param bt The base type of the cell.
+  @param f The unary function to be applied.
+  @param arg A tuple containing the cell value and its index.
+  @param Γ The policy context.
+  @param p The provenance context.
+  @return An optional tuple containing the result of applying the unary function to the cell
+          value, the updated policy context, and the updated provenance context.
+
+  This function applies a unary function to a cell in a relation. If the unary function can
+  be successfully applied, it returns a tuple containing the result of the function applica-
+  tion, the updated policy context, and the updated provenance context. If the unary function
+  cannot be applied (for example, if the function is not defined for the base type of the
+  cell), the function returns `None`.
+*)
 Definition apply_unary_function_in_cell  bt (f: unary_func) (arg: type_to_coq_type bt * nat)
                                          (Γ: Policy.context) (p: prov_ctx)
-  : (type_to_coq_type bt * nat) * Policy.context * prov_ctx. Admitted.
+  : option (type_to_coq_type bt * Policy.context * prov_ctx) :=
+  match arg with
+  | (val, id) =>
+    (* We need to first check the policy labels. *)
+    match Policy.label_lookup id Γ with
+    | None => None
+    | Some pe =>
+      match pe with
+      | (true, _) => (* TODO *)
+      | (false, pe) =>
+        match pe with
+        |
+        end
+      end
+    end
+  end.
 
-(** 
+(*
   @param ty A tuple containing a type and a name.
   @param r The relation, which is a list of tuples where each tuple contains a single type.
   @param Γ The policy context.
   @param p The proof context.
   @return An optional tuple containing the relation, the policy context, and the proof context.
 
-  This function does the actual function application.
+  This function does the actual function application on a relation containing only one column on
+  which the unary function should be applied.
 *)
 Fixpoint do_apply_unary_function ty (f: unary_func) (r: relation (ty :: nil))
                                     (Γ: Policy.context) (p: prov_ctx)
@@ -569,11 +599,24 @@ refine (
 ).
   destruct ty as [bt name]. simpl in *.
   destruct t as [cell _].
+  (* We obtain the current value as well as updated contexts. *)
   pose (apply_unary_function_in_cell bt f cell Γ p) as cell'.
-  destruct do_apply_unary_function.
-  specialize do_apply_unary_function with (ty := ty) (f := f) (r := r') (Γ := Γ) (p := p).
+  destruct cell' as [ [ [cell' Γ_cur ] p_cur] |].
+  - (* Some *)
+    specialize do_apply_unary_function with (ty := (bt, name)) (f := f) (r := r') (Γ := Γ_cur) (p := p_cur).
+    rename do_apply_unary_function into tl. clear Γ. clear p. clear r'. clear r.
 
-Admitted.
+    destruct tl as [tl|].
+    + (* Some *)
+      destruct tl as [ [r' Γ'] p' ].
+      (* We lift cell into a tuple. *)
+      pose ((cell', (snd cell)), tt) as hd.
+      exact (Some (hd :: r', Γ', p')).
+    + (* None *)
+      exact None.
+  - (* None *)
+    exact None.
+Defined.
 
 (*
   @param s The schema, which is a list of tuples where each tuple contains a type and a name.

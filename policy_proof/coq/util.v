@@ -1,5 +1,7 @@
 Require Import Lia.
 Require Import List.
+Require Import ListSet.
+Require Import RelationClasses.
 Require Import String.
 Require Import Unicode.Utf8.
 
@@ -204,3 +206,56 @@ Proof.
   - reflexivity.
   - simpl. rewrite IHl1. reflexivity.
 Defined.
+
+Definition set_eq {A: Type} (ℓ ℓ': set A) : Prop :=
+  ∀ a, set_In a ℓ ↔ set_In a ℓ'.
+
+Global Instance set_eq_equiv: ∀ A: Type, Equivalence (@set_eq A).
+Proof.
+  intros.
+  split.
+  - unfold Reflexive. intros. unfold set_eq. intros. reflexivity.
+  - unfold Symmetric. intros. unfold set_eq in *. intros. rewrite H. reflexivity.
+  - unfold Transitive. intros. unfold set_eq in *. intros. rewrite H, H0. reflexivity.
+Defined.
+
+Lemma set_inter_nil: ∀ (A: Type) (dec: ∀ (a1 a2: A), {a1 = a2} + {a1 ≠ a2}) (ℓ: set A),
+  set_eq (set_inter dec ℓ nil) nil.
+Proof.
+  unfold set_eq. intros.
+  induction ℓ.
+  - simpl. split; auto.
+  - intuition.
+Qed.
+
+Lemma set_inter_comm_in: ∀ (A: Type) (dec: ∀ (a1 a2: A), {a1 = a2} + {a1 ≠ a2}) (ℓ ℓ': set A) (a: A),
+  set_In a (set_inter dec ℓ ℓ') ↔ set_In a (set_inter dec ℓ' ℓ).
+Proof.
+  intros. split; intros.
+  - apply set_inter_elim in H. destruct H. apply set_inter_intro; assumption.
+  - apply set_inter_elim in H. destruct H. apply set_inter_intro; assumption.
+Qed.
+
+Lemma set_inter_refl_in: ∀ (A: Type) (dec: ∀ (a1 a2: A), {a1 = a2} + {a1 ≠ a2}) (ℓ: set A) (a: A),
+  set_In a (set_inter dec ℓ ℓ) ↔ set_In a ℓ.
+Proof.
+  intros. split; intros.
+  - apply set_inter_elim in H. destruct H. assumption.
+  - apply set_inter_intro; assumption.
+Qed.
+
+Lemma set_union_comm_in: ∀ (A: Type) (dec: ∀ (a1 a2: A), {a1 = a2} + {a1 ≠ a2}) (ℓ ℓ': set A) (a: A),
+  set_In a (set_union dec ℓ ℓ') ↔ set_In a (set_union dec ℓ' ℓ).
+Proof.
+  intros. split; intros.
+  - apply set_union_elim in H. destruct H; apply set_union_intro; intuition.
+  - apply set_union_elim in H. destruct H; apply set_union_intro; intuition.
+Qed.
+
+Lemma set_union_refl_in: ∀ (A: Type) (dec: ∀ (a1 a2: A), {a1 = a2} + {a1 ≠ a2}) (ℓ: set A) (a: A),
+  set_In a (set_union dec ℓ ℓ) ↔ set_In a ℓ.
+Proof.
+  intros. split; intros.
+  - apply set_union_elim in H. destruct H; assumption.
+  - apply set_union_intro. intuition.
+Qed.

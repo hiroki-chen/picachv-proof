@@ -11,6 +11,8 @@ Require Import Unicode.Utf8.
 
 Require Import ordering.
 
+(* We use natural numbers for the float representation for the time being, which simplifies reasoning. *)
+Definition dp_param := (nat * nat)%type.
 (* Note that these operators are not designed to be exhaustive. *)
 (* Logical connections. *)
 Inductive LogOp: Type := And | Or.
@@ -26,6 +28,16 @@ Inductive UnOp: Type :=
   | Strlen
   | Lower
   | Upper
+.
+
+Inductive TransOp: Type :=
+  | unary_trans_op: UnOp → TransOp
+  | binary_trans_op: BinOp → TransOp
+.
+
+Inductive AggOp: Type := Max | Min | Sum | Avg | Count.
+Inductive NoiseOp: Type :=
+  | differential_privacy: dp_param → NoiseOp
 .
 
 (* Basic types in our column types. *)
@@ -138,4 +150,31 @@ Proof.
   induction s.
   - auto.
   - simpl. destruct a. rewrite <- IHs. auto.
+Qed.
+
+Lemma unop_dec: ∀ (op1 op2: UnOp), {op1 = op2} + {op1 ≠ op2}.
+Proof.
+  intros.
+  destruct op1, op2; try (destruct (eq_nat_dec n n0)); try (right; discriminate); try (left; congruence).
+  right. unfold not in *. intros. inversion H. exfalso. auto.
+Qed.
+
+Lemma binop_dec: ∀ (op1 op2: BinOp), {op1 = op2} + {op1 ≠ op2}.
+Proof.
+  intros.
+  destruct op1, op2; try (right; discriminate); try (left; congruence).
+Qed.
+
+Lemma transop_dec: ∀ (op1 op2: TransOp), {op1 = op2} + {op1 ≠ op2}.
+Proof.
+  intros.
+  destruct op1, op2; try (destruct (unop_dec u u0)); try (destruct (binop_dec b b0));
+  try (right; discriminate); try (left; congruence);
+  unfold not in *; right; intros; apply n; inversion H; auto.
+Qed.
+
+Lemma aggop_dec: ∀ (op1 op2: AggOp), {op1 = op2} + {op1 ≠ op2}.
+Proof.
+  intros.
+  destruct op1, op2; try (right; discriminate); try (left; congruence).
 Qed.

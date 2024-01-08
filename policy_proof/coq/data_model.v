@@ -1,6 +1,7 @@
 Require Import Arith.
 Require Import Lia.
 Require Import List.
+Require Import ListSet.
 Require Import RelationClasses.
 Require Import SetoidDec.
 Require Import SetoidClass.
@@ -13,143 +14,201 @@ Require Import types.
 Require Import util.
 
 Module Policy.
-(* For now, the policy is just a placeholder. *)
-(* TODO: Wrap more information? *)
-Inductive policy : Set :=
-  | policy_bot : policy
-  (* Should be something like `pred → policy` *)
-  | policy_select: policy
-  | policy_transform: policy
-  | policy_agg: policy
-  | policy_noise: policy
-  | policy_top : policy
-  .
+(*
+  The `policy_label` inductive type represents the different types of policies that can be
+  applied to data in the data model. Each policy_label can be applied to a cell in a rela-
+  tion, and the effect of the policy_label depends on its type.
+*)
+Inductive policy_label : Type :=
+  | policy_bot : policy_label
+  (* Should be something like `pred → policy_label` *)
+  | policy_select: policy_label
+  | policy_transform: set TransOp → policy_label
+  | policy_agg: set AggOp → policy_label
+  | policy_noise: NoiseOp → policy_label
+  | policy_top : policy_label
+.
 
-(* Joins two policy labels. *)
-Definition policy_join (lhs rhs: policy): policy :=
+(*
+  The `policy` inductive type represents the different types of policies that can be applied
+  to data in the data model. Each policy can be applied to a cell in a relation, and the effect
+  of the policy depends on its type.
+*)
+Inductive policy: Type :=
+  | policy_atomic: policy_label → policy
+  | policy_declass: policy_label → policy → policy
+.
+
+(* Joins two policy_label labels. *)
+Definition policy_label_join (lhs rhs: policy_label): policy_label :=
   match lhs, rhs with
-    | Policy.policy_bot, _ => rhs
-    | _, Policy.policy_bot => lhs
+    | policy_top, _ => lhs
+    | _, policy_top => rhs
+    | policy_bot, _ => rhs
+    | _, policy_bot => lhs
     | policy_select, policy_select => lhs
-    | policy_select, policy_transform => rhs
-    | policy_select, policy_agg => rhs
-    | policy_select, policy_noise => rhs
-    | policy_transform, policy_select => lhs
-    | policy_transform, policy_transform => lhs
-    | policy_transform, policy_agg => rhs
-    | policy_transform, policy_noise => rhs
-    | policy_agg, policy_select => lhs
-    | policy_agg, policy_transform => lhs
-    | policy_agg, policy_agg => lhs
-    | policy_agg, policy_noise => rhs
-    | policy_noise, policy_select => lhs
-    | policy_noise, policy_transform => lhs
-    | policy_noise, policy_agg => lhs
-    | policy_noise, policy_noise => lhs
-    | _, _ => policy_top
+    | policy_select, policy_transform _ => lhs
+    | policy_select, policy_agg _ => lhs
+    | policy_select, policy_noise _ => lhs
+    | policy_transform _, policy_select => rhs
+    | policy_transform ℓ1, policy_transform ℓ2 => policy_transform (set_inter transop_dec ℓ1 ℓ2)
+    | policy_transform _, policy_agg _ => lhs
+    | policy_transform _, policy_noise _ => lhs
+    | policy_agg _, policy_select => rhs
+    | policy_agg _, policy_transform _ => rhs
+    | policy_agg ℓ1, policy_agg ℓ2 => policy_agg (set_inter aggop_dec ℓ1 ℓ2)
+    | policy_agg _, policy_noise _ => lhs
+    | policy_noise _, policy_select => rhs
+    | policy_noise _, policy_transform _ => rhs
+    | policy_noise _, policy_agg _ => rhs
+    | policy_noise p1, policy_noise p2 =>
+        match p1, p2 with
+          | differential_privacy (ε1, δ1), differential_privacy (ε2, δ2) =>
+              let ε := min ε1 ε2 in
+              let δ := min δ1 δ2 in
+                policy_noise (differential_privacy (ε, δ))
+        end
   end.
 
-Definition policy_option_join (lhs rhs: option policy): option policy :=
-  match lhs, rhs with
-    | None, _ => rhs
-    | _, None => lhs
-    | Some lhs', Some rhs' => Some (policy_join lhs' rhs')
-  end.
-
-(* Meets two policy labels. *)
-Definition policy_meet (lhs rhs: policy): policy :=
+(* Meets two policy_label labels. *)
+Definition policy_meet (lhs rhs: policy_label): policy_label :=
   match lhs, rhs with
     | policy_top, _ => rhs
     | _, policy_top => lhs
-    | Policy.policy_bot, _ => Policy.policy_bot
-    | _, Policy.policy_bot => Policy.policy_bot
+    | policy_bot, _ => lhs
+    | _, policy_bot => rhs
     | policy_select, policy_select => lhs
-    | policy_select, policy_transform => lhs
-    | policy_select, policy_agg => lhs
-    | policy_select, policy_noise => lhs
-    | policy_transform, policy_select => rhs
-    | policy_transform, policy_transform => lhs
-    | policy_transform, policy_agg => lhs
-    | policy_transform, policy_noise => lhs
-    | policy_agg, policy_select => rhs
-    | policy_agg, policy_transform => rhs
-    | policy_agg, policy_agg => lhs
-    | policy_agg, policy_noise => lhs
-    | policy_noise, policy_select => rhs
-    | policy_noise, policy_transform => rhs
-    | policy_noise, policy_agg => rhs
-    | policy_noise, policy_noise => lhs
+    | policy_select, policy_transform _ => rhs
+    | policy_select, policy_agg _ => rhs
+    | policy_select, policy_noise _ => rhs
+    | policy_transform _, policy_select => lhs
+    | policy_transform ℓ1, policy_transform ℓ2 => policy_transform (set_union transop_dec ℓ1 ℓ2)
+    | policy_transform _, policy_agg _ => rhs
+    | policy_transform _, policy_noise _ => rhs
+    | policy_agg _, policy_select => lhs
+    | policy_agg _, policy_transform _ => lhs
+    | policy_agg ℓ1, policy_agg ℓ2 => policy_agg (set_union aggop_dec ℓ1 ℓ2)
+    | policy_agg _, policy_noise _ => rhs
+    | policy_noise _, policy_select => lhs
+    | policy_noise _, policy_transform _ => lhs
+    | policy_noise _, policy_agg _ => lhs
+    | policy_noise p1, policy_noise p2 =>
+        match p1, p2 with
+          | differential_privacy (ε1, δ1), differential_privacy (ε2, δ2) =>
+              let ε := max ε1 ε2 in
+              let δ := max δ1 δ2 in
+                policy_noise (differential_privacy (ε, δ))
+        end
   end.
 
-Definition policy_option_meet (lhs rhs: option policy): option policy :=
+Definition policy_option_meet (lhs rhs: option policy_label): option policy_label :=
   match lhs, rhs with
     | None, _ => None
     | _, None => None
     | Some lhs', Some rhs' => Some (policy_meet lhs' rhs')
   end.
 
-(* Returns the top policy label. *)
+Definition policy_eq (lhs rhs: policy_label): Prop :=
+  match lhs, rhs with
+  | policy_top, policy_top => True
+  | policy_bot, policy_bot => True
+  | policy_select, policy_select => True
+  | policy_transform ℓ1, policy_transform ℓ2 => set_eq ℓ1 ℓ2
+  | policy_agg ℓ1, policy_agg ℓ2 => set_eq ℓ1 ℓ2
+  | policy_noise p1, policy_noise p2 =>
+      match p1, p2 with
+        | differential_privacy (ε1, δ1), differential_privacy (ε2, δ2) =>
+            ε1 = ε2 ∧ δ1 = δ2
+      end
+  | _, _ => False
+  end.
 
-Definition policy_eq (lhs rhs: policy): Prop :=
-  lhs = rhs.
-Definition policy_option_eq (lhs rhs: option policy): Prop :=
+Definition policy_option_eq (lhs rhs: option policy_label): Prop :=
   match lhs, rhs with
     | None, None => True
     | Some lhs', Some rhs' => policy_eq lhs' rhs'
     | _, _ => False
   end.
 
-Definition policy_eq_eqv: Equivalence policy_eq.
-  constructor.
-  - unfold Reflexive. intros. reflexivity.
-  - unfold Symmetric. intros. induction H. reflexivity.
-  - unfold Transitive. intros. induction H. assumption.
+Global Instance policy_eq_eqv: Equivalence (@policy_eq).
+  constructor; unfold policy_eq.
+  - unfold Reflexive. intros. destruct x; try reflexivity.
+    destruct n. destruct d. auto.
+  - unfold Symmetric. intros. destruct x; destruct y; try reflexivity; try contradiction;
+    try symmetry; auto.
+    destruct n0, n, d, d0. intuition.
+  - unfold Transitive. intros. destruct x; destruct y; try transitivity; try contradiction;
+    try symmetry; auto; try destruct z; try contradiction; try eapply transitivity; eauto.
+    destruct n0, n, n1, d, d0, d1. intuition; subst; auto.
 Defined.
 
 Definition policy_option_eq_eqv: Equivalence policy_option_eq.
 refine (
   @Build_Equivalence _ _ _ _ _
 ).
-  - unfold Reflexive. intros. unfold policy_option_eq.
+  - unfold Reflexive, policy_eq. intros. unfold policy_option_eq.
     destruct x; try reflexivity.
-  - unfold Symmetric. intros. unfold policy_option_eq in *.
+  - unfold Symmetric, policy_eq. intros. unfold policy_option_eq in *.
     destruct x; destruct y; try reflexivity; try contradiction.
     apply policy_eq_eqv. assumption.
   - unfold Transitive. intros. induction x; induction y; induction z; try intuition auto with *.
     simpl in *. eapply transitivity; eassumption.
 Defined.
 
-Lemma policy_join_comm: ∀ (lhs rhs: policy),
-  policy_join lhs rhs = policy_join rhs lhs.
+Lemma policy_join_comm: ∀ (lhs rhs: policy_label),
+  policy_eq (policy_label_join lhs rhs) (policy_label_join rhs lhs).
 Proof.
-  intros. destruct lhs; destruct rhs; reflexivity.
+  intros. destruct lhs; destruct rhs; simpl; try reflexivity.
+  - destruct n, d. intuition.
+  - unfold set_eq. intros. apply set_inter_comm_in.
+  - unfold set_eq. intros. apply set_inter_comm_in.
+  - destruct n, d. intuition.
+  - destruct n, n0, d, d0. unfold policy_eq. simpl.
+    assert (min n n1 = min n1 n) by lia.
+    assert (min n0 n2 = min n2 n0) by lia.
+    rewrite H. rewrite H0. intuition.
 Qed.
 
-Lemma policy_meet_comm: ∀ (lhs rhs: policy),
-  policy_meet lhs rhs = policy_meet rhs lhs.
+Lemma policy_meet_comm: ∀ (lhs rhs: policy_label),
+  policy_eq (policy_meet lhs rhs) (policy_meet rhs lhs).
 Proof.
-  intros. destruct lhs; destruct rhs; reflexivity.
+  intros. destruct lhs; destruct rhs; simpl; try reflexivity.
+  - destruct n, d. intuition.
+  - unfold set_eq. intros. apply set_union_comm_in.
+  - destruct n, d. intuition.
+  - unfold set_eq. intros. apply set_union_comm_in.
+  - destruct n, d. intuition.
+  - destruct n, d. intuition.
+  - destruct n, d. intuition.
+  - destruct n, d. intuition.
+  - destruct n, n0, d, d0. unfold policy_eq. simpl.
+    assert (max n n1 = max n1 n) by lia.
+    assert (max n0 n2 = max n2 n0) by lia.
+    rewrite H. rewrite H0. intuition.
+  - destruct n, d. intuition.
+  - destruct n, d. intuition.
 Qed.
 
-Lemma policy_join_absorp: ∀ (lhs rhs: policy),
-  policy_join lhs (policy_meet lhs rhs) = lhs.
+Lemma policy_join_absorp: ∀ (lhs rhs: policy_label),
+  policy_eq (policy_label_join lhs (policy_meet lhs rhs)) lhs.
 Proof.
-  intros. destruct lhs; destruct rhs; reflexivity.
+  intros. destruct lhs; destruct rhs; simpl; try reflexivity.
+  
 Qed.
 
-Lemma policy_join_assoc: ∀ (a b c: policy),
-  policy_join a (policy_join b c) = policy_join (policy_join a b) c.
+Lemma policy_join_assoc: ∀ (a b c: policy_label),
+  policy_label_join a (policy_label_join b c) = policy_label_join (policy_label_join a b) c.
 Proof.
   intros. destruct a; destruct b; destruct c; reflexivity.
 Qed.
 
-Lemma policy_meet_assoc: ∀ (a b c: policy),
+Lemma policy_meet_assoc: ∀ (a b c: policy_label),
   policy_meet a (policy_meet b c) = policy_meet (policy_meet a b) c.
 Proof.
   intros. destruct a; destruct b; destruct c; reflexivity.
 Qed.
 
-Global Instance policy_lattice: lattice policy.
+Global Instance policy_lattice: lattice policy_label.
   econstructor.
   - eapply policy_eq_eqv.
   - intros. eapply policy_meet_comm.
@@ -171,13 +230,13 @@ Global Instance policy_lattice: lattice policy.
 Defined.
 Hint Resolve policy_lattice : typeclass_instances.
 
-Global Instance policy_setoid: Setoid policy.
+Global Instance policy_setoid: Setoid policy_label.
 refine (
-  @Build_Setoid policy policy_eq policy_eq_eqv
+  @Build_Setoid policy_label policy_eq policy_eq_eqv
 ).
 Defined.
 
-Definition policy_lt (lhs rhs: policy): Prop :=
+Definition policy_lt (lhs rhs: policy_label): Prop :=
   flowsto lhs rhs ∧ lhs =/= rhs.
 
 Global Instance policy_lt_trans: Transitive policy_lt.
@@ -186,9 +245,9 @@ Global Instance policy_lt_trans: Transitive policy_lt.
   unfold "⊑" in *; simpl in *; unfold complement, policy_eq in *; intros; try inversion H0.
 Defined.
 
-Global Instance policy_ordered: Ordered policy.
+Global Instance policy_ordered: Ordered policy_label.
 refine (
-  @Build_Ordered policy policy_setoid policy_lt policy_lt_trans _ _
+  @Build_Ordered policy_label policy_setoid policy_lt policy_lt_trans _ _
 ).
   - intros. simpl. unfold complement, policy_eq, policy_lt in *. intuition auto with *.
   - intros. destruct lhs; destruct rhs.
@@ -260,9 +319,9 @@ refine (
     + apply OrderedType.EQ. apply policy_eq_eqv.
 Defined.
 
-(* The active policy context. *)
-(* release policy: option policy *)
-Definition policy_encoding := (bool * (policy * option policy))%type.
+(* The active policy_label context. *)
+(* release policy_label: option policy_label *)
+Definition policy_encoding := (bool * (policy_label * option policy_label))%type.
 Definition context := list (nat * policy_encoding)%type.
 Definition can_release (p: policy_encoding): Prop := 
   match p with
@@ -276,7 +335,7 @@ Definition can_release (p: policy_encoding): Prop :=
 
 Definition cannot_release (p: policy_encoding): Prop := ~ can_release p.
  
-(* Lookup the policy context and check if the cell has been associated with an active policy. *)
+(* Lookup the policy_label context and check if the cell has been associated with an active policy_label. *)
 (* FIXME: Is there a need to ensure that the return value is always `Some`? *)
 Fixpoint label_lookup (id: nat) (ctx: context): option policy_encoding :=
   match ctx with
@@ -563,13 +622,13 @@ Proof.
   unfold Proper, respectful. intros. rewrite H. reflexivity.
 Qed.
 
-(* Without `policy` extracted! *)
+(* Without `policy_label` extracted! *)
 Definition nth_np: ∀ (ty: tuple_type) (n: nat) (extract: n < List.length ty), basic_type.
   intros.
   exact (nth ty n extract).
 Defined.
 
-(* Without `policy` extracted! *)
+(* Without `policy_label` extracted! *)
 Definition nth_col_tuple_np: ∀ (ty: tuple_type) (n : nat) (extract: n < List.length ty), tuple ty → tuple_np ((nth_np ty n extract) :: nil).
 refine (
   fix nth_col_tuple_np' (ty: tuple_type) (n : nat): ∀ (extract: n < List.length ty),
