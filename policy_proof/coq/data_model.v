@@ -1,4 +1,5 @@
 Require Import Arith.
+Require Import Decidable.
 Require Import Lia.
 Require Import List.
 Require Import ListSet.
@@ -160,8 +161,8 @@ Lemma policy_join_comm: ∀ (lhs rhs: policy_label),
 Proof.
   intros. destruct lhs; destruct rhs; simpl; try reflexivity.
   - destruct n, d. intuition.
-  - unfold set_eq. intros. apply set_inter_comm_in.
-  - unfold set_eq. intros. apply set_inter_comm_in.
+  - unfold set_eq. intros. split; apply set_inter_comm_in.
+  - unfold set_eq. intros. split; apply set_inter_comm_in.
   - destruct n, d. intuition.
   - destruct n, n0, d, d0. unfold policy_eq. simpl.
     assert (min n n1 = min n1 n) by lia.
@@ -174,9 +175,9 @@ Lemma policy_meet_comm: ∀ (lhs rhs: policy_label),
 Proof.
   intros. destruct lhs; destruct rhs; simpl; try reflexivity.
   - destruct n, d. intuition.
-  - unfold set_eq. intros. apply set_union_comm_in.
+  - unfold set_eq. intros. split; apply set_union_comm_in.
   - destruct n, d. intuition.
-  - unfold set_eq. intros. apply set_union_comm_in.
+  - unfold set_eq. intros. split; apply set_union_comm_in.
   - destruct n, d. intuition.
   - destruct n, d. intuition.
   - destruct n, d. intuition.
@@ -192,20 +193,39 @@ Qed.
 Lemma policy_join_absorp: ∀ (lhs rhs: policy_label),
   policy_eq (policy_label_join lhs (policy_meet lhs rhs)) lhs.
 Proof.
-  intros. destruct lhs; destruct rhs; simpl; try reflexivity.
-  
+  intros. destruct lhs; destruct rhs; simpl; try reflexivity; try unfold set_eq; intros;
+  try rewrite set_inter_refl_in; intuition; auto with *;
+  try (apply set_inter_elim in H; destruct H; assumption);
+  try (apply set_inter_intro; intuition);
+  try (apply set_union_elim in H; destruct H; assumption).
+  try (apply set_union_intro; intuition).
+  - apply set_union_intro. intuition.
+  - destruct n, d. intuition.
+  - destruct n, d. simpl. lia.
+  - destruct n, d. simpl. lia.
+  - destruct n, d. simpl. lia.
+  - destruct n, n0, d, d0. simpl. split; lia.
+  - destruct n, d. simpl. lia.
 Qed.
 
 Lemma policy_join_assoc: ∀ (a b c: policy_label),
-  policy_label_join a (policy_label_join b c) = policy_label_join (policy_label_join a b) c.
+  policy_eq (policy_label_join a (policy_label_join b c)) (policy_label_join (policy_label_join a b) c).
 Proof.
-  intros. destruct a; destruct b; destruct c; reflexivity.
+  intros. destruct a; destruct b; destruct c; try reflexivity;
+  try (destruct n, n0, n1, n2, d, d0, d1, d2; simpl; intuition; lia);
+  try (destruct n, n0, d, d0; auto); simpl; auto;
+  try (apply set_inter_assoc_in; auto); try reflexivity.
+  destruct n1, d. simpl. intuition; lia.
 Qed.
 
 Lemma policy_meet_assoc: ∀ (a b c: policy_label),
-  policy_meet a (policy_meet b c) = policy_meet (policy_meet a b) c.
+  policy_eq (policy_meet a (policy_meet b c)) (policy_meet (policy_meet a b) c).
 Proof.
-  intros. destruct a; destruct b; destruct c; reflexivity.
+  intros. destruct a; destruct b; destruct c; simpl; try reflexivity;
+  try (destruct n, d; lia); try (destruct n, n0, d, d0; auto with *);
+  try (destruct n, n0, n1, n2, d, d0, d1, d2; simpl; intuition; lia);
+  try (apply set_union_assoc_in; auto); try reflexivity.
+  destruct n1, d. simpl. intuition; lia.
 Qed.
 
 Global Instance policy_lattice: lattice policy_label.
@@ -216,19 +236,72 @@ Global Instance policy_lattice: lattice policy_label.
   - intros. eapply policy_join_assoc.
   - intros. eapply policy_join_absorp.
   - intros. eapply policy_meet_assoc.
-  - intros. simpl. destruct a; destruct b; reflexivity.
-  - intros. instantiate (1:=Policy.policy_bot). simpl. apply policy_eq_eqv. 
+  - intros. simpl. destruct a; destruct b; simpl;
+    try (apply set_union_refl_in);
+    try reflexivity;
+    try (destruct n, d; simpl; lia);
+    try (destruct n0, d; simpl; lia).
+    + unfold set_eq. intros. split; intros.
+      * apply set_union_elim in H; destruct H. auto. apply set_inter_elim in H. destruct H. auto.
+      * apply set_union_intro. left. assumption.
+    + unfold set_eq. intros. split; intros.
+      * apply set_union_elim in H; destruct H. auto. apply set_inter_elim in H. destruct H. auto.
+      * apply set_union_intro. left. assumption.
+    + destruct n, n0, d, d0. simpl. lia.
+  - intros. instantiate (1:=Policy.policy_bot). simpl. apply policy_eq_eqv. destruct a; reflexivity.
   - intros. instantiate (1:=policy_top). simpl. induction a; reflexivity.
   - intros. simpl. induction a; reflexivity.
   - intros. simpl. reflexivity.
   - intros. simpl in *.
-    destruct x1; destruct x2; destruct y1; destruct y2; simpl; apply policy_eq_eqv; try inversion H0; try inversion H.
+    destruct x1; destruct x2; destruct y1; destruct y2; simpl; try apply policy_eq_eqv; try inversion H0; try inversion H; auto; simpl in *; unfold set_eq in *; intros; (try split; intros).
+    + apply set_inter_intro; destruct H, H0.
+      * apply H. apply set_inter_elim in H5. intuition.
+      * apply H0. apply set_inter_elim in H5. intuition.
+    + destruct H, H0. apply set_inter_elim in H5. apply set_inter_intro.
+      * apply H6. intuition.
+      * apply H2. intuition.
+    + apply set_inter_elim in H5. apply set_inter_intro; destruct H, H0.
+      * apply H. intuition.
+      * apply H0. intuition.
+    + apply set_inter_intro.
+      * apply set_inter_elim in H5. destruct H5. apply H. auto.
+      * apply set_inter_elim in H5. destruct H5. apply H0. auto.
+    + destruct n, n1, n0, n2, d, d0, d1, d2. simpl in *. split; lia.
   - intros. simpl in *.
-    destruct x1; destruct x2; destruct y1; destruct y2; simpl; apply policy_eq_eqv; try inversion H0; try inversion H.
-  - intros. simpl in *. destruct x; destruct y; destruct z; simpl; apply policy_eq_eqv; try inversion H0; try inversion H.
-  - intros. simpl in *. destruct x; destruct y; destruct z; simpl; apply policy_eq_eqv; try inversion H0; try inversion H.  
+    destruct x1; destruct x2; destruct y1; destruct y2; simpl; try apply policy_eq_eqv; try inversion H0; try inversion H; auto; simpl in *; unfold set_eq in *; intros; (try split; intros).
+    + apply set_union_intro.
+      apply set_union_elim in H5. destruct H5. left. apply H. assumption. right. apply H0. assumption.
+    + apply set_union_intro.
+      apply set_union_elim in H5. destruct H5. left. apply H. assumption. right. apply H0. assumption.
+    + apply set_union_intro.
+      apply set_union_elim in H5. destruct H5. left. apply H. assumption. right. apply H0. assumption.
+    + apply set_union_intro.
+      apply set_union_elim in H5. destruct H5. left. apply H. assumption. right. apply H0. assumption.
+    + destruct n, n1, n0, n2, d, d0, d1, d2. simpl in *. split; lia.
+  - intros. simpl in *. destruct x; destruct y; destruct z; simpl; try apply policy_eq_eqv;
+    try inversion H0; try inversion H; simpl in *; unfold set_eq in *; intros; (try split; intros); auto.
+    + apply set_inter_elim in H5. destruct H5. assumption.
+    + apply set_inter_intro.
+      * apply H in H5. apply H0 in H5. apply set_inter_elim in H5. destruct H5. assumption.
+      * assumption.
+    + apply set_inter_elim in H5. destruct H5. assumption.
+    + apply set_inter_intro.
+      * apply H in H5. apply H0 in H5. apply set_inter_elim in H5. destruct H5. assumption.
+      * assumption.
+    + destruct n, n0, d, d0; lia.
+    + destruct n, n0, n1, d, d0, d1; simpl in *; lia.
+  - intros. simpl in *. destruct x; destruct y; destruct z; simpl; try apply policy_eq_eqv;
+    try inversion H0; try inversion H; simpl in *; unfold set_eq in *; intros; (try split; intros); auto.
+    + apply set_inter_elim in H5. destruct H5. assumption.
+    + apply set_inter_intro.
+      * apply H0 in H5. apply set_inter_elim in H5. destruct H5. apply H in H5. assumption.
+      * assumption.
+    + apply set_inter_elim in H5. destruct H5. assumption.
+    + apply set_inter_intro.
+      * apply H0 in H5. apply set_inter_elim in H5. destruct H5. apply H in H5. assumption.
+      * assumption.
+    + destruct n, n0, n1, d, d0, d1; simpl in *; lia.
 Defined.
-Hint Resolve policy_lattice : typeclass_instances.
 
 Global Instance policy_setoid: Setoid policy_label.
 refine (
@@ -238,98 +311,210 @@ Defined.
 
 Definition policy_lt (lhs rhs: policy_label): Prop :=
   flowsto lhs rhs ∧ lhs =/= rhs.
+Definition policy_le (lhs rhs: policy_label): Prop :=
+  flowsto lhs rhs.
+Notation "x ≺ y" := (policy_lt x y) (at level 10, no associativity).
+Notation "x ⪯ y" := (policy_le x y) (at level 10, no associativity).
 
 Global Instance policy_lt_trans: Transitive policy_lt.
   unfold Transitive.
   intros. destruct x; destruct y; destruct z; unfold policy_lt in *; intuition auto with *;
-  unfold "⊑" in *; simpl in *; unfold complement, policy_eq in *; intros; try inversion H0.
-Defined.
+  unfold "⊑" in *; simpl in *; unfold complement, policy_eq in *; intros; try inversion H0;
+  auto with *. 
+  - destruct n, n0, d, d0. simpl. lia.
+  - assert (s0 ⊂ s).
+    {
+      red. split; red.
+      - intros.  unfold set_eq in H1. destruct H1. apply H4 in H0.
+        apply set_inter_elim in H0. intuition.
+      - intros. apply H2. symmetry. auto.
+    }
+    assert (s1 ⊂ s0).
+    {
+      red. split; red.
+      - intros.  unfold set_eq in H. destruct H. apply H5 in H4.
+        apply set_inter_elim in H4. intuition.
+      - intros. apply H3. symmetry. auto.
+    }
+    assert (s1 ⊂ s) by (eapply transitivity; eauto).
+    red in H5. destruct H5.
+    red in H6.
+    red. split; intros.
+    + apply set_inter_elim in H7. intuition.
+    + apply set_inter_intro. 
+      * red in H5. apply H5. assumption.
+      * assumption.
+  - assert (s0 ⊂ s).
+    {
+      red. split; red.
+      - intros. unfold set_eq in H1. destruct H1. apply H7 in H6.
+        apply set_inter_elim in H6. intuition.
+      - intros. apply H2. symmetry. auto.
+    }
+    assert (s1 ⊂ s0).
+    {
+      red. split; red.
+      - intros. unfold set_eq in H. destruct H. apply H8 in H7.
+        apply set_inter_elim in H7. intuition.
+      - intros. apply H3. symmetry. auto.
+    }
+    assert (s1 ⊂ s) by (eapply transitivity; eauto).
+    red in H8. destruct H8. red in H9.
+    apply H9. symmetry. assumption.
+  - assert (s0 ⊂ s).
+    {
+      red. split; red.
+      - intros.  unfold set_eq in H1. destruct H1. apply H4 in H0.
+        apply set_inter_elim in H0. intuition.
+      - intros. apply H2. symmetry. auto.
+    }
+    assert (s1 ⊂ s0).
+    {
+      red. split; red.
+      - intros.  unfold set_eq in H. destruct H. apply H5 in H4.
+        apply set_inter_elim in H4. intuition.
+      - intros. apply H3. symmetry. auto.
+    }
+    assert (s1 ⊂ s) by (eapply transitivity; eauto).
+    red in H5. destruct H5.
+    red in H6.
+    red. split; intros.
+    + apply set_inter_elim in H7. intuition.
+    + apply set_inter_intro. 
+      * red in H5. apply H5. assumption.
+      * assumption.
+  - assert (s0 ⊂ s).
+    {
+      red. split; red.
+      - intros. unfold set_eq in H1. destruct H1. apply H7 in H6.
+        apply set_inter_elim in H6. intuition.
+      - intros. apply H2. symmetry. auto.
+    }
+    assert (s1 ⊂ s0).
+    {
+      red. split; red.
+      - intros. unfold set_eq in H. destruct H. apply H8 in H7.
+        apply set_inter_elim in H7. intuition.
+      - intros. apply H3. symmetry. auto.
+    }
+    assert (s1 ⊂ s) by (eapply transitivity; eauto).
+    red in H8. destruct H8. red in H9.
+    apply H9. symmetry. assumption.
+  - destruct n, n0, n1, d, d0, d1. simpl in *. intuition; lia.
+  - destruct n, n0, n1, d, d0, d1. simpl in *. intuition; lia.
+Qed.
 
-Global Instance policy_ordered: Ordered policy_label.
-refine (
-  @Build_Ordered policy_label policy_setoid policy_lt policy_lt_trans _ _
-).
-  - intros. simpl. unfold complement, policy_eq, policy_lt in *. intuition auto with *.
-  - intros. destruct lhs; destruct rhs.
-    + apply OrderedType.EQ. apply policy_eq_eqv.
-    + apply OrderedType.LT. unfold policy_lt. unfold "⊑". split; auto with *. simpl. unfold complement. intros.
-      unfold policy_eq in *. inversion H.
-    + apply OrderedType.LT. unfold policy_lt. unfold "⊑". split; auto with *. simpl. unfold complement. intros.
-      unfold policy_eq in *. inversion H.
-    + apply OrderedType.LT. unfold policy_lt. unfold "⊑". split; auto with *. simpl. unfold complement. intros.
-      unfold policy_eq in *. inversion H.
-    + apply OrderedType.LT. unfold policy_lt. unfold "⊑". split; auto with *. simpl. unfold complement. intros.
-      unfold policy_eq in *. inversion H.
-    + apply OrderedType.LT. unfold policy_lt. unfold "⊑". split; auto with *. simpl. unfold complement. intros.
-      unfold policy_eq in *. inversion H.
-    + apply OrderedType.GT. unfold policy_lt. unfold "⊑". split; auto with *. simpl. unfold complement. intros.
-      unfold policy_eq in *. inversion H.
-    + apply OrderedType.EQ. apply policy_eq_eqv.
-    + apply OrderedType.LT. unfold policy_lt. unfold "⊑". split; auto with *. simpl. unfold complement. intros.
-      unfold policy_eq in *. inversion H.
-    + apply OrderedType.LT. unfold policy_lt. unfold "⊑". split; auto with *. simpl. unfold complement. intros.
-      unfold policy_eq in *. inversion H.
-    + apply OrderedType.LT. unfold policy_lt. unfold "⊑". split; auto with *. simpl. unfold complement. intros.
-      unfold policy_eq in *. inversion H.
-    + apply OrderedType.LT. unfold policy_lt. unfold "⊑". split; auto with *. simpl. unfold complement. intros.
-      unfold policy_eq in *. inversion H.
-    + apply OrderedType.GT. unfold policy_lt. unfold "⊑". split; auto with *. simpl. unfold complement. intros.
-      unfold policy_eq in *. inversion H.
-    + apply OrderedType.GT. unfold policy_lt. unfold "⊑". split; auto with *. simpl. unfold complement. intros.
-      unfold policy_eq in *. inversion H.
-    + apply OrderedType.EQ. apply policy_eq_eqv.
-    + apply OrderedType.LT. unfold policy_lt. unfold "⊑". split; auto with *. simpl. unfold complement. intros.
-      unfold policy_eq in *. inversion H.
-    + apply OrderedType.LT. unfold policy_lt. unfold "⊑". split; auto with *. simpl. unfold complement. intros.
-      unfold policy_eq in *. inversion H.
-    + apply OrderedType.LT. unfold policy_lt. unfold "⊑". split; auto with *. simpl. unfold complement. intros.
-      unfold policy_eq in *. inversion H.
-    + apply OrderedType.GT. unfold policy_lt. unfold "⊑". split; auto with *. simpl. unfold complement. intros.
-      unfold policy_eq in *. inversion H.
-    + apply OrderedType.GT. unfold policy_lt. unfold "⊑". split; auto with *. simpl. unfold complement. intros.
-      unfold policy_eq in *. inversion H.
-    + apply OrderedType.GT. unfold policy_lt. unfold "⊑". split; auto with *. simpl. unfold complement. intros.
-      unfold policy_eq in *. inversion H.
-    + apply OrderedType.EQ. apply policy_eq_eqv.
-    + apply OrderedType.LT. unfold policy_lt. unfold "⊑". split; auto with *. simpl. unfold complement. intros.
-      unfold policy_eq in *. inversion H.
-    + apply OrderedType.LT. unfold policy_lt. unfold "⊑". split; auto with *. simpl. unfold complement. intros.
-      unfold policy_eq in *. inversion H.
-    + apply OrderedType.GT. unfold policy_lt. unfold "⊑". split; auto with *. simpl. unfold complement. intros.
-      unfold policy_eq in *. inversion H.
-    + apply OrderedType.GT. unfold policy_lt. unfold "⊑". split; auto with *. simpl. unfold complement. intros.
-      unfold policy_eq in *. inversion H.
-    + apply OrderedType.GT. unfold policy_lt. unfold "⊑". split; auto with *. simpl. unfold complement. intros.
-      unfold policy_eq in *. inversion H.
-    + apply OrderedType.GT. unfold policy_lt. unfold "⊑". split; auto with *. simpl. unfold complement. intros.
-      unfold policy_eq in *. inversion H.
-    + apply OrderedType.EQ. apply policy_eq_eqv.
-    + apply OrderedType.LT. unfold policy_lt. unfold "⊑". split; auto with *. simpl. unfold complement. intros.
-      unfold policy_eq in *. inversion H.
-    + apply OrderedType.GT. unfold policy_lt. unfold "⊑". split; auto with *. simpl. unfold complement. intros.
-      unfold policy_eq in *. inversion H.
-    + apply OrderedType.GT. unfold policy_lt. unfold "⊑". split; auto with *. simpl. unfold complement. intros.
-      unfold policy_eq in *. inversion H.
-    + apply OrderedType.GT. unfold policy_lt. unfold "⊑". split; auto with *. simpl. unfold complement. intros.
-      unfold policy_eq in *. inversion H.
-    + apply OrderedType.GT. unfold policy_lt. unfold "⊑". split; auto with *. simpl. unfold complement. intros.
-      unfold policy_eq in *. inversion H.
-    + apply OrderedType.GT. unfold policy_lt. unfold "⊑". split; auto with *. simpl. unfold complement. intros.
-      unfold policy_eq in *. inversion H.
-    + apply OrderedType.EQ. apply policy_eq_eqv.
-Defined.
+Ltac simpl_ord := unfold policy_lt; unfold "⊑"; (split; auto with *); simpl; unfold complement; intros; unfold policy_eq in *; inversion H.
+Ltac ordering_lt := try (apply OrderedType.LT; auto; simpl_ord).
+Ltac ordering_eq := try (apply OrderedType.EQ; auto; simpl_ord).
+Ltac ordering_gt := try (apply OrderedType.GT; auto; simpl_ord).
+
+Lemma policy_eq_dec: ∀ (lhs rhs: policy_label), {policy_eq lhs rhs} + {~ (policy_eq lhs rhs)}.
+Proof.
+  destruct lhs; destruct rhs; auto with *;
+  try destruct (set_eq_dec _ transop_dec s s0);
+  try destruct (set_eq_dec _ aggop_dec s s0).
+  - left. auto.
+  - right. auto.
+  - left. auto.
+  - right. auto.
+  - destruct n, n0, d, d0. auto with *.
+    destruct (nat_dec n n1). destruct (nat_dec n0 n2); try destruct s; try destruct s0; simpl; intuition.
+    + right. lia.
+    + right. lia.
+    + right. lia.
+    + right. lia.
+    + right. lia.
+    + simpl. right. lia.
+Qed.
+
+Lemma policy_eq_dec': ∀ (lhs rhs: policy_label), {lhs === rhs} + {lhs =/= rhs}.
+Proof.
+  intros. destruct (policy_eq_dec lhs rhs).
+  - left. unfold equiv. auto.
+  - right. unfold equiv. auto.
+Qed.
+
+Lemma policy_lt_dec: ∀ (lhs rhs: policy_label), {policy_lt lhs rhs} + {~ (policy_lt lhs rhs)}.
+Proof.
+  destruct lhs; destruct rhs.
+  - right. red. intros. inversion H. simpl in *. auto.
+  - left. simpl_ord.
+  - left. simpl_ord.
+  - left. simpl_ord.
+  - left. simpl_ord.
+  - left. simpl_ord.
+  - right. red. intros. inversion H. simpl in *. auto.
+  - right. red. intros. inversion H. simpl in *. auto.
+  - right. red. intros. inversion H. simpl in *. auto.
+  - right. red. intros. inversion H. simpl in *. auto.
+  - right. red. intros. inversion H. simpl in *. auto.
+  - left. simpl_ord.
+  - right. red. intros. inversion H. simpl in *. auto.
+  - left. simpl_ord.
+  - destruct (set_eq_dec _ transop_dec s s0).
+    + right. red. intros. inversion H. simpl in *. auto.
+    + destruct (flowsto_dec _ policy_lattice policy_eq_dec' (policy_transform s) (policy_transform s0)).
+      * left. simpl_ord.
+      * right. red. intros. inversion H. simpl in *. auto.
+  - right. red. intros. inversion H. simpl in *. auto.
+  - right. red. intros. inversion H. simpl in *. auto.
+  - left. simpl_ord.
+  - right. red. intros. inversion H. simpl in *. auto.
+  - left. simpl_ord.
+  - left. simpl_ord.
+  - destruct (set_eq_dec _ aggop_dec s s0).
+    + right. red. intros. inversion H. simpl in *. auto.
+    + destruct (flowsto_dec _ policy_lattice policy_eq_dec' (policy_agg s) (policy_agg s0)).
+      * left. simpl_ord.
+      * right. red. intros. inversion H. simpl in *. auto.
+  - right. red. intros. inversion H. simpl in *. auto.
+  - left. simpl_ord.
+  - right. red. intros. inversion H. simpl in *. auto.
+  - left. simpl_ord.
+  - left. simpl_ord.
+  - left. simpl_ord.
+  - destruct n, n0, d, d0.
+    + destruct (nat_dec n n1). destruct (nat_dec n0 n2); try destruct s; try destruct s0; simpl; intuition; simpl.
+      * right. intros. unfold policy_lt in *. unfold flowsto in *. intuition.
+        simpl in *. unfold complement in H1. simpl in *. lia.
+      * right. intros. unfold policy_lt in *. unfold flowsto in *. intuition.
+        simpl in *. unfold complement in H1. simpl in *. lia.
+      * right. intros. unfold policy_lt in *. unfold flowsto in *. intuition.
+        simpl in *. unfold complement in H1. simpl in *. lia.
+      * right. intros. unfold policy_lt in *. unfold flowsto in *. intuition.
+        simpl in *. unfold complement in H1. simpl in *. lia.
+      * right. intros. unfold policy_lt in *. unfold flowsto in *. intuition.
+        simpl in *. unfold complement in H1. simpl in *. lia.
+      * left. intros. unfold policy_lt in *. unfold flowsto in *. intuition.
+        simpl. subst. lia. simpl. red. intros. simpl in *. lia.
+      * destruct (nat_dec n0 n2).
+        -- destruct s. right. red. simpl. unfold policy_lt in *. unfold flowsto in *. intuition.
+           simpl in *. red in H1. intuition. simpl in *. lia.
+           left. red. simpl. unfold policy_lt in *. unfold flowsto in *. split; auto; try lia.
+           red. simpl. intros. lia.
+        -- left. red. simpl. unfold policy_lt in *. unfold flowsto in *. split; auto; try lia.
+           red. simpl. intros. lia.
+  - left. simpl_ord.
+  - right. red. intros. inversion H. simpl in *. auto.
+  - right. red. intros. inversion H. simpl in *. auto.
+  - right. red. intros. inversion H. simpl in *. auto.
+  - right. red. intros. inversion H. simpl in *. auto.
+  - right. red. intros. inversion H. simpl in *. auto.
+  - right. red. intros. inversion H. simpl in *. auto.
+Qed.
 
 (* The active policy_label context. *)
 (* release policy_label: option policy_label *)
-Definition policy_encoding := (bool * (policy_label * option policy_label))%type.
-Definition context := list (nat * policy_encoding)%type.
+Definition policy_encoding: Type := (bool * (policy_label * option policy_label)).
+Definition context: Type := list (nat * policy_encoding).
 Definition can_release (p: policy_encoding): Prop := 
   match p with
   | (false, (_, _)) => True
   | (true, p) =>
     match p with
       | (cur, None) => False
-      | (cur, Some disc) => disc <<= cur
+      | (cur, Some disc) => disc ⪯ cur
     end
   end.
 
@@ -776,63 +961,6 @@ Global Instance tuple_total_lt_trans (ty: tuple_type): Transitive (tuple_total_l
         -- rewrite H1. assumption.
         -- rewrite <- H5. assumption.
         -- specialize (IHty _ _ _ H2 H4). assumption.
-Defined.
-
-Global Instance tuple_is_total_ordered (ty: tuple_type): Ordered (tuple ty).
-refine(
-  @Build_Ordered
-  (tuple ty)
-  (tuple_total_eq_setoid ty)
-  (tuple_total_lt ty)
-  (tuple_total_lt_trans ty)
-  _ _
-).
-  - intros. simpl. unfold complement.
-    induction ty.
-    + simpl in H. exfalso. assumption.
-    + intros. destruct a; simpl in *; unfold pair_lt, pair_eq in *; intuition.
-      * rewrite H0 in H. apply neq in H. auto with *.
-      * rewrite H3 in H4. apply neq in H4. auto with *.
-      * specialize (IHty _ _ H4 H2). assumption.
-
-      * rewrite H0 in H. apply neq in H. auto with *.
-      * rewrite H3 in H4. apply neq in H4. auto with *.
-      * specialize (IHty _ _ H4 H2). assumption.
-
-      * rewrite H0 in H. apply neq in H. auto with *.
-      * rewrite H3 in H4. apply neq in H4. auto with *.
-      * specialize (IHty _ _ H4 H2). assumption.
-  
-  - induction ty.
-    + intros. apply OrderedType.EQ. apply unit_eq_equiv. auto.
-    + intros. destruct a.
-      * destruct (cmp (fst lhs) (fst rhs)).
-        -- apply OrderedType.LT. simpl. auto.
-        -- destruct (IHty (snd lhs) (snd rhs)).
-          apply OrderedType.LT. simpl. auto.
-          apply OrderedType.EQ. simpl. split; auto.
-          apply OrderedType.GT. simpl. auto.
-          unfold pair_lt, pair_eq in *. right.
-          repeat split; try rewrite e; try reflexivity; assumption.
-        -- apply OrderedType.GT. simpl. auto.
-      * destruct (cmp (fst lhs) (fst rhs)).
-        -- apply OrderedType.LT. simpl. auto.
-        -- destruct (IHty (snd lhs) (snd rhs)).
-          apply OrderedType.LT. simpl. auto.
-          apply OrderedType.EQ. simpl. split; auto.
-          apply OrderedType.GT. simpl. auto.
-          unfold pair_lt, pair_eq in *. right.
-          repeat split; try rewrite e; try reflexivity; assumption.
-        -- apply OrderedType.GT. simpl. auto.
-      * destruct (cmp (fst lhs) (fst rhs)).
-        -- apply OrderedType.LT. simpl. auto.
-        -- destruct (IHty (snd lhs) (snd rhs)).
-          apply OrderedType.LT. simpl. auto.
-          apply OrderedType.EQ. simpl. split; auto.
-          apply OrderedType.GT. simpl. auto.
-          unfold pair_lt, pair_eq in *. right.
-          repeat split; try rewrite e; try reflexivity; assumption.
-        -- apply OrderedType.GT. simpl. auto. 
 Defined.
 
 Global Instance tuple_is_ordered_by_value (ty: tuple_type): Ordered (tuple ty).

@@ -1,7 +1,10 @@
+Require Import Decidable.
 Require Import Lia.
 Require Import List.
 Require Import ListSet.
 Require Import RelationClasses.
+Require Import SetoidDec.
+Require Import SetoidClass.
 Require Import String.
 Require Import Unicode.Utf8.
 
@@ -208,15 +211,51 @@ Proof.
 Defined.
 
 Definition set_eq {A: Type} (ℓ ℓ': set A) : Prop :=
-  ∀ a, set_In a ℓ ↔ set_In a ℓ'.
+  (∀ a, set_In a ℓ → set_In a ℓ') ∧ (∀ a, set_In a ℓ' → set_In a ℓ).
+
+Definition subset {A: Type} (s1 s2: set A) : Prop :=
+  ∀ a, set_In a s1 → set_In a s2.
+Notation "s1 '⊆' s2" := (subset s1 s2) (at level 70).
+
+Definition subset_neq {A: Type} (s1 s2: set A) : Prop :=
+  s1 ⊆ s2 ∧ ~(set_eq s1 s2).
+Notation "s1 '⊂' s2" := (subset_neq s1 s2) (at level 70).
+
+Lemma set_eq_dec: ∀ (A: Type) (dec: ∀ (a1 a2: A), {a1 = a2} + {a1 ≠ a2}) (ℓ ℓ': set A),
+  {set_eq ℓ ℓ'} + {~(set_eq ℓ ℓ')}.
+Proof.
+  intros.
+  induction ℓ. induction ℓ'.
+  - left. red. split; intuition.
+  - destruct IHℓ'.
+    + right. red. intros.
+      unfold set_eq in *. intuition.
+      assert (set_In a nil → False).
+      {
+        intros. inversion H.
+      }
+      apply H. apply H3.
+      apply in_eq.
+    + right. red. intros. unfold set_eq in *. intuition. apply H.
+      intros. inversion H2. intros. apply H1.
+      destruct (dec a0 a).
+      subst. apply in_eq. apply in_cons. assumption.
+  - 
+Admitted.
+
+Lemma subset_neq_implies_neq: ∀ (A: Type) (s1 s2: set A),
+  s1 ⊂ s2 → ~(set_eq s1 s2).
+Proof.
+  unfold subset_neq. intros. intuition.
+Qed.
 
 Global Instance set_eq_equiv: ∀ A: Type, Equivalence (@set_eq A).
 Proof.
   intros.
   split.
-  - unfold Reflexive. intros. unfold set_eq. intros. reflexivity.
-  - unfold Symmetric. intros. unfold set_eq in *. intros. rewrite H. reflexivity.
-  - unfold Transitive. intros. unfold set_eq in *. intros. rewrite H, H0. reflexivity.
+  - unfold Reflexive. intros. unfold set_eq. intros. split; intros; assumption.
+  - unfold Symmetric. intros. unfold set_eq in *. intros. destruct H; intuition.
+  - unfold Transitive. intros. unfold set_eq in *. intros. destruct H, H0; intuition.
 Defined.
 
 Lemma set_inter_nil: ∀ (A: Type) (dec: ∀ (a1 a2: A), {a1 = a2} + {a1 ≠ a2}) (ℓ: set A),
@@ -227,6 +266,7 @@ Proof.
   - simpl. split; auto.
   - intuition.
 Qed.
+Hint Resolve set_inter_nil: core.
 
 Lemma set_inter_comm_in: ∀ (A: Type) (dec: ∀ (a1 a2: A), {a1 = a2} + {a1 ≠ a2}) (ℓ ℓ': set A) (a: A),
   set_In a (set_inter dec ℓ ℓ') ↔ set_In a (set_inter dec ℓ' ℓ).
@@ -235,27 +275,130 @@ Proof.
   - apply set_inter_elim in H. destruct H. apply set_inter_intro; assumption.
   - apply set_inter_elim in H. destruct H. apply set_inter_intro; assumption.
 Qed.
+Hint Resolve set_inter_comm_in: core.
 
-Lemma set_inter_refl_in: ∀ (A: Type) (dec: ∀ (a1 a2: A), {a1 = a2} + {a1 ≠ a2}) (ℓ: set A) (a: A),
-  set_In a (set_inter dec ℓ ℓ) ↔ set_In a ℓ.
+Lemma set_inter_comm_eq: ∀ (A: Type) (dec: ∀ (a1 a2: A), {a1 = a2} + {a1 ≠ a2}),
+  ∀ ℓ ℓ', set_eq (set_inter dec ℓ ℓ') (set_inter dec ℓ' ℓ).
+Proof.
+  intros. split; intros.
+  - apply set_inter_comm_in. assumption.
+  - apply set_inter_comm_in. assumption.
+Qed.
+
+Lemma set_inter_refl_in: ∀ (A: Type) (dec: ∀ (a1 a2: A), {a1 = a2} + {a1 ≠ a2}) (ℓ: set A),
+  set_eq (set_inter dec ℓ ℓ) ℓ.
 Proof.
   intros. split; intros.
   - apply set_inter_elim in H. destruct H. assumption.
   - apply set_inter_intro; assumption.
 Qed.
+Hint Resolve set_inter_refl_in: core.
 
-Lemma set_union_comm_in: ∀ (A: Type) (dec: ∀ (a1 a2: A), {a1 = a2} + {a1 ≠ a2}) (ℓ ℓ': set A) (a: A),
-  set_In a (set_union dec ℓ ℓ') ↔ set_In a (set_union dec ℓ' ℓ).
+Lemma set_inter_assoc_in: ∀ (A: Type) (dec: ∀ (a1 a2: A), {a1 = a2} + {a1 ≠ a2}) (ℓ ℓ' ℓ'': set A),
+  set_eq (set_inter dec ℓ (set_inter dec ℓ' ℓ'')) (set_inter dec (set_inter dec ℓ ℓ') ℓ'').
+Proof.
+  intros. split; intros.
+  - apply set_inter_elim in H. destruct H. apply set_inter_elim in H0. destruct H0.
+    apply set_inter_intro.
+    + apply set_inter_intro; assumption.
+    + assumption.
+  - apply set_inter_elim in H. destruct H. apply set_inter_elim in H. destruct H.
+    apply set_inter_intro.
+    + assumption.
+    + apply set_inter_intro; assumption.
+Qed.
+Hint Resolve set_inter_assoc_in: core.
+
+Lemma set_union_comm_in: ∀ (A: Type) (dec: ∀ (a1 a2: A), {a1 = a2} + {a1 ≠ a2}) (ℓ ℓ': set A),
+  set_eq (set_union dec ℓ ℓ') (set_union dec ℓ' ℓ).
 Proof.
   intros. split; intros.
   - apply set_union_elim in H. destruct H; apply set_union_intro; intuition.
   - apply set_union_elim in H. destruct H; apply set_union_intro; intuition.
 Qed.
+Hint Resolve set_union_comm_in: core.
 
-Lemma set_union_refl_in: ∀ (A: Type) (dec: ∀ (a1 a2: A), {a1 = a2} + {a1 ≠ a2}) (ℓ: set A) (a: A),
-  set_In a (set_union dec ℓ ℓ) ↔ set_In a ℓ.
+Lemma set_union_comm_eq: ∀ (A: Type) (dec: ∀ (a1 a2: A), {a1 = a2} + {a1 ≠ a2}),
+  ∀ ℓ ℓ', set_eq (set_union dec ℓ ℓ') (set_union dec ℓ' ℓ).
+Proof.
+  intros. split; intros.
+  - apply set_union_comm_in. assumption.
+  - apply set_union_comm_in. assumption.
+Qed.
+
+Lemma set_union_refl_in: ∀ (A: Type) (dec: ∀ (a1 a2: A), {a1 = a2} + {a1 ≠ a2}) (ℓ: set A),
+  set_eq (set_union dec ℓ ℓ) ℓ.
 Proof.
   intros. split; intros.
   - apply set_union_elim in H. destruct H; assumption.
   - apply set_union_intro. intuition.
 Qed.
+Hint Resolve set_union_refl_in: core.
+
+Lemma set_union_assoc_in: ∀ (A: Type) (dec: ∀ (a1 a2: A), {a1 = a2} + {a1 ≠ a2}) (ℓ ℓ' ℓ'': set A),
+  set_eq (set_union dec ℓ (set_union dec ℓ' ℓ'')) (set_union dec (set_union dec ℓ ℓ') ℓ'').
+Proof.
+  intros. split; intros.
+  - apply set_union_elim in H. destruct H.
+    + apply set_union_intro. left. apply set_union_intro. left. assumption.
+    + apply set_union_elim in H. destruct H.
+      * apply set_union_intro. left. apply set_union_intro. right. assumption.
+      * apply set_union_intro. right. assumption.
+  - apply set_union_elim in H. destruct H.
+    + apply set_union_elim in H. destruct H.
+      * apply set_union_intro. left. assumption.
+      * apply set_union_intro. right. apply set_union_intro. left. assumption.
+    + apply set_union_intro. right. apply set_union_intro. right. assumption.
+Qed.
+Hint Resolve set_union_assoc_in: core.
+
+Global Instance set_eq_proper {A: Type} (dec: ∀ (a1 a2: A), {a1 = a2} + {a1 ≠ a2}):
+  Proper (equiv ==> equiv ==> equiv) (set_eq (A:=A)).
+Proof.
+  repeat red. intros.
+  split; intros.
+  - rewrite <- H, <- H0. assumption.
+  - rewrite H, H0. assumption.
+Qed.
+
+Lemma set_inter_subset: ∀ (A: Type) (dec: ∀ (a1 a2: A), {a1 = a2} + {a1 ≠ a2}) (s1 s2: set A),
+  set_eq (set_inter dec s1 s2) s1 ↔ s1 ⊆ s2.
+Proof.
+  intros. split; intros.
+  - unfold subset, set_eq in *. intros. destruct H. specialize H1 with a.
+    apply H1 in H0. apply set_inter_elim in H0.
+    destruct H0. assumption.
+  - unfold subset, set_eq in *. intros.
+    split.
+    + intros. apply set_inter_elim in H0. destruct H0. assumption.
+    + intros. apply set_inter_intro; try assumption. apply H. assumption.
+Qed.
+
+Lemma set_union_subset: ∀ (A: Type) (dec: ∀ (a1 a2: A), {a1 = a2} + {a1 ≠ a2}) (s1 s2: set A),
+  set_eq (set_union dec s1 s2) s1 ↔ s2 ⊆ s1.
+Proof.
+  intros. split; intros.
+  - unfold subset, set_eq in *. intros. destruct H. specialize H with a.
+    apply H. apply set_union_intro. right. assumption.
+  - unfold subset, set_eq in *. intros.
+    split.
+    + intros. apply set_union_elim in H0. destruct H0.
+      * assumption.
+      * apply H in H0. assumption.
+    + intros. apply set_union_intro. left. assumption.
+Qed.
+
+Global Instance subset_transitive {A: Type}: Transitive (@subset A).
+Proof.
+  unfold Transitive, subset. intros.
+  apply H in H1. apply H0 in H1. assumption.
+Qed.
+
+Global Instance subset_neq_transitive {A: Type}: Transitive (@subset_neq A).
+Proof.
+  repeat red. unfold subset_neq, subset, set_eq in *. split; intros;
+  destruct H, H0; unfold not in *.
+  - apply H0. apply H. assumption.
+  - intros. destruct H1, H2, H3. split; intros; intuition.
+Qed.
+

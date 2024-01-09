@@ -24,23 +24,23 @@ Class Ordered (A: Type) := {
   cmp: ∀ lhs rhs: A, Compare lt equiv lhs rhs;
 }.
 
-Definition le {A: Set} {ord: Ordered A} (lhs rhs: A):= lt lhs rhs ∨ lhs == rhs.
+Definition le {A: Type} {ord: Ordered A} (lhs rhs: A):= lt lhs rhs ∨ lhs == rhs.
 
-Theorem order_is_irreflexive: ∀ {A: Set} {ord: Ordered A} (a: A),
+Theorem order_is_irreflexive: ∀ {A: Type} {ord: Ordered A} (a: A),
   ~ lt a a.
 Proof.
   intros. unfold "~". intros.
   apply neq in H. auto with *.
 Qed.
  
-Global Instance order_antisym {A: Set} {ord: Ordered A}: Asymmetric lt.
+Global Instance order_antisym {A: Type} {ord: Ordered A}: Asymmetric lt.
 Proof.
   repeat red. intros. 
   rewrite H0 in H.
   apply order_is_irreflexive in H. assumption.
 Qed.
 
-Lemma le_dec {A: Set} {ord: Ordered A} (lhs rhs: A): decidable (le lhs rhs).
+Lemma le_dec {A: Type} {ord: Ordered A} (lhs rhs: A): decidable (le lhs rhs).
 Proof.
   red. destruct (cmp lhs rhs); unfold le in *.
   - left. left. assumption.
@@ -50,14 +50,14 @@ Proof.
     + apply neq in l. auto with *.
 Qed.
 
-Global Instance eq_dec {A: Set} {ord: Ordered A}: EqDec eq.
+Global Instance eq_dec {A: Type} {ord: Ordered A}: EqDec eq.
   red.
   intros. destruct (cmp x y); intuition.
   - right. apply neq. assumption.
   - right. symmetry. apply neq. assumption.
 Defined.
 
-Global Instance eq_dec_setoid {A: Set} {ord: Ordered A}: DecidableSetoid eq.
+Global Instance eq_dec_setoid {A: Type} {ord: Ordered A}: DecidableSetoid eq.
   red. intros.
   unfold Decidable.decidable. unfold complement.
   destruct (equiv_dec x y).
@@ -71,7 +71,7 @@ Defined.
 
     With this instance defined, we can use the 'rewrite' tactic to rewrite 'lt' relations.
 *)
-Global Instance ord_lt_proper_eq {A: Set} {ord: Ordered A}:
+Global Instance ord_lt_proper_eq {A: Type} {ord: Ordered A}:
   Proper (equiv ==> equiv ==> iff) lt.
 Proof.
   repeat red. intros.
@@ -93,7 +93,7 @@ Proof.
 Qed.
 Hint Resolve ord_lt_proper_eq: core.
 
-Global Instance le_proper_eq {A: Set} {ord: Ordered A}:
+Global Instance le_proper_eq {A: Type} {ord: Ordered A}:
   Proper (equiv ==> equiv ==> iff) le.
 Proof.
   repeat red. intros. split; intros; unfold le in *; unfold equiv in *.
@@ -105,7 +105,7 @@ Proof.
     + right. rewrite H, H0. assumption.
 Qed.
 
-Global Instance le_proper_lt {A: Set} {ord: Ordered A}:
+Global Instance le_proper_lt {A: Type} {ord: Ordered A}:
   Proper (lt --> lt ++> impl) le.
 Proof.
   repeat red. intros; unfold flip in H.
@@ -115,7 +115,7 @@ Proof.
   - rewrite <- H1 in H0. left. eapply transitivity; eauto.
 Qed.
 
-Global Instance lt_proper_le {A: Set} {ord: Ordered A}:
+Global Instance lt_proper_le {A: Type} {ord: Ordered A}:
   Proper (le --> le ++> impl) lt.
 Proof.
   unfold Proper, respectful, flip, impl, le. intros.
@@ -127,13 +127,13 @@ Proof.
 Qed.
 
 (* Now we can apply rewrite on `lt`. *)
-Example rewrite_lt: ∀ {A: Set} {ord: Ordered A} (a b c d: A),
+Example rewrite_lt: ∀ {A: Type} {ord: Ordered A} (a b c d: A),
   a == b → c == d → lt a c → lt b d.
 Proof.
   intros. rewrite H, H0 in H1. assumption.
 Qed.
 
-Global Instance order_irreflexive: ∀ {A: Set} {ord: Ordered A} (a: A),
+Global Instance order_irreflexive: ∀ {A: Type} {ord: Ordered A} (a: A),
   Irreflexive lt.
   intros. unfold Irreflexive. unfold complement. unfold Reflexive. intros.
   apply order_is_irreflexive in H. assumption.
@@ -315,7 +315,7 @@ Proof.
 Qed.
 Hint Resolve string_eq_two_parts': core.
 
-Lemma ord_dec {A: Set} {O: Ordered A} : ∀ (lhs rhs: A), decidable (lt lhs rhs).
+Lemma ord_dec {A: Type} {O: Ordered A} : ∀ (lhs rhs: A), decidable (lt lhs rhs).
 Proof.
   intros. red. destruct (cmp lhs rhs).
   - left. assumption.

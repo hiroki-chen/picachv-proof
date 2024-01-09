@@ -12,7 +12,7 @@ Reserved Notation "⊤".
 Reserved Notation "⊥".
 Reserved Notation "X '⊑' Y" (at level 70, no associativity).
 
-Class lattice (A : Set) :=
+Class lattice (A : Type) :=
   Lattice {
       join: A → A → A where "X '⊔' Y" := (join X Y);
       meet: A → A → A where "X '⊓' Y" := (meet X Y);
@@ -45,17 +45,17 @@ Notation "x '=/=' y" := (complement eq x y) (at level 70, no associativity).
 Notation "⊤" := top.
 Notation "⊥" := bot.
 
-Definition flowsto {A : Set} `{lattice A} (a b : A): Prop := a ⊔ b === b.
+Definition flowsto {A : Type} `{lattice A} (a b : A): Prop := a ⊔ b === b.
 Notation "X '⊑' Y" := (flowsto X Y) (at level 70, no associativity).
 
 Arguments flowsto _ _ : simpl nomatch.
 Arguments join _ _ : simpl nomatch.
 Arguments meet _ _ : simpl nomatch.
 
-Hint Resolve meet_symmetry join_symmetry join_assoc meet_assoc meet_absorp join_absorp join_top join_bot meet_top meet_bot eq_equiv.
+Hint Resolve meet_symmetry join_symmetry join_assoc meet_assoc meet_absorp join_absorp join_top join_bot meet_top meet_bot eq_equiv: core.
 
 Section LatticeProperties.
-  Context {A : Set} `{lattice A}.
+  Context {A : Type} `{lattice A}.
 
   Global Add Parametric Relation : A eq
       reflexivity proved by (@Equivalence_Reflexive A eq eq_equiv)
@@ -103,13 +103,27 @@ Lemma join_idem: ∀ a, a ⊔ a === a.
 Proof.
   intros. rewrite <- (meet_absorp a a) at 2. auto.
 Qed.
-Hint Resolve join_idem.
+Hint Resolve join_idem: core.
 
 Lemma meet_idem: ∀ a, a ⊓ a === a.
 Proof.
   intros. rewrite <- (join_absorp a a) at 2. auto.
 Qed.
-Hint Resolve meet_idem.
+Hint Resolve meet_idem: core.
+
+Lemma join_comm: ∀ a b, a ⊔ b === b ⊔ a.
+Proof.
+  intros. rewrite <- (join_absorp a b) at 2. rewrite <- (join_absorp b a) at 2.
+  rewrite <- join_assoc. rewrite (join_symmetry a b). rewrite join_assoc.
+  repeat rewrite join_absorp. reflexivity.
+Qed.
+
+Lemma meet_comm: ∀ a b, a ⊓ b === b ⊓ a.
+Proof.
+  intros. rewrite <- (meet_absorp a b) at 2. rewrite <- (meet_absorp b a) at 2.
+  rewrite <- meet_assoc. rewrite (meet_symmetry a b). rewrite meet_assoc.
+  repeat rewrite meet_absorp. reflexivity.
+Qed.
 
 Global Instance flowsto_trans: Transitive flowsto.
   unfold Transitive. intros.
@@ -120,3 +134,25 @@ Global Instance flowsto_trans: Transitive flowsto.
   - rewrite H2. rewrite join_idem. reflexivity.
 Defined.
 End LatticeProperties.
+
+Lemma flowsto_dec: ∀ (A : Type) (l: lattice A) (dec: ∀ a b, { a === b } + { a =/= b} ) a b,
+  { a ⊑ b } + { ¬ a ⊑ b }.
+Proof.
+  intros.
+  destruct (dec a b).
+  - left. unfold flowsto. rewrite <- e.
+    rewrite join_idem. reflexivity.
+  - destruct (dec (a ⊔ b) b).
+    + left. unfold flowsto. rewrite e. reflexivity.
+    + right. unfold flowsto. red. intros. intuition.
+Qed.
+(* 
+Lemma join_dec: ∀ (A : Type) (l: lattice A) (dec: ∀ a b, { a === b } + { a =/= b} ) a b,
+  { a ⊔ b === b } + { a ⊔ b === a }.
+Proof.
+  intros.
+  destruct (dec a b).
+  - left. rewrite e. rewrite join_idem. reflexivity.
+  - destruct (dec (a ⊔ b) b).
+    + left. rewrite e. reflexivity.
+    + right. rewrite join_comm.  *)
