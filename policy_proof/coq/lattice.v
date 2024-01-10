@@ -146,13 +146,3 @@ Proof.
     + left. unfold flowsto. rewrite e. reflexivity.
     + right. unfold flowsto. red. intros. intuition.
 Qed.
-(* 
-Lemma join_dec: ∀ (A : Type) (l: lattice A) (dec: ∀ a b, { a === b } + { a =/= b} ) a b,
-  { a ⊔ b === b } + { a ⊔ b === a }.
-Proof.
-  intros.
-  destruct (dec a b).
-  - left. rewrite e. rewrite join_idem. reflexivity.
-  - destruct (dec (a ⊔ b) b).
-    + left. rewrite e. reflexivity.
-    + right. rewrite join_comm.  *)

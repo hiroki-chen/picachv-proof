@@ -2,6 +2,7 @@ Require Import Arith.
 Require Import Arith.Compare.
 Require Import Lia.
 Require Import List.
+Require Import ListSet.
 Require Import String.
 Require Import Unicode.Utf8.
 
@@ -546,6 +547,7 @@ match n with
 
 (*
   @param bt The base type of the cell.
+  @param f_type The type of the unary function.
   @param f The unary function to be applied.
   @param arg A tuple containing the cell value and its index.
   @param Γ The policy context.
@@ -559,24 +561,28 @@ match n with
   cannot be applied (for example, if the function is not defined for the base type of the
   cell), the function returns `None`.
 *)
-Definition apply_unary_function_in_cell  bt (f: unary_func) (arg: type_to_coq_type bt * nat)
+Definition apply_unary_function_in_cell bt (f_type: UnOp) (f: unary_func) (arg: type_to_coq_type bt * nat)
                                          (Γ: Policy.context) (p: prov_ctx)
-  : option (type_to_coq_type bt * Policy.context * prov_ctx) :=
-  match arg with
+  : option (type_to_coq_type bt * Policy.context * prov_ctx).
+refine (
+match arg with
   | (val, id) =>
     (* We need to first check the policy labels. *)
     match Policy.label_lookup id Γ with
     | None => None
     | Some pe =>
       match pe with
-      | (true, _) => (* TODO *)
-      | (false, pe) =>
-        match pe with
-        |
-        end
+      | p_cur => _
       end
     end
-  end.
+  end
+).
+  pose (Policy.policy_transform ((unary_trans_op f_type) :: nil)) as p_func.
+  destruct (Policy.policy_ord_dec p_cur (Policy.policy_atomic p_func)).
+  - (* Allowed. *)
+
+
+Admitted.
 
 (*
   @param ty A tuple containing a type and a name.
@@ -588,7 +594,7 @@ Definition apply_unary_function_in_cell  bt (f: unary_func) (arg: type_to_coq_ty
   This function does the actual function application on a relation containing only one column on
   which the unary function should be applied.
 *)
-Fixpoint do_apply_unary_function ty (f: unary_func) (r: relation (ty :: nil))
+Fixpoint do_apply_unary_function ty f_type (f: unary_func) (r: relation (ty :: nil))
                                     (Γ: Policy.context) (p: prov_ctx)
   : option (relation (ty :: nil) * Policy.context * prov_ctx).
 refine (

@@ -53,7 +53,7 @@ Definition valid_transition (τ: prov_type) (ℓ1 ℓ2: Policy.policy): Prop :=
     in the course of a query execution. It will check if policies are correctly enforced and if
     all transitions are permitted.
 *)
-Fixpoint prov_ok (Γ Γ': Policy.context) (ε': Policy.policy_encoding)
+Fixpoint prov_ok (Γ Γ': Policy.context) (ε': Policy.policy)
                       (p: prov_ctx) (prv: prov)
   : Prop :=
   match prv with
@@ -64,7 +64,7 @@ Fixpoint prov_ok (Γ Γ': Policy.context) (ε': Policy.policy_encoding)
           them for difficult recursion patterns.
       *)
       (fix prov_list_ok
-        (Γ Γ': Policy.context) (ε': Policy.policy_encoding)
+        (Γ Γ': Policy.context) (ε': Policy.policy)
         (p: prov_ctx) (τ: prov_type) (l: list (nat * prov)): Prop :=
           match l with
           | nil => True

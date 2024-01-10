@@ -313,8 +313,6 @@ Definition policy_lt (lhs rhs: policy_label): Prop :=
   flowsto lhs rhs ∧ lhs =/= rhs.
 Definition policy_le (lhs rhs: policy_label): Prop :=
   flowsto lhs rhs.
-Notation "x ≺ y" := (policy_lt x y) (at level 10, no associativity).
-Notation "x ⪯ y" := (policy_le x y) (at level 10, no associativity).
 
 Global Instance policy_lt_trans: Transitive policy_lt.
   unfold Transitive.
@@ -504,49 +502,138 @@ Proof.
   - right. red. intros. inversion H. simpl in *. auto.
 Qed.
 
-(* The active policy_label context. *)
-(* release policy_label: option policy_label *)
-Definition policy_encoding: Type := (bool * (policy_label * option policy_label)).
-Definition context: Type := list (nat * policy_encoding).
-Definition can_release (p: policy_encoding): Prop := 
-  match p with
-  | (false, (_, _)) => True
-  | (true, p) =>
-    match p with
-      | (cur, None) => False
-      | (cur, Some disc) => disc ⪯ cur
-    end
-  end.
+Notation "x ⇝ y" := (policy_declass x y) (at level 10, no associativity).
+Reserved Notation "x ⪯ y" (at level 10, no associativity).
+Inductive policy_ordering: policy → policy → Prop :=
+  (* 
+    ---------
+      ℓ1 ⪯ ℓ1
+   *)
+  | policy_ordering_refl: ∀ ℓ, policy_ordering ℓ ℓ
+  (* 
+     ℓ1 ⊑ ℓ2
+    ---------
+     ℓ1 ⪯ ℓ2
+  *)
+  | policy_ordering_trivial: ∀ ℓ1 ℓ2, ℓ1 ⊑ ℓ2 → (policy_atomic ℓ1) ⪯ (policy_atomic ℓ2)
+  (*
+     ℓ1 ⊑ ℓ2
+    ---------
+     ℓ1 ⪯ ℓ2 ⇝ p
+  *)
+  | policy_ordering_recur1: ∀ ℓ1 ℓ2 p, ℓ1 ⊑ ℓ2 → (policy_atomic ℓ1) ⪯ (ℓ2 ⇝ p)
+  (*
+    ℓ1 ⊑ ℓ2
+    ---------
+    ℓ1 ⇝ p ⪯ ℓ2
+  *)
+  | policy_ordering_recur2: ∀ ℓ1 ℓ2 p, ℓ1 ⊑ ℓ2 → (ℓ1 ⇝ p) ⪯ (policy_atomic ℓ2)
+  (*
+    ℓ' ⊑ ℓ'   p ⪯ p'
+    -----------------
+    ℓ ⇝ p ⪯ ℓ' ⇝ p'
+  *)
+  | policy_ordering_spec: ∀ ℓ ℓ' p p', ℓ ⊑ ℓ' → p ⪯ p' → (ℓ ⇝ p) ⪯ (ℓ' ⇝ p')
+where "x ⪯ y" := (policy_ordering x y).
 
-Definition cannot_release (p: policy_encoding): Prop := ~ can_release p.
- 
-(* Lookup the policy_label context and check if the cell has been associated with an active policy_label. *)
-(* FIXME: Is there a need to ensure that the return value is always `Some`? *)
-Fixpoint label_lookup (id: nat) (ctx: context): option policy_encoding :=
-  match ctx with
+Global Instance ord_proper: Proper (equiv ==> equiv) policy_ordering.
+Admitted.
+
+(*
+  The `policy_ord_dec` lemma provides a decision procedure for the policy ordering.
+
+  This lemma is important: Decidability is related to the concept of completeness in logic.
+  If a property is decidable, then for any given input, we can either prove that the property
+  holds, or prove that it doesn't hold. This is a strong form of completeness.
+
+  A policy should be either "weaker" or "stronger" than another policy, or they should be equal.
+  Thus, we can use `destruct` to discuss the different cases in the function application.
+*)
+Lemma policy_ord_dec: ∀ (lhs rhs: policy), {lhs ⪯ rhs} + {~ (lhs ⪯ rhs)}.
+Proof.
+  induction lhs; induction rhs.
+  - destruct (policy_eq_dec p p0).
+    + left. subst. constructor. red. rewrite p1. apply join_idem.
+    + destruct (flowsto_dec _ policy_lattice policy_eq_dec' p p0).
+      * left. constructor. assumption.
+      * right. red. intros. inversion H. subst. apply n0. red. apply join_idem. intuition.
+  - destruct (policy_eq_dec p p0).
+    + left. constructor. red. rewrite p1. apply join_idem.
+    + destruct (flowsto_dec _ policy_lattice policy_eq_dec' p p0).
+      * left. constructor. assumption.
+      * right. red. intros. inversion H. subst. apply n0. red. intuition.
+  - destruct (policy_eq_dec p p0).
+    + left. constructor. red. rewrite p1. apply join_idem.
+    + destruct (flowsto_dec _ policy_lattice policy_eq_dec' p p0).
+      * left. constructor. assumption.
+      * right. red. intros. inversion H. subst. apply n0. red. intuition.
+  - destruct (policy_eq_dec p p0); specialize IHlhs with rhs; destruct IHlhs.
+      + left. constructor. red. rewrite p1. apply join_idem. assumption.
+      + right. red. intros. apply n.
+        inversion H.
+        * constructor.
+        * subst. assumption.
+      + destruct (flowsto_dec _ policy_lattice policy_eq_dec' p p0).
+        * left. constructor. assumption. assumption.
+        * right. red. intros. apply n.
+          inversion H.
+          -- subst. reflexivity.
+          -- subst. intuition.
+      + destruct (flowsto_dec _ policy_lattice policy_eq_dec' p p0).
+        * right. red. intros. apply n.
+          inversion H.
+          -- subst. reflexivity.
+          -- subst. intuition.
+        * right. red. intros. apply n.
+          inversion H.
+          -- subst. reflexivity.
+          -- subst. intuition.
+Qed.
+
+Definition context: Type := list (nat * policy).
+Fixpoint label_lookup (id: nat) (Γ: context): option policy :=
+  match Γ with
     | nil => None
-    | (id', (cur, disc)) :: l' =>
-        if Nat.eqb id id' then Some (cur, disc) else label_lookup id l'
+    | (id', p) :: l' =>
+        if Nat.eqb id id' then Some p else label_lookup id l'
   end.
 
-Fixpoint update_label (id: nat) (ctx: context) (pe: policy_encoding): context :=
+Fixpoint next_available_id (Γ: context) (n: nat): nat :=
+  match Γ with
+    | nil => n
+    | (id, _) :: l' => S (next_available_id l' (max id n))
+  end.
+
+Lemma new_id_non_exists: ∀ (Γ: context) (n: nat),
+  ~ (In (next_available_id Γ n) (map fst Γ)).
+Admitted.
+
+Definition id_of_length (Γ: context) (len: nat): list nat :=
+  let next_id := next_available_id Γ 0 in
+    (fix id_of_length (len: nat) (next_id: nat): list nat :=
+      match len with
+        | O => nil
+        | S len' => next_id :: id_of_length len' (S next_id)
+      end) len next_id.
+
+Fixpoint update_label (id: nat) (ctx: context) (p: policy): context :=
   match ctx with
   | nil => nil
-  | (id', pe') :: l' =>
-      if Nat.eqb id id' then (id, pe) :: l' else (id', pe') :: update_label id l' pe
+  | (id', p') :: l' =>
+      if Nat.eqb id id' then (id, p) :: l' else (id', p') :: update_label id l' p
   end.
 
-Lemma update_valid: ∀ id ctx pe pe',
-  label_lookup id ctx = Some pe →
-  label_lookup id (update_label id ctx pe') = Some pe'.
+Lemma update_valid: ∀ id ctx p p',
+  label_lookup id ctx = Some p →
+  label_lookup id (update_label id ctx p') = Some p'.
 Proof.
   induction ctx.
   - simpl in *. intros. inversion H.
   - destruct a.
     + simpl in *. destruct (Nat.eqb id n) eqn: Heq.
-      * intros. simpl. rewrite Nat.eqb_refl. destruct pe'. reflexivity.
-      * intros. simpl in *. rewrite Heq. specialize IHctx with (pe := pe) (pe' := pe').
-        destruct p. auto.
+      * intros. simpl. rewrite Nat.eqb_refl. reflexivity.
+      * intros. simpl in *. rewrite Heq. specialize IHctx with (p := p0) (p' := p').
+        apply IHctx. assumption.
 Qed.
 End Policy.
 
@@ -1010,10 +1097,7 @@ Defined.
 
 Definition example_tuple_lhs : tuple example_tuple_ty := (("abcd"%string, 1), ((true, 2), tt)).
 Definition example_tuple_rhs : tuple example_tuple_ty := (("abcd"%string, 1), ((true, 2), tt)).
-Set Printing Constructor.
-Set Printing Coercions.
-Set Printing Implicit.
-Set Printing Projections.
+
 Example example_tuple_total_eq: tuple_total_eq example_tuple_ty example_tuple_lhs example_tuple_rhs.
 Proof.
   simpl. repeat split; simpl; reflexivity.
