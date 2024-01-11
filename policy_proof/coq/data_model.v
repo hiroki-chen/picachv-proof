@@ -40,6 +40,21 @@ Inductive policy: Type :=
   | policy_declass: policy_label → policy → policy
 .
 
+Notation "x ⇝ y" := (policy_declass x y) (at level 10, no associativity).
+Notation "'∘' p " := (policy_atomic p) (at level 10, no associativity).
+
+Fixpoint policy_as_list (p: policy): list policy_label :=
+  match p with
+  | ∘ ℓ => ℓ :: nil
+  | ℓ ⇝ p' => ℓ :: policy_as_list p'
+  end.
+
+Fixpoint list_as_policy (l: list policy_label): policy :=
+  match l with
+  | nil => ∘ policy_bot
+  | h :: t => h ⇝ (list_as_policy t)
+  end.
+
 (* Joins two policy_label labels. *)
 Definition policy_label_join (lhs rhs: policy_label): policy_label :=
   match lhs, rhs with
@@ -109,7 +124,7 @@ Definition policy_option_meet (lhs rhs: option policy_label): option policy_labe
     | Some lhs', Some rhs' => Some (policy_meet lhs' rhs')
   end.
 
-Definition policy_eq (lhs rhs: policy_label): Prop :=
+Definition policy_label_eq (lhs rhs: policy_label): Prop :=
   match lhs, rhs with
   | policy_top, policy_top => True
   | policy_bot, policy_bot => True
@@ -127,12 +142,12 @@ Definition policy_eq (lhs rhs: policy_label): Prop :=
 Definition policy_option_eq (lhs rhs: option policy_label): Prop :=
   match lhs, rhs with
     | None, None => True
-    | Some lhs', Some rhs' => policy_eq lhs' rhs'
+    | Some lhs', Some rhs' => policy_label_eq lhs' rhs'
     | _, _ => False
   end.
 
-Global Instance policy_eq_eqv: Equivalence (@policy_eq).
-  constructor; unfold policy_eq.
+Global Instance policy_eq_eqv: Equivalence (@policy_label_eq).
+  constructor; unfold policy_label_eq.
   - unfold Reflexive. intros. destruct x; try reflexivity.
     destruct n. destruct d. auto.
   - unfold Symmetric. intros. destruct x; destruct y; try reflexivity; try contradiction;
@@ -147,9 +162,9 @@ Definition policy_option_eq_eqv: Equivalence policy_option_eq.
 refine (
   @Build_Equivalence _ _ _ _ _
 ).
-  - unfold Reflexive, policy_eq. intros. unfold policy_option_eq.
+  - unfold Reflexive, policy_label_eq. intros. unfold policy_option_eq.
     destruct x; try reflexivity.
-  - unfold Symmetric, policy_eq. intros. unfold policy_option_eq in *.
+  - unfold Symmetric, policy_label_eq. intros. unfold policy_option_eq in *.
     destruct x; destruct y; try reflexivity; try contradiction.
     apply policy_eq_eqv. assumption.
   - unfold Transitive. intros. induction x; induction y; induction z; try intuition auto with *.
@@ -157,21 +172,21 @@ refine (
 Defined.
 
 Lemma policy_join_comm: ∀ (lhs rhs: policy_label),
-  policy_eq (policy_label_join lhs rhs) (policy_label_join rhs lhs).
+  policy_label_eq (policy_label_join lhs rhs) (policy_label_join rhs lhs).
 Proof.
   intros. destruct lhs; destruct rhs; simpl; try reflexivity.
   - destruct n, d. intuition.
   - unfold set_eq. intros. split; apply set_inter_comm_in.
   - unfold set_eq. intros. split; apply set_inter_comm_in.
   - destruct n, d. intuition.
-  - destruct n, n0, d, d0. unfold policy_eq. simpl.
+  - destruct n, n0, d, d0. unfold policy_label_eq. simpl.
     assert (min n n1 = min n1 n) by lia.
     assert (min n0 n2 = min n2 n0) by lia.
     rewrite H. rewrite H0. intuition.
 Qed.
 
 Lemma policy_meet_comm: ∀ (lhs rhs: policy_label),
-  policy_eq (policy_meet lhs rhs) (policy_meet rhs lhs).
+  policy_label_eq (policy_meet lhs rhs) (policy_meet rhs lhs).
 Proof.
   intros. destruct lhs; destruct rhs; simpl; try reflexivity.
   - destruct n, d. intuition.
@@ -182,7 +197,7 @@ Proof.
   - destruct n, d. intuition.
   - destruct n, d. intuition.
   - destruct n, d. intuition.
-  - destruct n, n0, d, d0. unfold policy_eq. simpl.
+  - destruct n, n0, d, d0. unfold policy_label_eq. simpl.
     assert (max n n1 = max n1 n) by lia.
     assert (max n0 n2 = max n2 n0) by lia.
     rewrite H. rewrite H0. intuition.
@@ -191,7 +206,7 @@ Proof.
 Qed.
 
 Lemma policy_join_absorp: ∀ (lhs rhs: policy_label),
-  policy_eq (policy_label_join lhs (policy_meet lhs rhs)) lhs.
+  policy_label_eq (policy_label_join lhs (policy_meet lhs rhs)) lhs.
 Proof.
   intros. destruct lhs; destruct rhs; simpl; try reflexivity; try unfold set_eq; intros;
   try rewrite set_inter_refl_in; intuition; auto with *;
@@ -209,7 +224,7 @@ Proof.
 Qed.
 
 Lemma policy_join_assoc: ∀ (a b c: policy_label),
-  policy_eq (policy_label_join a (policy_label_join b c)) (policy_label_join (policy_label_join a b) c).
+  policy_label_eq (policy_label_join a (policy_label_join b c)) (policy_label_join (policy_label_join a b) c).
 Proof.
   intros. destruct a; destruct b; destruct c; try reflexivity;
   try (destruct n, n0, n1, n2, d, d0, d1, d2; simpl; intuition; lia);
@@ -219,7 +234,7 @@ Proof.
 Qed.
 
 Lemma policy_meet_assoc: ∀ (a b c: policy_label),
-  policy_eq (policy_meet a (policy_meet b c)) (policy_meet (policy_meet a b) c).
+  policy_label_eq (policy_meet a (policy_meet b c)) (policy_meet (policy_meet a b) c).
 Proof.
   intros. destruct a; destruct b; destruct c; simpl; try reflexivity;
   try (destruct n, d; lia); try (destruct n, n0, d, d0; auto with *);
@@ -305,7 +320,7 @@ Defined.
 
 Global Instance policy_setoid: Setoid policy_label.
 refine (
-  @Build_Setoid policy_label policy_eq policy_eq_eqv
+  @Build_Setoid policy_label policy_label_eq policy_eq_eqv
 ).
 Defined.
 
@@ -317,7 +332,7 @@ Definition policy_le (lhs rhs: policy_label): Prop :=
 Global Instance policy_lt_trans: Transitive policy_lt.
   unfold Transitive.
   intros. destruct x; destruct y; destruct z; unfold policy_lt in *; intuition auto with *;
-  unfold "⊑" in *; simpl in *; unfold complement, policy_eq in *; intros; try inversion H0;
+  unfold "⊑" in *; simpl in *; unfold complement, policy_label_eq in *; intros; try inversion H0;
   auto with *. 
   - destruct n, n0, d, d0. simpl. lia.
   - assert (s0 ⊂ s).
@@ -402,12 +417,12 @@ Global Instance policy_lt_trans: Transitive policy_lt.
   - destruct n, n0, n1, d, d0, d1. simpl in *. intuition; lia.
 Qed.
 
-Ltac simpl_ord := unfold policy_lt; unfold "⊑"; (split; auto with *); simpl; unfold complement; intros; unfold policy_eq in *; inversion H.
+Ltac simpl_ord := unfold policy_lt; unfold "⊑"; (split; auto with *); simpl; unfold complement; intros; unfold policy_label_eq in *; inversion H.
 Ltac ordering_lt := try (apply OrderedType.LT; auto; simpl_ord).
 Ltac ordering_eq := try (apply OrderedType.EQ; auto; simpl_ord).
 Ltac ordering_gt := try (apply OrderedType.GT; auto; simpl_ord).
 
-Lemma policy_eq_dec: ∀ (lhs rhs: policy_label), {policy_eq lhs rhs} + {~ (policy_eq lhs rhs)}.
+Lemma policy_eq_dec: ∀ (lhs rhs: policy_label), {policy_label_eq lhs rhs} + {~ (policy_label_eq lhs rhs)}.
 Proof.
   destruct lhs; destruct rhs; auto with *;
   try destruct (set_eq_dec _ transop_dec s s0);
@@ -424,7 +439,7 @@ Proof.
     + right. lia.
     + right. lia.
     + simpl. right. lia.
-Qed.
+Defined.
 
 Lemma policy_eq_dec': ∀ (lhs rhs: policy_label), {lhs === rhs} + {lhs =/= rhs}.
 Proof.
@@ -502,32 +517,31 @@ Proof.
   - right. red. intros. inversion H. simpl in *. auto.
 Qed.
 
-Notation "x ⇝ y" := (policy_declass x y) (at level 10, no associativity).
 Reserved Notation "x ⪯ y" (at level 10, no associativity).
 Inductive policy_ordering: policy → policy → Prop :=
   (* 
     ---------
       ℓ1 ⪯ ℓ1
    *)
-  | policy_ordering_refl: ∀ ℓ, policy_ordering ℓ ℓ
+  | policy_ordering_refl: ∀ ℓ, ℓ ⪯ ℓ
   (* 
      ℓ1 ⊑ ℓ2
     ---------
      ℓ1 ⪯ ℓ2
   *)
-  | policy_ordering_trivial: ∀ ℓ1 ℓ2, ℓ1 ⊑ ℓ2 → (policy_atomic ℓ1) ⪯ (policy_atomic ℓ2)
+  | policy_ordering_trivial: ∀ ℓ1 ℓ2, ℓ1 ⊑ ℓ2 → (∘ ℓ1) ⪯ (∘ ℓ2)
   (*
      ℓ1 ⊑ ℓ2
     ---------
      ℓ1 ⪯ ℓ2 ⇝ p
   *)
-  | policy_ordering_recur1: ∀ ℓ1 ℓ2 p, ℓ1 ⊑ ℓ2 → (policy_atomic ℓ1) ⪯ (ℓ2 ⇝ p)
+  | policy_ordering_elim1: ∀ ℓ1 ℓ2 p, ℓ1 ⊑ ℓ2 → (∘ ℓ1) ⪯ (ℓ2 ⇝ p)
   (*
     ℓ1 ⊑ ℓ2
     ---------
     ℓ1 ⇝ p ⪯ ℓ2
   *)
-  | policy_ordering_recur2: ∀ ℓ1 ℓ2 p, ℓ1 ⊑ ℓ2 → (ℓ1 ⇝ p) ⪯ (policy_atomic ℓ2)
+  | policy_ordering_elim2: ∀ ℓ1 ℓ2 p, ℓ1 ⊑ ℓ2 → (ℓ1 ⇝ p) ⪯ (∘ ℓ2)
   (*
     ℓ' ⊑ ℓ'   p ⪯ p'
     -----------------
@@ -536,8 +550,63 @@ Inductive policy_ordering: policy → policy → Prop :=
   | policy_ordering_spec: ∀ ℓ ℓ' p p', ℓ ⊑ ℓ' → p ⪯ p' → (ℓ ⇝ p) ⪯ (ℓ' ⇝ p')
 where "x ⪯ y" := (policy_ordering x y).
 
-Global Instance ord_proper: Proper (equiv ==> equiv) policy_ordering.
-Admitted.
+(* a -> b -> c -> d <= b -> d? *)
+
+Definition policy_eq (lhs rhs: policy): Prop := lhs ⪯ rhs ∧ rhs ⪯ lhs.
+Notation "x ≡ y" := (policy_eq x y) (at level 10, no associativity).
+
+Reserved Notation "x ∪ y" (at level 10, no associativity).
+Inductive policy_join: policy → policy → policy → Prop :=
+  (*
+    ℓ1 ⊑ ℓ2
+    ------------- = policy_join_label1
+    (∘ ℓ1) ∪ (∘ ℓ2) = (ℓ2 ⇝ (∘ ℓ1))
+  *)
+  | policy_join_label:
+      ∀ ℓ1 ℓ2, ℓ1 ⊑ ℓ2 →
+         (∘ ℓ1) ∪ (∘ ℓ2) (ℓ2 ⇝ (∘ ℓ1))
+  (*
+    ℓ1 ⊔ ℓ2 = ℓ3
+    ----------------- = policy_join_elim1
+    (∘ ℓ1) ∪ (ℓ2 ⇝ p) = ℓ3 ⇝ p
+  *)
+  | policy_join_elim1: ∀ ℓ1 ℓ2 p, ℓ2 ⊑ ℓ1 →
+      (∘ ℓ1) ∪ (ℓ2 ⇝ p) (ℓ1 ⇝ (ℓ2 ⇝ p))
+  (*
+    ℓ1 ⊑ ℓ2
+    p' = p ∪ (∘ ℓ1)
+    ----------------- = policy_join_elim2
+    (∘ ℓ1) ∪ (ℓ2 ⇝ p) = ℓ2 ⇝ p'
+  *)
+  | policy_join_elim2: ∀ ℓ1 ℓ2 p p', ℓ1 ⊑ ℓ2 →
+      (∘ ℓ1) ∪ p p' →
+      (∘ ℓ1) ∪ (ℓ2 ⇝ p) (ℓ2 ⇝ p')
+  (*
+    ℓ2 ⊑ ℓ1
+    p1 ∪ p2 = p3
+    ----------------- = policy_join_spec1
+    (ℓ1 ⇝ p1) ∪ (ℓ2 ⇝ p2) = ℓ1 ⇝ (ℓ2 ⇝ p3)
+  *)
+  | policy_join_spec1: ∀ ℓ1 ℓ2 p1 p2 p3, ℓ2 ⊑ ℓ1 →
+      p1 ∪ p2 p3 →
+      (ℓ1 ⇝ p1) ∪ (ℓ2 ⇝ p2) (ℓ1 ⇝ (ℓ2 ⇝ p3))
+  (*
+    ℓ1 ⊑ ℓ2
+    p1 ∪ p2 = p3
+    p3 ∪ (∘ ℓ1) = p4
+    ----------------- = policy_join_spec2
+    (ℓ1 ⇝ p1) ∪ (ℓ2 ⇝ p2) = ℓ2 ⇝ p4
+  *)
+  | policy_join_spec2: ∀ ℓ1 ℓ2 p1 p2 p3 p4, ℓ1 ⊑ ℓ2 →
+      p1 ∪ p2 p3 → (∘ ℓ1) ∪ p3 p4 →
+      (ℓ1 ⇝ p1) ∪ (ℓ2 ⇝ p2) (ℓ2 ⇝ p4)
+  (*
+    p1 ∪ p2 = p3
+    ------------- = policy_join_commute
+    p2 ∪ p1 = p3
+  *)
+  | policy_join_commute: ∀ p1 p2 p3, p1 ∪ p2 p3 → p2 ∪ p1 p3 
+where "x ∪ y" := (policy_join x y).
 
 (*
   The `policy_ord_dec` lemma provides a decision procedure for the policy ordering.
@@ -590,6 +659,8 @@ Proof.
           -- subst. intuition.
 Qed.
 
+(* Lemma policy_join_dec: ∀ (lhs rhs: policy), { ∃ res, lhs ∪ rhs res } + {~ (∃ res, lhs ∪ rhs res)}. *)
+
 Definition context: Type := list (nat * policy).
 Fixpoint label_lookup (id: nat) (Γ: context): option policy :=
   match Γ with
@@ -635,6 +706,36 @@ Proof.
       * intros. simpl in *. rewrite Heq. specialize IHctx with (p := p0) (p' := p').
         apply IHctx. assumption.
 Qed.
+
+Section Tests.
+
+Example policy_lhs := (policy_top ⇝ (policy_agg nil ⇝ (∘ policy_bot))).
+Example policy_rhs := (policy_select ⇝ (policy_transform nil ⇝ (∘ (policy_noise (differential_privacy (2, 1)))))).
+Example policy_res :=
+(policy_top ⇝
+  (policy_select ⇝
+    (policy_transform nil ⇝
+      (policy_agg nil ⇝
+        ((policy_noise (differential_privacy (2, 1))) ⇝
+          (∘ policy_bot)))))).
+
+Example join_correct: policy_lhs ∪ policy_rhs policy_res.
+Proof.
+  constructor.
+  - simpl. reflexivity.
+  - econstructor.
+    + simpl. reflexivity.
+    + assert (((∘ policy_bot) ∪ (∘ (policy_noise (differential_privacy (2, 1)))))
+             (((policy_noise (differential_privacy (2, 1)))) ⇝ (∘ policy_bot))).
+      {
+        constructor. simpl. auto.
+      }
+      eauto.
+    + econstructor. simpl. reflexivity.
+Qed.
+
+End Tests.
+
 End Policy.
 
 Module Cell.
@@ -665,6 +766,7 @@ Fixpoint tuple (ty: tuple_type): Set :=
   | nil => unit
   | bt :: t' => ((type_to_coq_type bt) * nat) * tuple t'
   end%type.
+Hint Unfold tuple: core.
 
 Fixpoint tuple_np (ty: tuple_type): Set :=
   match ty with
@@ -1130,3 +1232,8 @@ Notation "'<<' x '>>'" := (x, 0) (at level 0, x at next level).
 Notation "'<<' x ; x0 '>>'" := (x, x0) (at level 0, x at next level, x0 at next level).
 Notation "'[[' x , y , .. , z ']]'" := (x, (y, .. (z, tt) ..)) (at level 0, x at next level, y at next level, z at next level).
 Notation "'[[' x ']]'" := (x, tt) (at level 0, x at next level).
+Notation "x ⇝ y" := (Policy.policy_declass x y) (at level 10, no associativity).
+Notation "'∘' p " := (Policy.policy_atomic p) (at level 10, no associativity).
+Notation "x '⪯' y" := (Policy.policy_ordering x y) (at level 10, no associativity).
+Notation "x '∪' y" := (Policy.policy_join x y) (at level 10, no associativity).
+Notation "x ≡ y" := (Policy.policy_eq x y) (at level 10, no associativity).

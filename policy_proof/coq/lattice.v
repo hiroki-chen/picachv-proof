@@ -146,3 +146,13 @@ Proof.
     + left. unfold flowsto. rewrite e. reflexivity.
     + right. unfold flowsto. red. intros. intuition.
 Qed.
+
+Lemma flowsto_dec2: ∀ (A : Type) (l: lattice A) (dec: ∀ a b, { a ⊔ b === a } + { a ⊔ b === b} ) a b,
+  { a ⊑ b } + { b ⊑ a }.
+Proof.
+  intros.
+  destruct (dec a b).
+  - right. unfold flowsto. rewrite <- e.
+    rewrite e. rewrite join_comm. apply e.
+  - left. unfold flowsto. auto.
+Qed.

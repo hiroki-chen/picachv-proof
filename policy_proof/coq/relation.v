@@ -30,6 +30,7 @@ Definition relation_np (s: schema) := fbag (Tuple.tuple_np (schema_to_no_name s)
   @return    A finite bag (fbag) of tuples of type [ty].
 *)
 Definition relation (s: schema) := fbag (Tuple.tuple (schema_to_no_name s)).
+Hint Unfold relation: core.
 
 Lemma schema_concat_eq: ∀ s1 s2,
   schema_to_no_name (s1 ++ s2) = schema_to_no_name s1 ++ schema_to_no_name s2.

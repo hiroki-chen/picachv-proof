@@ -8,6 +8,24 @@ Require Import SetoidClass.
 Require Import String.
 Require Import Unicode.Utf8.
 
+(*
+  The type `=` accepts only homogeneous equality proofs. This is a problem when we 
+  are dealing with dependent types that are heterogeneously equal. Thus we cannot
+  directly use `=` to pose some predicates on dependent types.
+
+  One way to do this is to define some transport which corresponds to the Leibniz
+  principle: from `x = y` we derive `P x -> P y` for any `P`.
+
+  Reference:
+  * https://stackoverflow.com/questions/59593179/coq-type-mismatch-on-dependent-lists-which-could-be-solved-by-a-proof
+*)
+Definition transport {A: Type} {x y: A} (e: x = y) {P: A → Type} (t: P x) : P y :=
+  match e with
+  | eq_refl => t
+  end.
+
+Notation "x '♯' eq" := (transport x eq) (at level 70).
+
 Definition hd_option {A : Type} (l : list A) : option A :=
   match l with
   | nil => None
@@ -401,4 +419,3 @@ Proof.
   - apply H0. apply H. assumption.
   - intros. destruct H1, H2, H3. split; intros; intuition.
 Qed.
-
