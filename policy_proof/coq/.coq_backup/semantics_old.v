@@ -184,6 +184,7 @@ Lemma determine_schema_concat: ∀ s a ℓ,
   determine_schema s (project (a :: @nil (simple_atomic_expression * string))) ++
     determine_schema s (project ℓ) =
   determine_schema s (project (a :: ℓ)).
+
 Proof.
   induction a; induction a; auto; intros.
   - simpl. destruct (Tuple.nth_nocheck (schema_to_no_name s) n); auto.
@@ -670,7 +671,7 @@ Inductive do_apply_unary_function (ty: Attribute) (r: relation (ty :: nil)):
 .
 
 (*
-  @param ty An attribute containing a type and a name.
+  @param s The schema, which is a list of tuples where each tuple contains a type and a name.
   @param op The unary operation to be applied.
   @param ok A proof that the length of the schema [s] is 1.
   @param ctx A tuple containing the relation, the policy context, and the proof context.
@@ -685,32 +686,23 @@ Inductive do_apply_unary_function (ty: Attribute) (r: relation (ty :: nil)):
 
   This is just an entrypoint for the actual function [do_apply_unary_function].
 *)
-Inductive apply_unary_function_in_relation ty (r: relation (ty :: nil)):
+Inductive apply_unary_function_in_relation s (r: relation s):
   UnOp → Policy.context → prov_ctx → 
-    option (relation (ty :: nil) * Policy.context * prov_ctx) → Prop :=
+    option (relation s * Policy.context * prov_ctx) → Prop :=
   | E_ApplyEmptyRelation: ∀ op Γ p,
       r = nil →
-      apply_unary_function_in_relation ty r op Γ p None
-  | E_ApplyIdentity: ∀ op r' tp tp_tl Γ Γ' p p',
+      apply_unary_function_in_relation s r op Γ p None
+  | E_ApplyIdentity: ∀ ty op r' tp tp_tl Γ Γ' p p' (ok: s = ty :: nil),
       r = tp :: tp_tl →
       op = Identity →
-      do_apply_unary_function ty r op (unary_function (fst ty) (fun x => x)) Γ p (Some (r', Γ', p')) →
-      apply_unary_function_in_relation ty r op Γ p (Some (r', Γ', p'))
+      do_apply_unary_function ty (ok ♯ r) op (unary_function (fst ty) (fun x => x)) Γ p (Some (r', Γ', p')) →
+      apply_unary_function_in_relation s r op Γ p (Some ((eq_sym ok ♯ r'), Γ', p'))
   (* Others are not defined. *)
 .
 
-(*
-  `apply_proj_elem` is a function that applies a projection operation and produces a single column.
-
-  Note that if this function returns `None` then it means that something is wrong with the input.
-  `None` does not imply that the policy is violated. For example, if the input relation is empty,
-  then we cannot apply the projection operation to any column.
-
-  The return type contains a type which faciliates type casting.
-*)
 Inductive apply_proj_elem s (r: relation s) (expr: simple_atomic_expression * string):
   Policy.context → prov_ctx →
-    option (relation (determine_schema s (project (expr :: nil))) * basic_type * Policy.context * prov_ctx) → Prop :=
+    option (relation (determine_schema s (project (expr :: nil))) * Policy.context * prov_ctx) → Prop :=
     (* We forbid directly reading from a column; this may violate the security policy. *)
   | E_ApplyColumn: ∀ Γ p n name
                   (case_column: expr = (simple_atomic_expression_column n, name)),
@@ -723,110 +715,151 @@ Inductive apply_proj_elem s (r: relation s) (expr: simple_atomic_expression * st
         res_tmp = (tuple_of_length_n ((ty, name) :: nil) (List.length r) ((val, 0), tt)) →
         (* A transportation for type casting. *)
         res = (schema_const_ty_eq expr ty val name s case_expr ♯ res_tmp) →
-        apply_proj_elem s r expr Γ p (Some (res, ty, Γ, p))
+        apply_proj_elem s r expr Γ p (Some (res, Γ, p))
   | E_ApplyUnaryFunctionColumnError: ∀ Γ p op arg n name 
                           (case_expr: expr = (simple_atomic_expression_func_unary op arg, name)),
-
         arg = (simple_atomic_expression_column n) →
         n > List.length s →
         apply_proj_elem s r expr Γ p None
-  | E_ApplyUnaryFunctionColumnOk: ∀ Γ p op arg n (ok: n < List.length s) name tuples res_tmp res_tmp' res Γ' p'
+  | E_ApplyUnaryFunctionColumnOk: ∀ Γ p op arg n (ok: n < List.length s) name tuples res_tmp res Γ' p'
                           (case_expr: expr = (simple_atomic_expression_func_unary op arg, name))
                           (case_arg: arg = (simple_atomic_expression_column n)),
-
         tuples = extract_column s r n ok →
         apply_unary_function_in_relation _ tuples op Γ p (Some (res_tmp, Γ', p')) →
-        res_tmp' = (nth_type_eq s n ok arg name case_arg ♯ res_tmp) →
-        (* Do a type casting. *)
-        res = (eq_sym (unary_function_preserves_type' expr s op arg name case_expr) ♯ res_tmp') →
-        apply_proj_elem s r expr Γ p (Some (res, (fst (nth s n ok)), Γ', p'))
-  | E_ApplyUnaryFunctionOtherOk: ∀ Γ p op arg ty n name arg' res_tmp res_tmp' res Γ' p'
-                            (case_expr: expr = (simple_atomic_expression_func_unary op arg, name))
-                            (case_arg: arg ≠ (simple_atomic_expression_column n))
-                            (* We can prove this later. *)
-                            (type_matches: determine_schema s (project (<< (arg); (name) >> :: nil)) = (ty :: nil)),
-
-        (* We first recursively evaluate the argument. *)
-        apply_proj_elem s r (arg, name) Γ p (Some (arg', (fst ty), Γ', p')) →
-        (* Then we apply the unary function to the argument. *)
-        apply_unary_function_in_relation _ (type_matches ♯ arg') op Γ p (Some (res_tmp, Γ', p')) →
-        res = (eq_sym (unary_function_preserves_type' expr s op arg name case_expr) ♯ res_tmp') →
-        apply_proj_elem s r expr Γ p (Some (res, (fst ty), Γ', p'))
-
-    (* TODO: Add other cases. *)
+        res = ((nth_type_eq s n ok arg name case_arg) ♯ res_tmp) →
+        apply_proj_elem s r expr Γ p (Some (res, Γ', p'))
   .
 
 (*
-  @param s The schema of the relation.
-  @param r The relation, which is a list of tuples where each tuple contains a single type.
-  @param ℓ A list of simple atomic expressions and their corresponding string identifiers.
-  @param Policy.context The policy context.
-  @param prov_ctx The proof context.
-  @return An optional tuple containing the relation, the policy context, and the proof context.
+  `apply_proj_elem` is a function that applies a projection operation to a
+  single column of a relation. This will further consult the `c [ f ] c'` relation to determine the output relation.
 
-  This function applies a projection operation to a relation. The projection operation is specified by the list of
-  simple atomic expressions `ℓ`. Each simple atomic expression in `ℓ` represents a column in the relation `r` that
-  should be included in the result. The function returns an optional value. If the projection operation can be
-  successfully applied, the function returns `Some` with a tuple containing the resulting relation, the updated
-  policy context, and the updated proof context. If the projection operation cannot be applied (for example, if a
-  simple atomic expression in `ℓ` does not correspond to a column in `r`), the function returns `None`.
+  Note that if this function returns `None` then it means that something is wrong with the input.
+  `None` does not imply that the policy is violated. For example, if the input relation is empty,
+  then we cannot apply the projection operation to any column.
 *)
-Inductive apply_proj_in_relation s (r: relation s) (ℓ: list (simple_atomic_expression * string)):
-  Policy.context → prov_ctx → 
-    option (relation (determine_schema s (project ℓ)) * Policy.context * prov_ctx) → Prop :=
-  (* We do not accept lists that are not normalized. *)
-  | E_Unnormalized: ∀ Γ p,
-      ¬ (normalized (project ℓ)) →
-      apply_proj_in_relation s r ℓ Γ p None
-  | E_EmptyProjectList: ∀ Γ p,
-      ℓ = nil →
-      apply_proj_in_relation s r ℓ Γ p (Some (nil, Γ, p))
-  | E_ApplyElemErrHead: ∀ Γ p  hd tl (proj_case: ℓ = hd :: tl),
-      apply_proj_elem s r hd Γ p None →
-      apply_proj_in_relation s r ℓ Γ p None
-  | E_ApplyElemErrTail: ∀ Γ p hd tl res (proj_case: ℓ = hd :: tl),
-      apply_proj_elem s r hd Γ p (Some res) →
-      apply_proj_in_relation s r tl Γ p None →
-      apply_proj_in_relation s r ℓ Γ p None
-  | E_ApplyElemOk: ∀ Γ Γ' Γ'' Γfin p p' p'' pfin hd hd' tl tl' col_tmp col_proxy col
-                (proj_case: ℓ = hd :: tl),
-      apply_proj_elem s r hd Γ p (Some (hd', Γ', p')) →
-      apply_proj_in_relation s r tl Γ p (Some (tl', Γ'', p'')) →
-      Γfin = merge Γ' Γ'' →
-      pfin = merge p' p'' →
-      (*
-        Goal:
-        (determine_schema s (project (hd :: nil)) ++
-        determine_schema s (project tl)) = determine_schema s (project ℓ)
-        -------------------------------
-        project ℓ = project (hd :: tl) by ℓ = hd :: tl with ♯
-        --–----------------------------
-        Then by determine_schema_concat we have:
-        (determine_schema s (project (hd :: nil)) ++
-        determine_schema s (project tl)) = determine_schema s (project (hd :: tl))
-        -------------------------------
-      *)
-      col_tmp = (relation_product _ _ (fst hd') tl') →
-      col_proxy = ((determine_schema_concat s hd tl) ♯ col_tmp) →
-      col = ((eq_sym proj_case) ♯ col_proxy) →
-      apply_proj_in_relation s r ℓ Γ p (Some (col, Γfin, pfin))
-.
+Definition apply_proj_elem0 s (r: relation s) (expr: simple_atomic_expression * string)
+                             (Γ: Policy.context) (p: prov_ctx)
+                             (normalized: normalized_expr (fst expr))
+  : option (relation (determine_schema s (project (expr :: nil))) * Policy.context * prov_ctx).
+refine (
+(fix eval_expr expr :=
+    match expr with
+    | (expr, name) =>
+        match expr with
+        (*
+          This is not possible since e have already ensured that all columns must be applied
+          with a function by a normalization function.
+        *)
+        | simple_atomic_expression_column _ => None
+        | simple_atomic_expression_const ty c => _
+        | simple_atomic_expression_func_unary op arg => _
+        | simple_atomic_expression_func_binary op arg1 arg2 => _
+        end
+      end) expr
+).
+  - exact (let res := (tuple_of_length_n ((ty, name) :: nil) (List.length r) ((c, 0), tt)) in
+              Some (res, Γ, p)).
+  - destruct (determine_schema s (project (<< (arg); (name) >> :: nil))).
+    + exact None.
+    + pose (eval_expr (arg, name)) as arg'.
+      assert (len: List.length (determine_schema s (project (<< (arg); (name) >> :: nil))) ≤ 1).
+      {
+        specialize determine_schema_length_le with (s := s) (pl := << (arg); (name) >> :: nil).
+        intros. simpl in *. assumption. 
+      }
+      destruct arg' as [arg'|].
+      * apply le_decide in len. destruct len.
+        (* Len < 1. *)
+        -- exact None.
+        -- destruct arg'. destruct p0. destruct (apply_unary_function_in_relation_dec _ r0 op Γ p).
+           specialize unary_function_preserves_type with (s := s) (op := op) (arg := arg) (name := name).
+           intros.
+           rewrite <- H in arg''.
+           exact arg''.
+      * exact None.
+  (*
+    The function has only one argument which is a column. In this case, we need to:
+    1. Obtain the whole column from the relation.
+    2. Obtain the label, provenance from the environment.
+    3. Check the permission against the policy label.
+    4. Evaluate the function.
+    5. Update provenance and label.
+  *)
+  - pose (eval_expr (arg1, name)) as arg1'.
+    pose (eval_expr (arg2, name)) as arg2'.
+    destruct arg1' as [arg1'|]; destruct arg2' as [arg2'|].
 
-Inductive apply_proj_in_env_slice s (es: env_slice s) (ℓ: list (simple_atomic_expression * string)):
-  Policy.context → prov_ctx →
-    option (env_slice (determine_schema s (project ℓ)) * Policy.context * prov_ctx) → Prop :=
-  | E_ApplyInEnvSliceerr: ∀ Γ p r a b c,
-      normalized (project ℓ) →
-      es = (r, a, b, c) →
-      apply_proj_in_relation s r ℓ Γ p None →
-      apply_proj_in_env_slice s es ℓ Γ p None
-  | E_ApplyInEnvSliceOk: ∀ Γ p Γ' p' r r' a b c,
-      normalized (project ℓ) →
-      es = (r, a, b, c) →
-      apply_proj_in_relation s r ℓ Γ p (Some (r', Γ', p')) →
-      apply_proj_in_env_slice s es ℓ Γ p (Some ((r', a, b, nil), Γ', p'))
-.
 
+Admitted.
+
+(*
+  Since `relation` is a dependent type, we need to apply a helper function to
+  update the relation with regard to the schema. This means we cannot simply
+  quantify over `s` in the definition since that would make the type of `relation`
+  different in each case and hard to reason about.
+
+  Instead, we know that the schema can be determined given the input schema
+  and the project list. We can thus manipulate the output schema on which the
+  output relation depends.
+*)
+Definition apply_proj_in_relation s (r: relation s) (ℓ: list (simple_atomic_expression * string))
+                                    (Γ: Policy.context) (p: prov_ctx)
+                                    (normalized: normalized (project ℓ))
+  : option (relation (determine_schema s (project ℓ)) * Policy.context * prov_ctx).
+Proof.
+  induction ℓ.
+  - exact (Some (nil, Γ, p)).
+  - (* We apply `a` to the relation s and obtain the output. *)
+    pose (normalized_implies_each_expr _ normalized a) as norm.
+    pose (in_eq a ℓ) as pred. apply norm in pred.
+    pose (apply_proj_elem s r a Γ p pred) as col.
+    destruct col as [col | ].
+    + pose (normalized_cons _ _ normalized) as norm'.
+      destruct norm'. apply IHℓ in H0. clear IHℓ. rename H0 into IHℓ.
+
+      destruct IHℓ as [IHℓ | ].
+      * pose (fst (fst IHℓ)) as r'.
+        pose (fst (fst col)) as r''.
+        pose (snd (fst IHℓ)) as Γ'.
+        pose (snd (fst col)) as Γ''.
+        pose (snd IHℓ) as p'.
+        pose (snd col) as p''.
+
+        apply (merge p'') in p'.
+        apply (merge Γ'') in Γ'.
+
+        (* The next thing to do is merge relations, but this could
+          be not so straightforward since we need to merge the
+          schemas that are hidden in `determine_schema` function.
+
+          We also need to prove that
+            ```
+            determine_schema s (project (a :: @nil simple_atomic_expression)) ++
+            determine_schema s (project ℓ)
+            =
+            determine_schema s (project (a :: ℓ))
+            ```
+        *)
+        apply (relation_product _ _ r'') in r'.
+        rewrite (determine_schema_concat s a ℓ) in r'.
+        exact (Some (r', Γ', p')).
+      * exact None.
+    + exact None.
+Defined.
+
+Definition apply_proj_in_env_slice s (es: env_slice s) (ℓ: list (simple_atomic_expression * string))
+                                     (Γ: Policy.context) (p: prov_ctx)
+                                     (norm: normalized (project ℓ))
+  : option (env_slice (determine_schema s (project ℓ)) * Policy.context * prov_ctx) :=
+  match es with
+  | (r, a, b, _) =>
+      let r := (apply_proj_in_relation s r ℓ Γ p norm) in
+        match r with 
+        | Some (r', Γ', p') => Some ((r', a, b, nil), Γ', p')
+        | None => None
+        end
+  end.
 
 (* 
   A helper function that applies the projection list in the environment.
@@ -834,18 +867,39 @@ Inductive apply_proj_in_env_slice s (es: env_slice s) (ℓ: list (simple_atomic_
 
   Note that `ℓ` is the normalized projection list.
 *)
+Definition apply_proj_in_env s (evidence: List.length s > 0): ∀ (e: ℰ s)
+                             (ℓ: project_list) (norm: normalized ℓ)
+                             (Γ: Policy.context) (p: prov_ctx),
+                             option (
+                              ℰ ((determine_schema (hd_ok s evidence) ℓ) :: (tail s)) *
+                              Policy.context * prov_ctx).
+  destruct s.
+  - simpl in evidence. lia.
+  - intros. 
+    simpl. intros.
+    destruct ℓ.
+    (* Since we have the evidence that `ℓ` is normalized, it cannot be a `project_star`. *)
+    + inversion norm.
+    (* We now apply the projection list in the environment slice. *)
+    + pose (apply_proj_in_env_slice s (fst e) l Γ p norm) as config'.
+      destruct config' as [config' | ].
+      * exact (Some (fst (fst config'), snd e, (snd (fst config')), snd config')).
+      * exact None.
+Defined.
+
 Inductive apply_proj_in_env s evidence ℓ: ℰ s → Policy.context → prov_ctx →
     option (ℰ ((determine_schema (hd_ok s evidence) ℓ) :: (tail s)) * Policy.context * prov_ctx) → Prop :=
-  | E_ProjInEnv: ∀ l tl config' (env: ℰ s) Γ Γ' p p' env'
-                 (case_s: s = (hd_ok s evidence) :: tl),
-      ℓ = project l →
-      apply_proj_in_env_slice (hd_ok s evidence) (fst (case_s ♯ env)) l Γ p (Some config') →
-      apply_proj_in_env s evidence ℓ env Γ p (Some (env', Γ', p'))
-  | E_ProjInEnvError: ∀ l tl Γ p (env: ℰ s) (case_s: s = (hd_ok s evidence) :: tl),
-      ℓ = project l →
-      apply_proj_in_env_slice (hd_ok s evidence) (fst (case_s ♯ env)) l Γ p None →
-      apply_proj_in_env s evidence ℓ env Γ p None
-.
+  | E_ProjInEnv: ∀ s' config' e Γ p l,
+      s' = hd_ok s evidence → ℓ = project l →
+      apply_proj_in_env_slice s' (fst e) l Γ p = Some config' →
+      apply_proj_in_env s evidence ℓ e Γ p (Some (config', Γ, p))
+  | E_ProjInEnvError: ∀ ℓ norm Γ p e,
+      apply_proj_in_env_slice s (fst e) ℓ Γ p norm = None →
+      apply_proj_in_env s evidence e ℓ norm Γ p = None.
+
+Reserved Notation "c1 '~[' o ']~>' c2" (at level 50, left associativity).
+Inductive step_cell: cell → cell → Prop :=
+where "c1 '~[' o ']~>' c2" := (step_cell o c1 c2).
 
 (* 
   `step_config` is an inductive type representing the transition rules for configurations. 
@@ -859,7 +913,6 @@ Inductive apply_proj_in_env s evidence ℓ: ℰ s → Policy.context → prov_ct
   * Update the tuple in the environment.
   * Update the relation.
 *)
-
 Reserved Notation "c1 '=[' o ']=>' c2" (at level 50, left associativity).
 Inductive step_config: Operator → config → config → Prop :=
   (* Empty operator clears the environment. *)
@@ -882,8 +935,8 @@ Inductive step_config: Operator → config → config → Prop :=
           let input_schema := (hd_ok s2 evidence) in
             let output_schema := determine_schema input_schema ℓ' in
               ∀ (prop: ℓ' = normalize_project_list input_schema ℓ),
-                   apply_proj_in_env s2 evidence ℓ' e'' Γ p
-                   (Some (e', Γ', p')) →
+                  Some (e', Γ', p') = apply_proj_in_env s2 evidence e'' ℓ'
+                                 (normalize_is_normalized _ _ _ prop) Γ p →
                     ⟨ s1 Γ β e p ⟩ =[ operator_project ℓ o]=>
                       ⟨ (output_schema :: (tail s2)) Γ' β' e' p' ⟩
   (*
@@ -896,13 +949,15 @@ Inductive step_config: Operator → config → config → Prop :=
         ∀ (evidence: List.length s2 > 0),
           let input_schema := (hd_ok s2 evidence) in
             let output_schema := determine_schema input_schema ℓ' in
+              ∀ (prop: ℓ' = normalize_project_list input_schema ℓ),
                   (*
                      Here, we use `option` rather than `config` since `config` is dependent
                      on schema, but we do need the evidence dependent on schema. This forces
                      us to pattern match on `config` to get the schema so that we cannot
                      pass `evidence` to `apply_proj_in_env` function.
                   *)
-                  apply_proj_in_env s2 evidence ℓ' e'' Γ p None →
+                  None = apply_proj_in_env s2 evidence e'' ℓ'
+                         (normalize_is_normalized _ _ _ prop) Γ p →
                     ⟨ s1 Γ β e p ⟩ =[ operator_project ℓ o]=> config_error
 where "c1 '=[' o ']=>' c2" := (step_config o c1 c2).
 Hint Constructors step_config: core.

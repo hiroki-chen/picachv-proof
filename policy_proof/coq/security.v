@@ -21,7 +21,7 @@ refine (
   destruct t.
   pose (Policy.label_lookup (snd p) Γ).
   destruct o.
-  - exact (Policy.can_release p0 ∧ policy_ok_tuple' _ Γ t).
+  - exact (p0 = ∘ Policy.policy_bot ∧ policy_ok_tuple' _ Γ t).
   - exact False.
 Defined.
 
@@ -31,13 +31,7 @@ Fixpoint policy_ok_relation s (Γ: Policy.context) (r: relation s) : Prop :=
     | t :: r' => policy_ok_tuple _ Γ t ∧ policy_ok_relation _ Γ r'
   end.
 
-(* Definition policy_ok s (Γ: Policy.context) (e : ℰ s) : Prop :=
-  match e with
-    | tt => True
-    | (r, _, _, _) :: _ => policy_ok_relation _ Γ r
-  end. *)
 (* =========================================================================================== *)
-
 
 Definition valid_transition (τ: prov_type) (ℓ1 ℓ2: Policy.policy): Prop :=
   match τ with
