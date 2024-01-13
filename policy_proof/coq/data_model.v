@@ -21,7 +21,7 @@ Module Policy.
   tion, and the effect of the policy_label depends on its type.
 *)
 Inductive policy_label : Type :=
-  | policy_bot : policy_label
+  | policy_bot: policy_label
   (* Should be something like `pred → policy_label` *)
   | policy_select: policy_label
   | policy_transform: set TransOp → policy_label
@@ -34,24 +34,30 @@ Inductive policy_label : Type :=
   The `policy` inductive type represents the different types of policies that can be applied
   to data in the data model. Each policy can be applied to a cell in a relation, and the effect
   of the policy depends on its type.
+
+  Currently we have two types of policy:
+  * `policy_clean` means that we have applied all the required policies to the data.
+  * `policy_declass` means that we have current policy `label` and if it is applied to the data,
+    then we will have the next policy `policy`.
 *)
 Inductive policy: Type :=
-  | policy_atomic: policy_label → policy
+  | policy_clean: ∀ ℓ, ℓ = policy_bot → policy
   | policy_declass: policy_label → policy → policy
 .
 
 Notation "x ⇝ y" := (policy_declass x y) (at level 10, no associativity).
-Notation "'∘' p " := (policy_atomic p) (at level 10, no associativity).
+Notation "'∎'" := (policy_clean policy_bot eq_refl).
+Notation "'∘' x" := (x ⇝ ∎) (at level 10, no associativity).
 
 Fixpoint policy_as_list (p: policy): list policy_label :=
   match p with
-  | ∘ ℓ => ℓ :: nil
   | ℓ ⇝ p' => ℓ :: policy_as_list p'
+  | _ => nil
   end.
 
 Fixpoint list_as_policy (l: list policy_label): policy :=
   match l with
-  | nil => ∘ policy_bot
+  | nil => ∎
   | h :: t => h ⇝ (list_as_policy t)
   end.
 
@@ -318,6 +324,14 @@ Global Instance policy_lattice: lattice policy_label.
     + destruct n, n0, n1, d, d0, d1; simpl in *; lia.
 Defined.
 
+Check policy_ind.
+
+Inductive valid_policy: policy → Prop :=
+  | valid_policy_clean: valid_policy ∎
+  | valid_policy_atomic: ∀ ℓ, valid_policy (∘ ℓ)
+  | valid_policy_declass: ∀ ℓ1 ℓ2 p, valid_policy (ℓ2 ⇝ p) → ℓ2 ⊑ ℓ1 → valid_policy (ℓ1 ⇝ (ℓ2 ⇝ p))
+.
+
 Global Instance policy_setoid: Setoid policy_label.
 refine (
   @Build_Setoid policy_label policy_label_eq policy_eq_eqv
@@ -448,6 +462,34 @@ Proof.
   - right. unfold equiv. auto.
 Qed.
 
+Lemma valid_policy_implies: ∀ ℓ p, valid_policy (ℓ ⇝ p) → valid_policy p.
+Proof.
+  induction p.
+  - subst. intros. constructor.
+  - intros. inversion H; subst. assumption.
+Qed.
+
+Lemma valid_policy_stronger: ∀ ℓ1 ℓ2 p, ℓ2 ⊑ ℓ1 → valid_policy (ℓ2 ⇝ p) → valid_policy (ℓ1 ⇝ p).
+Proof.
+  destruct p.
+  - subst. intros. constructor.
+  - constructor. eapply valid_policy_implies. eauto.
+    inversion H0. subst. eapply transitivity; eauto.
+Qed.
+
+Lemma valid_policy_dec: ∀ p, {valid_policy p} + {~ valid_policy p}.
+Proof.
+  induction p.
+  - subst. left. constructor.
+  - destruct IHp.
+    + induction p0.
+      * subst. left. constructor.
+      * destruct (flowsto_dec _ policy_lattice policy_eq_dec' p0 p).
+        -- left. constructor; auto.
+        -- right. red. intros. inversion H. subst. intuition.
+    + right. red. intros. inversion H. subst. apply n. constructor. apply n. subst. assumption.
+Qed.
+
 Lemma policy_lt_dec: ∀ (lhs rhs: policy_label), {policy_lt lhs rhs} + {~ (policy_lt lhs rhs)}.
 Proof.
   destruct lhs; destruct rhs.
@@ -521,27 +563,17 @@ Reserved Notation "x ⪯ y" (at level 10, no associativity).
 Inductive policy_ordering: policy → policy → Prop :=
   (* 
     ---------
-      ℓ1 ⪯ ℓ1
-   *)
-  | policy_ordering_refl: ∀ ℓ, ℓ ⪯ ℓ
-  (* 
-     ℓ1 ⊑ ℓ2
-    ---------
-     ℓ1 ⪯ ℓ2
+     ∎ ⪯ p
   *)
-  | policy_ordering_trivial: ∀ ℓ1 ℓ2, ℓ1 ⊑ ℓ2 → (∘ ℓ1) ⪯ (∘ ℓ2)
+  | policy_ordering_trivial: ∀ p, valid_policy p → ∎ ⪯ p
+  | policy_ordering_label: ∀ ℓ1 ℓ2, ℓ1 ⊑ ℓ2 → (∘ ℓ1) ⪯ (∘ ℓ2)
   (*
      ℓ1 ⊑ ℓ2
     ---------
      ℓ1 ⪯ ℓ2 ⇝ p
   *)
-  | policy_ordering_elim1: ∀ ℓ1 ℓ2 p, ℓ1 ⊑ ℓ2 → (∘ ℓ1) ⪯ (ℓ2 ⇝ p)
-  (*
-    ℓ1 ⊑ ℓ2
-    ---------
-    ℓ1 ⇝ p ⪯ ℓ2
-  *)
-  | policy_ordering_elim2: ∀ ℓ1 ℓ2 p, ℓ1 ⊑ ℓ2 → (ℓ1 ⇝ p) ⪯ (∘ ℓ2)
+  | policy_ordering_elim1: ∀ ℓ1 ℓ2 p, valid_policy (ℓ2 ⇝ p) → ℓ1 ⊑ ℓ2 → (ℓ1 ⇝ p) ⪯ (∘ ℓ2)
+  | policy_ordering_elim2: ∀ ℓ1 ℓ2 p, valid_policy (ℓ2 ⇝ p) → ℓ1 ⊑ ℓ2 → (∘ ℓ1) ⪯ (ℓ2 ⇝ p)
   (*
     ℓ' ⊑ ℓ'   p ⪯ p'
     -----------------
@@ -549,7 +581,6 @@ Inductive policy_ordering: policy → policy → Prop :=
   *)
   | policy_ordering_spec: ∀ ℓ ℓ' p p', ℓ ⊑ ℓ' → p ⪯ p' → (ℓ ⇝ p) ⪯ (ℓ' ⇝ p')
 where "x ⪯ y" := (policy_ordering x y).
-
 (* a -> b -> c -> d <= b -> d? *)
 
 Definition policy_eq (lhs rhs: policy): Prop := lhs ⪯ rhs ∧ rhs ⪯ lhs.
@@ -618,45 +649,35 @@ where "x ∪ y" := (policy_join x y).
   A policy should be either "weaker" or "stronger" than another policy, or they should be equal.
   Thus, we can use `destruct` to discuss the different cases in the function application.
 *)
-Lemma policy_ord_dec: ∀ (lhs rhs: policy), {lhs ⪯ rhs} + {~ (lhs ⪯ rhs)}.
+Lemma policy_ord_dec: ∀ (lhs rhs: policy), valid_policy lhs → valid_policy rhs → { lhs ⪯ rhs } + { ~ (lhs ⪯ rhs) }.
 Proof.
-  induction lhs; induction rhs.
-  - destruct (policy_eq_dec p p0).
-    + left. subst. constructor. red. rewrite p1. apply join_idem.
+  induction lhs; induction rhs; intros; try specialize IHlhs with (rhs := rhs).
+  - left. subst. constructor. assumption.
+  - left. subst. constructor. assumption.
+  - right. unfold not. subst. intros. inversion H1. 
+  - destruct IHlhs, IHrhs; try assumption;
+    try (apply valid_policy_implies in H0; assumption); try (apply valid_policy_implies in H; assumption).
     + destruct (flowsto_dec _ policy_lattice policy_eq_dec' p p0).
-      * left. constructor. assumption.
-      * right. red. intros. inversion H. subst. apply n0. red. apply join_idem. intuition.
-  - destruct (policy_eq_dec p p0).
-    + left. constructor. red. rewrite p1. apply join_idem.
+      * left. constructor; assumption.
+      * right. unfold not in *. intros. apply n. inversion H1; subst; auto.
     + destruct (flowsto_dec _ policy_lattice policy_eq_dec' p p0).
-      * left. constructor. assumption.
-      * right. red. intros. inversion H. subst. apply n0. red. intuition.
-  - destruct (policy_eq_dec p p0).
-    + left. constructor. red. rewrite p1. apply join_idem.
+      * left. constructor; assumption.
+      * right. unfold not in *. intros. apply n0. inversion H1; subst; auto.
+    + right. unfold not in *. intros. apply n. inversion H1; subst; auto.
+      * constructor. constructor.
+      * inversion p1.
+      * constructor. apply valid_policy_implies in H5. assumption.
     + destruct (flowsto_dec _ policy_lattice policy_eq_dec' p p0).
-      * left. constructor. assumption.
-      * right. red. intros. inversion H. subst. apply n0. red. intuition.
-  - destruct (policy_eq_dec p p0); specialize IHlhs with rhs; destruct IHlhs.
-      + left. constructor. red. rewrite p1. apply join_idem. assumption.
-      + right. red. intros. apply n.
-        inversion H.
-        * constructor.
-        * subst. assumption.
-      + destruct (flowsto_dec _ policy_lattice policy_eq_dec' p p0).
-        * left. constructor. assumption. assumption.
-        * right. red. intros. apply n.
-          inversion H.
-          -- subst. reflexivity.
-          -- subst. intuition.
-      + destruct (flowsto_dec _ policy_lattice policy_eq_dec' p p0).
-        * right. red. intros. apply n.
-          inversion H.
-          -- subst. reflexivity.
-          -- subst. intuition.
-        * right. red. intros. apply n.
-          inversion H.
-          -- subst. reflexivity.
-          -- subst. intuition.
+      * destruct rhs.
+        -- left. subst. constructor. eapply valid_policy_stronger; eauto. assumption.
+        -- right. unfold not in *. intros. inversion H1; subst.
+          ++ apply n. constructor. eapply valid_policy_implies. eauto.
+          ++ apply n. assumption.
+      * right. unfold not in *. intros.  inversion H1; subst.
+        -- apply n1. assumption.
+        -- apply n1. assumption.
+        -- apply n1. assumption.
+        -- apply n1. assumption.
 Qed.
 
 (* Lemma policy_join_dec: ∀ (lhs rhs: policy), { ∃ res, lhs ∪ rhs res } + {~ (∃ res, lhs ∪ rhs res)}. *)
@@ -706,6 +727,8 @@ Proof.
       * intros. simpl in *. rewrite Heq. specialize IHctx with (p := p0) (p' := p').
         apply IHctx. assumption.
 Qed.
+
+Definition can_release p: Prop := p = ∎.
 
 Section Tests.
 

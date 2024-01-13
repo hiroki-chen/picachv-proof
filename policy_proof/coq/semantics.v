@@ -700,13 +700,13 @@ Inductive apply_unary_function_in_relation ty (r: relation (ty :: nil)):
 .
 
 (*
-  `apply_proj_elem` is a function that applies a projection operation and produces a single column.
-
-  Note that if this function returns `None` then it means that something is wrong with the input.
-  `None` does not imply that the policy is violated. For example, if the input relation is empty,
-  then we cannot apply the projection operation to any column.
-
-  The return type contains a type which faciliates type casting.
+  @param s The schema of the relation.
+  @param r The relation, which is a list of tuples where each tuple corresponds to a row in the relation.
+  @param expr A tuple containing a simple atomic expression and a string. The simple atomic expression
+              represents a column in the relation, and the string is the name of the column.
+  @param Policy.context The policy context.
+  @param prov_ctx The proof context.
+  @return An optional tuple containing the relation, the policy context, and the proof context.
 *)
 Inductive apply_proj_elem s (r: relation s) (expr: simple_atomic_expression * string):
   Policy.context → prov_ctx →
@@ -827,12 +827,13 @@ Inductive apply_proj_in_env_slice s (es: env_slice s) (ℓ: list (simple_atomic_
       apply_proj_in_env_slice s es ℓ Γ p (Some ((r', a, b, nil), Γ', p'))
 .
 
-
-(* 
-  A helper function that applies the projection list in the environment.
-  It returns a new environment, a new policy environment, and a new provenance context.
-
-  Note that `ℓ` is the normalized projection list.
+(*
+  @param s The schema of the relation.
+  @param evidence The evidence, which is a list of tuples where each tuple corresponds to a row in the relation.
+  @param ℓ A list of simple atomic expressions and their corresponding string identifiers.
+  @param Policy.context The policy context.
+  @param prov_ctx The proof context.
+  @return An optional evidence.
 *)
 Inductive apply_proj_in_env s evidence ℓ: ℰ s → Policy.context → prov_ctx →
     option (ℰ ((determine_schema (hd_ok s evidence) ℓ) :: (tail s)) * Policy.context * prov_ctx) → Prop :=
@@ -881,7 +882,7 @@ Inductive step_config: Operator → config → config → Prop :=
         ∀ (evidence: List.length s2 > 0) e',
           let input_schema := (hd_ok s2 evidence) in
             let output_schema := determine_schema input_schema ℓ' in
-              ∀ (prop: ℓ' = normalize_project_list input_schema ℓ),
+                ℓ' = normalize_project_list input_schema ℓ →
                    apply_proj_in_env s2 evidence ℓ' e'' Γ p
                    (Some (e', Γ', p')) →
                     ⟨ s1 Γ β e p ⟩ =[ operator_project ℓ o]=>

@@ -33,14 +33,12 @@ Fixpoint policy_ok_relation s (Γ: Policy.context) (r: relation s) : Prop :=
 
 (* =========================================================================================== *)
 
+(* TODO: Fix this definition! *)
 Definition valid_transition (τ: prov_type) (ℓ1 ℓ2: Policy.policy): Prop :=
-  match τ with
-    | prov_trans_unary => ℓ1 ⊑ Policy.policy_transform ∧ ℓ2 = Policy.policy_agg
-    | prov_trans_binary => ℓ1 ⊑ Policy.policy_transform ∧ ℓ2 = Policy.policy_agg
-    | prov_agg _ => ℓ1 ⊑ Policy.policy_agg ∧ ℓ2 = Policy.policy_noise
-    | prov_noise => ℓ1 ⊑ Policy.policy_transform ∧ ℓ2 = Policy.policy_bot
-    | prov_join => ℓ1 ⊑ ℓ2
-  end.
+  match ℓ1 with
+  |
+  end
+.
 
 (*
     This fixpoint function checks whether a given provenance tree (consisting of cells) is valid
@@ -108,8 +106,11 @@ Defined.
  *)
 Theorem secure_query:
   ∀ s Γ β e p o,
-    (∃ s' Γ' β' e' p', ⟨ s Γ β e p ⟩ =[ o ]=> ⟨ s' Γ' β' e' p' ⟩
-      → label_transition_valid s' Γ Γ' e' p').
+    (∃ s' Γ' β' e' p',
+      (
+        ⟨ s Γ β e p ⟩ =[ o ]=> ⟨ s' Γ' β' e' p' ⟩ → label_transition_valid s' Γ Γ' e' p') ∨
+        ⟨ s Γ β e p ⟩ =[ o ]=> config_error
+      ).
       (* TODO: Add something for privacy parameter. *)
 Proof.
   induction o.
