@@ -693,6 +693,8 @@ Defined.
 Definition relation_natural_join s1 s2 (r1: relation s1) (r2: relation s2):
   relation (output_schema_join_by s1 s2 (natural_join_list s1 s2)) :=
   relation_join_by s1 s2 r1 r2 (natural_join_list s1 s2).
+Notation "r1 '⋈' r2" := (relation_natural_join _ _ r1 r2) (at level 40).
+
 
 (* =================== Some Test Cases ==================== *)
 Section Test.

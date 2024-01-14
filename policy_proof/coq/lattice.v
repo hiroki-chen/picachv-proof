@@ -57,7 +57,7 @@ Hint Resolve meet_symmetry join_symmetry join_assoc meet_assoc meet_absorp join_
 Section LatticeProperties.
   Context {A : Type} `{lattice A}.
 
-  Global Add Parametric Relation : A eq
+  Global Add Parametric Relation: A eq
       reflexivity proved by (@Equivalence_Reflexive A eq eq_equiv)
       symmetry proved by (@Equivalence_Symmetric A eq eq_equiv)
       transitivity proved by (@Equivalence_Transitive A eq eq_equiv)

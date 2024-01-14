@@ -462,9 +462,9 @@ Definition agg_list s := (list (∀ bt, agg_expression s bt))%type.
 Definition env_slice s := (relation s * list nat * groupby_list * list (Tuple.tuple (schema_to_no_name s)))%type.
 
 (*
-  `env` is a definition for an environment in a given schema `s`. 
-  It is a list of tuples, where each tuple consists of a relation, 
-  a list of 'selected' attributes, a groupby list, and a list of tuples.
+
+  `ℰ` denotes environment. An environment can be thought of as a `database` that contains a list
+  of active relations. In each environment slice, we have:
 
   - The relation is a list of tuples of type `Tuple.tuple s` for determing the concrete relation
     that is used for the expression evaluation.
@@ -474,7 +474,8 @@ Definition env_slice s := (relation s * list nat * groupby_list * list (Tuple.tu
     schema that are used for grouping.
   - The list of tuples is a list of tuples of type `Tuple.tuple s`.
 
-  This environment is used in the context of database query operations.
+  This environment is used in the context of database query operations when expressions are being
+  evaluated.
 
   Note that this is a dependent type (heterogeneous list). This is because we need to know the schema
   of each active relation, but the schema of each relation is different. Consider this case:
@@ -496,6 +497,25 @@ Fixpoint ℰ (s: list schema) : Type :=
   match s with
     | nil => unit
     | s :: s' => (env_slice s * ℰ s')%type
+  end.
+
+Inductive relation_wrapped: Type :=
+  | relation_output: ∀ s, relation s → relation_wrapped
+.
+
+Inductive database: Type :=
+  | database_empty: database
+  | database_relation: ∀ s, relation s → database → database
+.
+
+Fixpoint database_get_relation (db: database) (idx: nat): option relation_wrapped :=
+  match db with
+    | database_empty => None
+    | database_relation s r db' =>
+        match eq_nat_dec idx O with
+          | left _ => Some (relation_output s r)
+          | right _ => database_get_relation db' (idx - 1)
+        end
   end.
 
 Definition fuse_env {s1 s2} (e1: ℰ s1) (e2: ℰ s2) : ℰ (s1 ++ s2).
@@ -542,32 +562,34 @@ Definition env_slice_get_relation s (es: env_slice s) : relation s :=
   * `config_terminal` => The query evaluation is done.
   * `config_error` => An error has occurred.
   * `config_ok` => The query evaluation is ok. It consists of:
-    - `s` => The schema.
+    - `db` => The database.
     - `Γ` => The policy environment.
     - `β` => The privacy budget.
-    - `ℰ` => The environment.
     - `p` => The provenance context.
+  * `config_output` => The query evaluation is ok and the result is ready to be output. It consists of:
+    - `s` => The schema of the output relation.
+    - `c` => The output configuration.
 *)
 Inductive config: Type :=
   (* Terminal wraps a configuration by which we can easily analyze the final state. *)
   | config_terminal: config → config
   | config_error: config
-  | config_ok: ∀ s, Policy.context → Configuration.privacy → ℰ s → prov_ctx -> config
+  | config_ok: database → Policy.context → Configuration.privacy → prov_ctx -> config
+  | config_output: relation_wrapped → config → config
 .
 
-Notation "'⟨' s Γ β ℰ p '⟩'":= (config_ok s Γ β ℰ p)
-  (at level 10, s at next level, Γ at next level, β at next level, ℰ at next level,
-  p at next level,
-  no associativity).
+Notation "'⟨' db Γ β p '⟩'":= (config_ok db Γ β p)
+  (at level 10, db at next level, Γ at next level, β at next level, p at next level, no associativity).
 
-Inductive Operator: Type :=
-  | operator_empty: Operator
-  | operator_relation: config →  Operator
-  | operator_union: Operator → Operator → Operator
-  | operator_join: Operator → Operator → Operator
-  | operator_project: project_list → Operator → Operator
-  | operator_select: ∀ s, formula s → Operator → Operator
-  | operator_grouby_having: ∀ s, groupby_list → agg_list s → formula s → Operator → Operator
+Inductive operator: Type :=
+  | operator_empty: operator
+  (* `nat` means the index of the relation it wants to access inside `db`. *)
+  | operator_relation: nat → operator
+  | operator_union: operator → operator → operator
+  | operator_join: operator → operator → operator
+  | operator_project: project_list → operator → operator
+  | operator_select: ∀ s, formula s → operator → operator
+  | operator_grouby_having: ∀ s, groupby_list → agg_list s → formula s → operator → operator
 .
 
 (*
@@ -601,6 +623,7 @@ match n with
   cannot be applied (for example, if the function is not defined for the base type of the
   cell), the function returns `None`.
 *)
+
 Inductive apply_unary_function_in_cell bt:
   UnOp → unary_func → (type_to_coq_type bt * nat) → Policy.context → prov_ctx
        → option (type_to_coq_type bt * Policy.context * prov_ctx) → Prop :=
@@ -849,60 +872,100 @@ Inductive apply_proj_in_env s evidence ℓ: ℰ s → Policy.context → prov_ct
   * Update the tuple in the environment.
   * Update the relation.
 *)
-
-Reserved Notation "c1 '=[' o ']=>' c2" (at level 50, left associativity).
-Inductive step_config: Operator → config → config → Prop :=
-  (* Empty operator clears the environment. *)
-  | E_Empty1: ∀ s Γ β p (e: ℰ s),
-      ⟨ s Γ β e p ⟩ =[ operator_empty ]=> ⟨ nil nil β tt nil ⟩
-  (* If the operator returns an empty schema list or context, we do nothing. *)
-  | E_Empty2: ∀ s Γ β p (e: ℰ s) o,
-      s = nil ∨ p = nil ∨ Γ = nil →
-      ⟨ s Γ β e p ⟩ =[ o ]=> ⟨ nil nil β tt nil ⟩
+Reserved Notation "'{{' c op '}}' '⇓' '{{' c' '}}'"
+  (at level 10, c at next level, op at next level, c' at next level,
+    no associativity).
+Inductive step_config: (config * operator) → config → Prop :=
+  (* Empty operator returns nothing and does not affect the configuration. *)
+  | E_Empty1: ∀ c c' s,
+      c' = config_output (relation_output s nil) c →
+      {{ c operator_empty }} ⇓ {{ c' }}
+  (* Database is empty. We do nothing here. *)
+  | E_Empty2: ∀ c c' s db Γ β p o,
+      db = database_empty →
+      c = ⟨ db Γ β p ⟩ →
+      c' = config_output (relation_output s nil) c →
+      {{ c o }} ⇓ {{ c' }}
   (* Getting the relation is an identity operation w.r.t. configurations. *)
-  | E_GetRelation: ∀ s s' Γ Γ' β β' p p' (e: ℰ s) (e': ℰ s') c,
-      c = ⟨ s' Γ' β' e' p' ⟩ →
-      ⟨ s Γ β e p ⟩ =[ operator_relation c]=> c
-  (* If the operator returns an empty environment, we do nothing. *)
-  | E_ProjEmpty: ∀ s1 s2 Γ Γ' β β' p p' (e: ℰ s1) (e': ℰ s2) project_list o,
-      ⟨ s1 Γ β e p ⟩ =[ o ]=> ⟨ s2 Γ' β' e' p' ⟩ →
-      List.length s2 = 0 →
-      ⟨ s1 Γ β e p ⟩ =[ operator_project project_list o ]=> ⟨ nil Γ' β' tt nil ⟩
-  (* If the operator returns a valid environment, we can then apply projection. *)
-  | E_ProjOk: ∀ s1 s2 Γ Γ' β β' p p' (e: ℰ s1) (e'': ℰ s2) ℓ ℓ' o,
-      ⟨ s1 Γ β e p ⟩ =[ o ]=> ⟨ s2 Γ' β' e'' p'⟩ →
-      (* Introduce terms into the scope to avoid identifier problems. *)
-        ∀ (evidence: List.length s2 > 0) e',
-          let input_schema := (hd_ok s2 evidence) in
-            let output_schema := determine_schema input_schema ℓ' in
-                ℓ' = normalize_project_list input_schema ℓ →
-                   apply_proj_in_env s2 evidence ℓ' e'' Γ p
-                   (Some (e', Γ', p')) →
-                    ⟨ s1 Γ β e p ⟩ =[ operator_project ℓ o]=>
-                      ⟨ (output_schema :: (tail s2)) Γ' β' e' p' ⟩
+  | E_GetRelation: ∀ c c' db o n r,
+      db <> database_empty →
+      o = operator_relation n →
+      database_get_relation db n = Some r →
+      c' = config_output r c →
+      {{ c (operator_relation n) }} ⇓ {{ c' }}
+  (* The given relation index is not found in the database. *)
+  | E_GetRelationError: ∀ c c' db o n,
+      db <> database_empty →
+      o = operator_relation n →
+      database_get_relation db n = None →
+      c' = config_error →
+      {{ c (operator_relation n) }} ⇓ {{ c' }}
+  (* If the operator returns an empty relation, we do nothing. *)
+  | E_ProjEmpty: ∀ c c' s r o pl,
+      {{ c o }} ⇓ {{ c' }} →
+      r = nil ∨ (s = nil) →
+      c' = config_output (relation_output s r) c →
+      {{ c (operator_project pl o) }} ⇓ {{ c' }}
+  (* If the operator returns a valid relation, we can then apply projection. *)
+  | E_ProjOk: ∀ c c' c'' db db' pl pl' s'
+                Γ Γ' Γ'' β β' β'' p p' p'' r' r'' o e e' ,
+      c = ⟨ db Γ β p ⟩ →
+      (* We first evaluate the inner operator and get the output. *)
+      {{ c o }} ⇓ {{ c' }} →
+      (* We then destruct the output. *)
+      c' = config_output (relation_output s' r') (⟨ db' Γ' β' p' ⟩) →
+      (* `pl'` means a normalized project list. *)
+      pl' = normalize_project_list s' pl →
+      (* We manually construct an evaluation environment for sub-expressions. *)
+      e = (r', nil, nil, nil, tt) →
+      (* We then apply projection inside the environment. *)
+      apply_proj_in_env (s' :: nil)
+      (list_has_head_gt_zero _ _ (s' :: nil) (nil) eq_refl) pl' e Γ p
+      (Some (e', Γ'', p'')) →
+      (* Then after we applied the project, we extract the results from the environment `e'`. *)
+      r'' = env_slice_get_relation _ (fst e') →
+      c'' = config_output (relation_output _ r'') (⟨ db' Γ'' β'' p'' ⟩) →
+      {{ c o }} ⇓ {{ c'' }}
   (*
      If the operator returns a valid environment, we can then apply projection. Then if the
      projection fails, we return `config_error`.
   *)
-  | E_ProjError: ∀ s1 s2 Γ Γ' β β' p p' (e: ℰ s1) (e'': ℰ s2) ℓ ℓ' o,
-      ⟨ s1 Γ β e p ⟩ =[ o ]=> ⟨ s2 Γ' β' e'' p'⟩ →
-      (* Introduce terms into the scope to avoid identifier problems. *)
-        ∀ (evidence: List.length s2 > 0),
-          let input_schema := (hd_ok s2 evidence) in
-            let output_schema := determine_schema input_schema ℓ' in
-                  (*
-                     Here, we use `option` rather than `config` since `config` is dependent
-                     on schema, but we do need the evidence dependent on schema. This forces
-                     us to pattern match on `config` to get the schema so that we cannot
-                     pass `evidence` to `apply_proj_in_env` function.
-                  *)
-                  apply_proj_in_env s2 evidence ℓ' e'' Γ p None →
-                    ⟨ s1 Γ β e p ⟩ =[ operator_project ℓ o]=> config_error
-  | E_Union: ∀ s Γ Γ1 Γ2 β β1 β2 p p1 p2 e e1 e2 o1 o2,
-      ⟨ s Γ β e p ⟩ =[ o1 ]=> ⟨ s Γ1 β1 e1 p1 ⟩ →
-      ⟨ s Γ β e p ⟩ =[ o2 ]=> ⟨ s Γ2 β2 e2 p2 ⟩ →
-      ⟨ s Γ β e p ⟩ =[ operator_union o1 o2 ]=> ⟨ s Γ1 β1 e1 p1 ⟩
-where "c1 '=[' o ']=>' c2" := (step_config o c1 c2).
+  | E_ProjError: ∀ c c' db db' pl pl' s'
+                Γ Γ' β β' p p' r' o e,
+      c = ⟨ db Γ β p ⟩ →
+      (* We first evaluate the inner operator and get the output. *)
+      {{ c o }} ⇓ {{ c' }} →
+      (* We then destruct the output. *)
+      c' = config_output (relation_output s' r') (⟨ db' Γ' β' p' ⟩) →
+      (* `pl'` means a normalized project list. *)
+      pl' = normalize_project_list s' pl →
+      (* We manually construct an evaluation environment for sub-expressions. *)
+      e = (r', nil, nil, nil, tt) →
+      (* We then apply projection inside the environment. *)
+      apply_proj_in_env (s' :: nil)
+      (list_has_head_gt_zero _ _ (s' :: nil) (nil) eq_refl) pl' e Γ p
+      None →
+      {{ c o }} ⇓ {{ config_error }}
+| E_Union: ∀ c c' c'' db db' db'' Γ Γ' Γ'' β β' β'' p p' p'' s r' r'' o1 o2,
+      c = ⟨ db Γ β p ⟩ →
+      {{ c o1 }} ⇓ {{ c' }} →
+      c' = config_output (relation_output s r') (⟨ db' Γ' β' p' ⟩) →
+      {{ c o2 }} ⇓ {{ c'' }} →
+      c'' = config_output (relation_output s r'') (⟨ db'' Γ'' β'' p'' ⟩) →
+      {{ c (operator_union o1 o2) }} ⇓
+      (* TODO: Should merge. *)
+      {{ config_output (relation_output s (r' ++ r'')) (⟨ db'' Γ'' β'' p'' ⟩) }}
+  | E_Join: ∀ c c' c'' db db' db'' Γ Γ' Γ'' β β' β'' p p' p'' s1 s2 r' r'' r o1 o2,
+      c = ⟨ db Γ β p ⟩ →
+      {{ c o1 }} ⇓ {{ c' }} →
+      c' = config_output (relation_output s1 r') (⟨ db' Γ' β' p' ⟩) →
+      {{ c o2 }} ⇓ {{ c'' }} →
+      c'' = config_output (relation_output s2 r'') (⟨ db'' Γ'' β'' p'' ⟩) →
+      r = relation_output _ (r' ⋈ r'') →
+      {{ c (operator_join o1 o2) }} ⇓
+      (* TODO: Should join. *)
+      {{ config_output r (⟨ db'' Γ'' β'' p'' ⟩) }}
+where "'{{' c op '}}' '⇓' '{{' c' '}}'" := (step_config (c, op) c').
 Hint Constructors step_config: core.
 
 Example simple_project_list := project ((simple_atomic_expression_column 0, "foo"%string) :: nil).

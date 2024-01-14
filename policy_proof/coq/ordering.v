@@ -66,7 +66,7 @@ Global Instance eq_dec_setoid {A: Type} {ord: Ordered A}: DecidableSetoid eq.
 Defined.
 
 (*
-    This instance ensures that the 'lt' relation is proper with respect to the equivalence relation 'equiv'. 
+    This instance ensures that the 'lt' Relation is proper with respect to the equivalence Relation 'equiv'. 
     In other words, if two elements are equivalent to two others (under 'equiv'), then the truth of 'lt' should be preserved between the pairs.
 
     With this instance defined, we can use the 'rewrite' tactic to rewrite 'lt' relations.
@@ -422,7 +422,7 @@ refine (
 Defined.
 
 (* 
-  The `pair_lt` function defines a less-than relation for pairs. 
+  The `pair_lt` function defines a less-than Relation for pairs. 
   A pair is considered less than another if its first element is less than the first element of the other pair, 
   or if both first elements are equal and the second element of the first pair is less than the second element of the other pair.
 *)
@@ -430,7 +430,7 @@ Definition pair_lt {A B: Set} {ordA: Ordered A} {ordB: Ordered B} (lhs rhs: A * 
   lt (fst lhs) (fst rhs) ∨ (fst lhs == fst rhs ∧ lt (snd lhs) (snd rhs)).
 
 (* 
-  The `pair_eq` function defines an equality relation for pairs. 
+  The `pair_eq` function defines an equality Relation for pairs. 
   A pair is considered equal to another if both the first and second elements of the pairs are equal.
 *)
 Definition pair_eq {A B: Set} {ordA: Ordered A} {ordB: Ordered B} (lhs rhs: A * B): Prop :=

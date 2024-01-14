@@ -5,12 +5,12 @@
 
   This Coq file defines a class `FiniteBag` that represents a multiset (or bag) of elements.
   The elements in the bag must have an ordering, as indicated by the `Ordered` class constraint
-  on the type of elements (elt). This file is essential for building the relation in a dataframe.
+  on the type of elements (elt). This file is essential for building the Relation in a dataframe.
 
   The reason why we refrain from using the `Multiset` library in Coq is that the library is
-  not well-developed for the purpose of building a relation in a dataframe. Also, the type
+  not well-developed for the purpose of building a Relation in a dataframe. Also, the type
   of elements in the `Multiset` library is dependent on a concrete type, which means that we
-  cannot use the library to build a relation on a dataframe with a generic type determined
+  cannot use the library to build a Relation on a dataframe with a generic type determined
   at runtime.
 
   == References ==

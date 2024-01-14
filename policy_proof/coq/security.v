@@ -68,13 +68,12 @@ Inductive label_transition_valid_es: Policy.context → Policy.context → prov_
       label_transition_valid_es Γ Γ' p lc
 .
 
-Inductive label_transition_valid: ∀ s (e: ℰ s), Policy.context → Policy.context → prov_ctx → Prop :=
-  | valid_empty_schema: ∀ s e Γ Γ' p (case_schema: s = nil), label_transition_valid s e Γ Γ' p
-  | valid_env: ∀ s hd tl e es r Γ Γ' p (case_schema: s = hd :: tl),
-      es = (fst (case_schema ♯ e)) →
-      r = extract_as_cell_list _ (env_slice_get_relation hd es) →
-      label_transition_valid_es Γ Γ' p r →
-      label_transition_valid s e Γ Γ' p
+Inductive label_transition_valid: ∀ s, relation s → Policy.context → Policy.context → prov_ctx → Prop :=
+  | valid_empty_schema: ∀ s r Γ Γ' p, s = nil → label_transition_valid s r Γ Γ' p
+  | valid_env: ∀ s r r' Γ Γ' p, s <> nil →
+      r' = extract_as_cell_list s r →
+      label_transition_valid_es Γ Γ' p r' →
+      label_transition_valid s r Γ Γ' p
 .
 
 (* 
@@ -85,21 +84,18 @@ Inductive label_transition_valid: ∀ s (e: ℰ s), Policy.context → Policy.co
     Should we start from empty environment? Or this condition is unnecessary?
  *)
 Theorem secure_query:
-  ∀ s Γ β e p o,
-    (∃ s' Γ' β' e' p',
-      (
-        ⟨ s Γ β e p ⟩ =[ o ]=> ⟨ s' Γ' β' e' p' ⟩ → label_transition_valid s' e' Γ Γ' p) ∨
-        ⟨ s Γ β e p ⟩ =[ o ]=> config_error
-      ).
-      (* TODO: Add something for privacy parameter. *)
+  ∀ c db Γ β p o,
+  c = ⟨ db Γ β p ⟩ →
+  {{ c o }} ⇓ {{ config_error }} ∨ 
+    (∃ s c' db' Γ' β' p' r, 
+        c' = config_output (relation_output s r) (⟨ db' Γ' β' p' ⟩) →
+      {{ c o }} ⇓ {{ c' }} ∧ label_transition_valid s r Γ Γ' p').
 Proof.
-  induction o.
-  - exists nil, nil, β, tt, nil. intros. left.
-    intros. constructor. reflexivity.
-  - destruct s.
-    + exists nil, nil, β, tt, nil. intros. left.
-      intros. constructor. reflexivity.
-    + 
+  induction o; intros.
+  - right. exists nil, (config_output (relation_output nil nil) c), db, Γ, β, p, nil. split.
+    + apply E_Empty1 with nil. reflexivity.
+    + constructor. reflexivity.
+  - destruct db eqn: Hdb.
 
 
 Admitted.

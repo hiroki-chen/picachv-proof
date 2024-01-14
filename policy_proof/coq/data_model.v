@@ -32,7 +32,7 @@ Inductive policy_label : Type :=
 
 (*
   The `policy` inductive type represents the different types of policies that can be applied
-  to data in the data model. Each policy can be applied to a cell in a relation, and the effect
+  to data in the data model. Each policy can be applied to a cell in a Relation, and the effect
   of the policy depends on its type.
 
   Currently we have two types of policy:
