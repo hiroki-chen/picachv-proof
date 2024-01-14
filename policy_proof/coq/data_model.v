@@ -324,8 +324,6 @@ Global Instance policy_lattice: lattice policy_label.
     + destruct n, n0, n1, d, d0, d1; simpl in *; lia.
 Defined.
 
-Check policy_ind.
-
 Inductive valid_policy: policy → Prop :=
   | valid_policy_clean: valid_policy ∎
   | valid_policy_atomic: ∀ ℓ, valid_policy (∘ ℓ)
@@ -727,8 +725,6 @@ Proof.
       * intros. simpl in *. rewrite Heq. specialize IHctx with (p := p0) (p' := p').
         apply IHctx. assumption.
 Qed.
-
-Definition can_release p: Prop := p = ∎.
 
 Section Tests.
 
@@ -1256,7 +1252,8 @@ Notation "'<<' x ; x0 '>>'" := (x, x0) (at level 0, x at next level, x0 at next 
 Notation "'[[' x , y , .. , z ']]'" := (x, (y, .. (z, tt) ..)) (at level 0, x at next level, y at next level, z at next level).
 Notation "'[[' x ']]'" := (x, tt) (at level 0, x at next level).
 Notation "x ⇝ y" := (Policy.policy_declass x y) (at level 10, no associativity).
-Notation "'∘' p " := (Policy.policy_atomic p) (at level 10, no associativity).
+Notation "'∎'" := (Policy.policy_clean Policy.policy_bot eq_refl) (at level 10, no associativity).
+Notation "'∘' p " := (p ⇝ ∎) (at level 10, no associativity).
 Notation "x '⪯' y" := (Policy.policy_ordering x y) (at level 10, no associativity).
 Notation "x '∪' y" := (Policy.policy_join x y) (at level 10, no associativity).
 Notation "x ≡ y" := (Policy.policy_eq x y) (at level 10, no associativity).

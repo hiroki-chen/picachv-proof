@@ -536,16 +536,6 @@ Definition env_slice_get_relation s (es: env_slice s) : relation s :=
   end.
 (* ========================================================================================= *)
 
-Inductive Operator: Type :=
-  | operator_empty: Operator
-  | operator_relation: forall s, relation s → Operator
-  | operator_union: Operator → Operator → Operator
-  | operator_join: Operator → Operator → Operator
-  | operator_project: project_list → Operator → Operator
-  | operator_select: ∀ s, formula s → Operator → Operator
-  | operator_grouby_having: ∀ s, groupby_list → agg_list s → formula s → Operator → Operator
-.
-
 (*
   `config` is an inductive type that defines a configuration for the query evaluation.
   It is either:
@@ -565,21 +555,20 @@ Inductive config: Type :=
   | config_ok: ∀ s, Policy.context → Configuration.privacy → ℰ s → prov_ctx -> config
 .
 
-Inductive config_cell: Type :=
-  | config_cell_terminal: config_cell → config_cell
-  | config_cell_error: config_cell
-  | config_cell_ok: Policy.context → Configuration.privacy → prov_ctx → config_cell
-.
-
 Notation "'⟨' s Γ β ℰ p '⟩'":= (config_ok s Γ β ℰ p)
   (at level 10, s at next level, Γ at next level, β at next level, ℰ at next level,
   p at next level,
   no associativity).
 
-Notation "'⟦' s Γ β ℰ p '⟧'":= (config_cell_ok s Γ β ℰ p)
-  (at level 10, s at next level, Γ at next level, β at next level, ℰ at next level,
-  p at next level,
-  no associativity).
+Inductive Operator: Type :=
+  | operator_empty: Operator
+  | operator_relation: config →  Operator
+  | operator_union: Operator → Operator → Operator
+  | operator_join: Operator → Operator → Operator
+  | operator_project: project_list → Operator → Operator
+  | operator_select: ∀ s, formula s → Operator → Operator
+  | operator_grouby_having: ∀ s, groupby_list → agg_list s → formula s → Operator → Operator
+.
 
 (*
   @param s The schema, which is a list of tuples where each tuple contains a type and a name.
@@ -620,7 +609,7 @@ Inductive apply_unary_function_in_cell bt:
       apply_unary_function_in_cell bt op f arg Γ p None
   | E_PolicyErr: ∀ op f arg Γ p p_cur p_f,
       Policy.label_lookup (snd arg) Γ = Some p_cur →
-      p_f = (∘ (Policy.policy_transform ((unary_trans_op op) :: nil))) →
+      p_f = ∘ (Policy.policy_transform ((unary_trans_op op) :: nil)) →
       ¬ (p_cur ⪯ p_f) →
       apply_unary_function_in_cell bt op f arg Γ p None
   (* TODO: Not finished yet. *)
@@ -870,6 +859,10 @@ Inductive step_config: Operator → config → config → Prop :=
   | E_Empty2: ∀ s Γ β p (e: ℰ s) o,
       s = nil ∨ p = nil ∨ Γ = nil →
       ⟨ s Γ β e p ⟩ =[ o ]=> ⟨ nil nil β tt nil ⟩
+  (* Getting the relation is an identity operation w.r.t. configurations. *)
+  | E_GetRelation: ∀ s s' Γ Γ' β β' p p' (e: ℰ s) (e': ℰ s') c,
+      c = ⟨ s' Γ' β' e' p' ⟩ →
+      ⟨ s Γ β e p ⟩ =[ operator_relation c]=> c
   (* If the operator returns an empty environment, we do nothing. *)
   | E_ProjEmpty: ∀ s1 s2 Γ Γ' β β' p p' (e: ℰ s1) (e': ℰ s2) project_list o,
       ⟨ s1 Γ β e p ⟩ =[ o ]=> ⟨ s2 Γ' β' e' p' ⟩ →
@@ -905,6 +898,10 @@ Inductive step_config: Operator → config → config → Prop :=
                   *)
                   apply_proj_in_env s2 evidence ℓ' e'' Γ p None →
                     ⟨ s1 Γ β e p ⟩ =[ operator_project ℓ o]=> config_error
+  | E_Union: ∀ s Γ Γ1 Γ2 β β1 β2 p p1 p2 e e1 e2 o1 o2,
+      ⟨ s Γ β e p ⟩ =[ o1 ]=> ⟨ s Γ1 β1 e1 p1 ⟩ →
+      ⟨ s Γ β e p ⟩ =[ o2 ]=> ⟨ s Γ2 β2 e2 p2 ⟩ →
+      ⟨ s Γ β e p ⟩ =[ operator_union o1 o2 ]=> ⟨ s Γ1 β1 e1 p1 ⟩
 where "c1 '=[' o ']=>' c2" := (step_config o c1 c2).
 Hint Constructors step_config: core.
 
