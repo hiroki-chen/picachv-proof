@@ -96,7 +96,7 @@ Definition normalized (pl: project_list): Prop :=
 *)
 Fixpoint determine_bt_from_expr (s: schema) (arg: simple_atomic_expression): option basic_type :=
   match arg with
-    | simple_atomic_expression_column c => Tuple.nth_nocheck (schema_to_no_name s) c
+    | simple_atomic_expression_column c => Tuple.nth_nocheck (♭ s) c
     | simple_atomic_expression_const bt _ => Some bt
     | simple_atomic_expression_func_unary _ expr => determine_bt_from_expr s expr
     | simple_atomic_expression_func_binary _ lhs rhs =>
@@ -128,7 +128,7 @@ Definition determine_schema (s: schema) (pl: project_list): schema :=
           | nil => nil
           | (x, name) :: ℓ' => match x with
                         | simple_atomic_expression_column c => 
-                          match Tuple.nth_nocheck (schema_to_no_name s) c with
+                          match Tuple.nth_nocheck (♭ s) c with
                               | Some bt => (bt, name) :: determine ℓ'
                               | None => determine ℓ'
                             end
@@ -161,7 +161,7 @@ Proof.
   - apply Nat.lt_eq_cases in IHpl. destruct IHpl; destruct a.
     + destruct s0.
       * simpl in *. apply le_n_S. lia.
-      * simpl in *. destruct (Tuple.nth_nocheck (schema_to_no_name s) n); try lia; auto.
+      * simpl in *. destruct (Tuple.nth_nocheck (♭ s) n); try lia; auto.
       * simpl in *. destruct (determine_bt_from_expr s s0); try lia; auto.
       * simpl in *.
         destruct (determine_bt_from_expr s s0_1); 
@@ -169,7 +169,7 @@ Proof.
         try destruct (type_matches b0 b1); try lia; auto.
     + destruct s0.
       * simpl in *. lia.
-      * simpl in *. destruct (Tuple.nth_nocheck (schema_to_no_name s) n).
+      * simpl in *. destruct (Tuple.nth_nocheck (♭ s) n).
         -- simpl in *. apply le_n_S. lia.
         -- simpl in *. lia.
       * simpl in *. destruct (determine_bt_from_expr s s0).
@@ -186,7 +186,7 @@ Lemma determine_schema_concat: ∀ s a ℓ,
   determine_schema s (project (a :: ℓ)).
 Proof.
   induction a; induction a; auto; intros.
-  - simpl. destruct (Tuple.nth_nocheck (schema_to_no_name s) n); auto.
+  - simpl. destruct (Tuple.nth_nocheck (♭ s) n); auto.
   - simpl. destruct (determine_bt_from_expr s a); auto.
   - simpl. destruct (determine_bt_from_expr s a1);
            destruct (determine_bt_from_expr s a2);
@@ -366,7 +366,7 @@ Qed.
 (* Some helper lemmas for manipulating dependent types. *)
 Section DtFacts.
 
-Lemma tuple_single_eq: ∀ ty, Tuple.tuple (schema_to_no_name (ty :: nil)) = (prod (prod (type_to_coq_type (fst ty)) nat) unit).
+Lemma tuple_single_eq: ∀ ty, Tuple.tuple (♭ (ty :: nil)) = (prod (prod (type_to_coq_type (fst ty)) nat) unit).
 Proof.
   intros. simpl. auto.
   destruct ty.
@@ -415,7 +415,7 @@ Proof.
   destruct (determine_bt_from_expr s arg) eqn: Heq; destruct arg eqn: Harg.
   - inversion Heq. subst. reflexivity.
   - inversion Heq. subst. simpl in *.
-    destruct (Tuple.nth_nocheck (schema_to_no_name s)).
+    destruct (Tuple.nth_nocheck (♭ s)).
     + inversion Heq. subst. reflexivity.
     + inversion Heq.
   - destruct (determine_bt_from_expr s s0) eqn: Heq'.
@@ -459,7 +459,7 @@ Definition groupby_list := (list nat)%type.
 Definition agg_list s := (list (∀ bt, agg_expression s bt))%type.
 
 (* Do we really need `list nat` to represent the lists? *)
-Definition ℰ s := (relation s * list nat * groupby_list * list (Tuple.tuple (schema_to_no_name s)))%type.
+Definition ℰ s := (relation s * list nat * groupby_list * list (Tuple.tuple (♭ s)))%type.
 
 Definition env_get_relation s (e: ℰ s): relation s :=
   match e with
@@ -476,7 +476,7 @@ Definition env_get_groupby s (e: ℰ s): groupby_list :=
     | (_, _, groupby, _) => groupby
   end.
 
-Definition env_get_tuples s (e: ℰ s): list (Tuple.tuple (schema_to_no_name s)) :=
+Definition env_get_tuples s (e: ℰ s): list (Tuple.tuple (♭ s)) :=
   match e with
     | (_, _, _, tuples) => tuples
   end.
@@ -524,7 +524,7 @@ Inductive config: Type :=
   (* Terminal wraps a configuration by which we can easily analyze the final state. *)
   | config_terminal: config → config
   | config_error: config
-  | config_ok: database → Policy.context → Configuration.privacy → prov_ctx -> config
+  | config_ok: database → Policy.context → budget → prov_ctx -> config
   | config_output: relation_wrapped → config → config
 .
 
@@ -551,7 +551,7 @@ Inductive operator: Type :=
   [tuple_of_length_n] returns a relation of length [n] where each tuple is [t]. The function
   works by recursively appending [t] to the relation until it reaches the desired length.
 *)
-Fixpoint tuple_of_length_n s (n: nat) (t: Tuple.tuple (schema_to_no_name s)): relation s :=
+Fixpoint tuple_of_length_n s (n: nat) (t: Tuple.tuple (♭ s)): relation s :=
 match n with
   | O => nil
   | S n' => t :: tuple_of_length_n s n' t
@@ -789,6 +789,44 @@ Inductive apply_proj_in_env s (es: ℰ s) (ℓ: list (simple_atomic_expression *
       apply_proj_in_env s es ℓ Γ p (Some ((r', a, b, nil), Γ', p'))
 .
 
+(*
+  @param s The schema of the relation.
+  @param Policy.context The policy context.
+  @param budget The budget for the evaluation.
+  @param prov_ctx The provenance context.
+  @param formula The formula to be evaluated.
+  @param relation The relation in which the formula is to be evaluated.
+  @param returns option A tuple containing the resulting relation, the updated policy context, the remaining
+                       budget, and the updated provenance context.
+
+  The `eval_expr_in_relation` inductive type represents the evaluation of a formula in a relation. The evalua-
+  tion is performed in the context of a given policy context and provenance context, and it may consume certain
+  amount of budget. If the evaluation is successful, the function returns `Some` with a tuple containing the
+  resulting relation, the updated policy context, the remaining budget, and the updated provenance context. If
+  the evaluation is not successful (for example, if the budget is exhausted), the function returns `None`.
+
+  FIXME: Will selection consume budget?
+*)
+Inductive eval_expr_in_relation:
+  ∀ s, Policy.context → budget → prov_ctx → formula (♭ s) → relation s →
+    option (relation s * Policy.context * budget * prov_ctx) → Prop :=
+  | E_EvalExprRelationNil: ∀ s Γ β p f r,
+      r = nil →
+      eval_expr_in_relation s Γ β p f r (Some (nil, Γ, β, p))
+  | E_EvalExprConsTrue: ∀ s Γ Γ' β β' p p' f f_denote r hd tl tl',
+      r = hd :: tl →
+      f_denote = formula_denote (♭ s) f →
+      eval_expr_in_relation s Γ β p f tl (Some (tl', Γ', β', p')) →
+      f_denote hd = true →
+      eval_expr_in_relation s Γ β p f r (Some (hd :: tl', Γ', β', p'))
+  | E_EvalExprConsFalse: ∀ s Γ Γ' β β' p p' f f_denote r hd tl tl',
+      r = hd :: tl →
+      f_denote = formula_denote (♭ s) f →
+      eval_expr_in_relation s Γ β p f tl (Some (tl', Γ', β', p')) →
+      f_denote hd = false →
+      eval_expr_in_relation s Γ β p f r (Some (tl', Γ', β', p'))
+.
+
 (* 
   `step_config` is an inductive type representing the transition rules for configurations. 
   It defines how a configuration changes from one state to another by the query.
@@ -809,24 +847,24 @@ Inductive step_config: (config * operator) → config → Prop :=
   | E_Empty1: ∀ c c' s,
       c' = config_output (relation_output s nil) c →
       {{ c operator_empty }} ⇓ {{ c' }}
-  (* Database is empty. We do nothing here. *)
-  | E_Empty2: ∀ c c' s db Γ β p o,
-      db = database_empty →
-      c = ⟨ db Γ β p ⟩ →
-      c' = config_output (relation_output s nil) c →
-      {{ c o }} ⇓ {{ c' }}
   (* Getting the relation is an identity operation w.r.t. configurations. *)
   | E_GetRelation: ∀ c c' db o n r,
-      db <> database_empty →
+      db ≠ database_empty →
       o = operator_relation n →
       database_get_relation db n = Some r →
       c' = config_output r c →
       {{ c (operator_relation n) }} ⇓ {{ c' }}
   (* The given relation index is not found in the database. *)
   | E_GetRelationError: ∀ c c' db o n,
-      db <> database_empty →
+      db ≠ database_empty →
       o = operator_relation n →
       database_get_relation db n = None →
+      c' = config_error →
+      {{ c (operator_relation n) }} ⇓ {{ c' }}
+  (* Database is empty! *)
+  | E_GetRelationDbEmpty: ∀ c c' db o n,
+      db = database_empty →
+      o = operator_relation n →
       c' = config_error →
       {{ c (operator_relation n) }} ⇓ {{ c' }}
   (* If the operator returns an empty relation, we do nothing. *)
@@ -873,25 +911,53 @@ Inductive step_config: (config * operator) → config → Prop :=
         (* We then apply projection inside the environment. *)
         apply_proj_in_env s' e pl' Γ p None →
         {{ c o }} ⇓ {{ config_error }}
-| E_Union: ∀ c c' c'' db db' db'' Γ Γ' Γ'' β β' β'' p p' p'' s r' r'' o1 o2,
+  | E_SelectError: ∀ c c' db db' Γ Γ' β β' p p' s' r' o expr,
       c = ⟨ db Γ β p ⟩ →
+      {{ c o }} ⇓ {{ c' }} →
+      c' = config_output (relation_output s' r') (⟨ db' Γ' β' p' ⟩) →
+      eval_expr_in_relation s' Γ' β' p' expr r' None →
+      {{ c o }} ⇓ {{ config_error }}
+  | E_SelectOk: ∀ c c' c'' db db' Γ Γ' Γ'' β β' β'' p p' p'' s' r' r'' o expr,
+      c = ⟨ db Γ β p ⟩ →
+      {{ c o }} ⇓ {{ c' }} →
+      c' = config_output (relation_output s' r') (⟨ db' Γ' β' p' ⟩) →
+      eval_expr_in_relation s' Γ' β' p' expr r' (Some (r'', Γ'', β'', p'')) →
+      c'' = config_output (relation_output s' r'') (⟨ db' Γ'' β'' p'' ⟩) →
+      {{ c o }} ⇓ {{ c'' }}
+  | E_UnionError: ∀ c c' c'' db Γ β p o1 o2,
+      c = ⟨ db Γ β p ⟩ → 
+      {{ c o1 }} ⇓ {{ c' }} →
+      {{ c o2 }} ⇓ {{ c'' }} →
+      c' = config_error ∨ c'' = config_error →
+      {{ c (operator_union o1 o2) }} ⇓ {{ config_error }}
+  | E_UnionOk: ∀ c c' c'' db db' db'' Γ Γ' Γ'' β β' β'' p p' p'' s r' r'' o1 o2,
+      c = ⟨ db Γ β p ⟩ → 
       {{ c o1 }} ⇓ {{ c' }} →
       c' = config_output (relation_output s r') (⟨ db' Γ' β' p' ⟩) →
       {{ c o2 }} ⇓ {{ c'' }} →
       c'' = config_output (relation_output s r'') (⟨ db'' Γ'' β'' p'' ⟩) →
-      {{ c (operator_union o1 o2) }} ⇓
-      (* TODO: Should merge. *)
-      {{ config_output (relation_output s (r' ++ r'')) (⟨ db'' Γ'' β'' p'' ⟩) }}
-  | E_Join: ∀ c c' c'' db db' db'' Γ Γ' Γ'' β β' β'' p p' p'' s1 s2 r' r'' r o1 o2,
+      let merged_p := merge p' p'' in
+        let merged_Γ := merge Γ' Γ'' in
+          (* TODO: How to deal with privacy budget? *)
+          {{ c (operator_union o1 o2) }} ⇓
+          {{ config_output (relation_output s (r' ++ r'')) (⟨ db'' merged_Γ β'' merged_p ⟩) }}
+  | E_JoinError: ∀ c c' c'' db Γ β p o1 o2,
+      c = ⟨ db Γ β p ⟩ → 
+      {{ c o1 }} ⇓ {{ c' }} →
+      {{ c o2 }} ⇓ {{ c'' }} →
+      c' = config_error ∨ c'' = config_error →
+      {{ c (operator_join o1 o2) }} ⇓ {{ config_error }}
+  | E_JoinOk: ∀ c c' c'' db db' db'' Γ Γ' Γ'' Γout β β' β'' βout p p' p'' pout s1 s2 r' r'' r rout o1 o2,
       c = ⟨ db Γ β p ⟩ →
       {{ c o1 }} ⇓ {{ c' }} →
       c' = config_output (relation_output s1 r') (⟨ db' Γ' β' p' ⟩) →
       {{ c o2 }} ⇓ {{ c'' }} →
       c'' = config_output (relation_output s2 r'') (⟨ db'' Γ'' β'' p'' ⟩) →
-      r = relation_output _ (r' ⋈ r'') →
+      (rout, Γout, βout, pout) = (relation_natural_join_prv s1 s2 r' r'' Γ' Γ'' β' β'' p' p'') →
+      r = relation_output _ rout →
       {{ c (operator_join o1 o2) }} ⇓
       (* TODO: Should join. *)
-      {{ config_output r (⟨ db'' Γ'' β'' p'' ⟩) }}
+      {{ config_output r (⟨ db'' Γout βout pout ⟩) }}
 where "'{{' c op '}}' '⇓' '{{' c' '}}'" := (step_config (c, op) c').
 Hint Constructors step_config: core.
 

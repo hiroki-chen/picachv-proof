@@ -1226,15 +1226,6 @@ Qed.
 
 End Tuple.
 
-Require Import Floats.
-Module Configuration.
-
-Definition privacy: Set := float.
-
-(* TODO: The third one should be the operator. *)
-Definition config:= (Policy.label_lookup, privacy, unit)%type.
-End Configuration.
-
 Ltac str_eq:= auto; simpl in *; unfold char_eq in *; unfold char_lt in *; lia.
 
 Section Facts.

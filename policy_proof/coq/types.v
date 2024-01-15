@@ -11,8 +11,24 @@ Require Import Unicode.Utf8.
 
 Require Import ordering.
 
-(* We use natural numbers for the float representation for the time being, which simplifies reasoning. *)
+(*
+  By its design, privacy budget should be real numbers, but this would introduce undue
+  burden for formal verification that we are not prepared to handle. As ℕ is equinume-
+  rous to ℚ, we use ℕ to represent the real numbers, and this is indeed without loss of
+  generality.
+*)
 Definition dp_param := (nat * nat)%type.
+
+(*
+  budgets are defined over each column which is represented in a form that resembles a
+  de-brujin index. The first element of the pair is the column index, and the second
+  element is the budget for that column.
+
+  Please note that budget is meaningless for a single cell. It only makes sense when
+  we are talking about a column.
+*)
+Definition budget := list (nat * dp_param).
+
 (* Note that these operators are not designed to be exhaustive. *)
 (* Logical connections. *)
 Inductive LogOp: Type := And | Or.
@@ -141,11 +157,12 @@ Fixpoint schema_to_no_name (s: schema): schema_no_name :=
   | nil => nil
   | (t, _) :: s' => t :: schema_to_no_name s'
   end.
+Notation "'♭' s" := (schema_to_no_name s) (at level 60).
 
 (* Converts a list of numbers into a list of strings. *)
 
 Lemma schema_to_no_name_length: ∀ s,
-  List.length (schema_to_no_name s) = List.length s.
+  List.length (♭ s) = List.length s.
 Proof.
   induction s.
   - auto.

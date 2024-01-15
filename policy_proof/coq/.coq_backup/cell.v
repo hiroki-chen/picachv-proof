@@ -1,7 +1,7 @@
 Require Import Unicode.Utf8.
 
 (*
-  `step_cell` is an inductive type that defines a relation between two configurations except that
+  `step_cell` is an inductive type that defines a Relation between two configurations except that
   it works on the level of cells. This transition is defined by a notation `c1 >[ f ]> c2` where `f`
   is a function that transforms cell(s).
 *)
@@ -55,7 +55,7 @@ Inductive step_cell_single: unary_func → (Cell.cell * nat) → config → conf
   | E_CTransError2:
       ∀ ℓ1 ℓ2 ℓcur ℓdisc s Γ Γ' β e p f (non_empty: List.length s > 0)
         tl (tl_non_empty: List.length tl > 0) t c c' c_idx
-        (idx_bound: c_idx < List.length (schema_to_no_name (hd_ok s non_empty))),
+        (idx_bound: c_idx < List.length (♭ (hd_ok s non_empty))),
           (* tl => A list of tuples. *)
           tl = (env_slice_get_tuples (hd_ok s non_empty) (get_env_slice s e non_empty)) →
           (* t => The first tuple. *)
@@ -75,7 +75,7 @@ Inductive step_cell_single: unary_func → (Cell.cell * nat) → config → conf
   | E_CTransOk1:
       ∀ ℓ1 ℓ2 ℓcur ℓdisc s Γ Γ' β e e' p p' f (non_empty: List.length s > 0)
         tl tl' (tl_non_empty: List.length tl > 0) t t' c c' c_idx
-        (idx_bound: c_idx < List.length (schema_to_no_name (hd_ok s non_empty))),
+        (idx_bound: c_idx < List.length (♭ (hd_ok s non_empty))),
           (* tl => A list of tuples. *)
           tl = (env_slice_get_tuples (hd_ok s non_empty) (get_env_slice s e non_empty)) →
           (* t => The first tuple. *)
@@ -96,7 +96,7 @@ Inductive step_cell_single: unary_func → (Cell.cell * nat) → config → conf
   | E_CTransOk2:
     ∀ ℓ1 ℓ2 s Γ β e e' p f (non_empty: List.length s > 0)
         tl tl' (tl_non_empty: List.length tl > 0) t t' c c' c_idx
-        (idx_bound: c_idx < List.length (schema_to_no_name (hd_ok s non_empty))),
+        (idx_bound: c_idx < List.length (♭ (hd_ok s non_empty))),
           (* tl => A list of tuples. *)
           tl = (env_slice_get_tuples (hd_ok s non_empty) (get_env_slice s e non_empty)) →
           (* t => The first tuple. *)

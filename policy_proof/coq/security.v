@@ -15,6 +15,9 @@ Require Import util.
 *)
 Definition can_release p: Prop := p = ∎.
 
+(* TODO: Define this. *)
+Definition budget_bounded (β: budget): Prop := True.
+
 Definition valid_transition (τ: prov_type) (p1 p2: Policy.policy): Prop :=
   p1 ⪯ p2 ∧
   match τ with
@@ -69,6 +72,7 @@ Inductive label_transition_valid_es: Policy.context → Policy.context → prov_
 .
 
 Inductive label_transition_valid: ∀ s, relation s → Policy.context → Policy.context → prov_ctx → Prop :=
+  | valid_refl: ∀ s r Γ p, label_transition_valid s r Γ Γ p
   | valid_empty_schema: ∀ s r Γ Γ' p, s = nil → label_transition_valid s r Γ Γ' p
   | valid_env: ∀ s r r' Γ Γ' p, s <> nil →
       r' = extract_as_cell_list s r →
@@ -89,13 +93,31 @@ Theorem secure_query:
   {{ c o }} ⇓ {{ config_error }} ∨ 
     (∃ s c' db' Γ' β' p' r, 
         c' = config_output (relation_output s r) (⟨ db' Γ' β' p' ⟩) →
-      {{ c o }} ⇓ {{ c' }} ∧ label_transition_valid s r Γ Γ' p').
+      {{ c o }} ⇓ {{ c' }} ∧ label_transition_valid s r Γ Γ' p' ∧ budget_bounded β').
 Proof.
-  induction o; intros.
+  induction o eqn: Ho; intros.
   - right. exists nil, (config_output (relation_output nil nil) c), db, Γ, β, p, nil. split.
     + apply E_Empty1 with nil. reflexivity.
-    + constructor. reflexivity.
+    + constructor.
+      * constructor.
+      * red. trivial.
   - destruct db eqn: Hdb.
-
-
+    + left. eapply E_GetRelationDbEmpty; eauto.
+    + destruct (database_get_relation db n) eqn: Hget.
+      * right. destruct r0. exists s0, c, db, Γ, β, p, r0.
+        intros. split.
+        -- specialize E_GetRelation with (db := db); eauto. intros. eapply H1.
+           ++ intuition. rewrite Hdb in H2. inversion H2.
+           ++ eapply Ho.
+           ++ eapply Hget.
+           ++ subst. inversion H0.
+        -- split.
+          ++ constructor.
+          ++ red. trivial.
+      * left. specialize E_GetRelationError with (db := db). intros. eapply H0.
+        -- intuition. rewrite Hdb in H1. inversion H1.
+        -- eapply Ho.
+        -- eapply Hget.
+        -- reflexivity.
+    - 
 Admitted.

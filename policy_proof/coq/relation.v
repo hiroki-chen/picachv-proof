@@ -10,6 +10,7 @@ Require Import Unicode.Utf8.
 Require Import data_model.
 Require Import finite_bags.
 Require Import ordering.
+Require Import prov.
 Require Import types.
 Require Import util.
 
@@ -20,7 +21,7 @@ Require Import util.
   @param s   The schema of the relation.
   @return    A finite bag (fbag) of tuples of type [ty].
 *)
-Definition relation_np (s: schema) := fbag (Tuple.tuple_np (schema_to_no_name s)).
+Definition relation_np (s: schema) := fbag (Tuple.tuple_np (♭ s)).
 
 (** 
   [relation] is a function that takes a tuple type [ty] as an argument and returns a finite bag (fbag) of tuples of type [ty]. 
@@ -29,11 +30,11 @@ Definition relation_np (s: schema) := fbag (Tuple.tuple_np (schema_to_no_name s)
   @param s   The schema of the relation.
   @return    A finite bag (fbag) of tuples of type [ty].
 *)
-Definition relation (s: schema) := fbag (Tuple.tuple (schema_to_no_name s)).
+Definition relation (s: schema) := fbag (Tuple.tuple (♭ s)).
 Hint Unfold relation: core.
 
 Lemma schema_concat_eq: ∀ s1 s2,
-  schema_to_no_name (s1 ++ s2) = schema_to_no_name s1 ++ schema_to_no_name s2.
+  ♭ (s1 ++ s2) = ♭ s1 ++ ♭ s2.
 Proof.
   intros.
   induction s1.
@@ -47,8 +48,8 @@ Proof.
 *)
 Defined.
 
-Lemma nth_type_eq: ∀ s n (ok: n < List.length s) (ok': n < List.length (schema_to_no_name s)),
-  schema_to_no_name ((nth s n ok) :: nil) = Tuple.nth (schema_to_no_name s) n ok' :: nil.
+Lemma nth_type_eq: ∀ s n (ok: n < List.length s) (ok': n < List.length (♭ s)),
+  ♭ ((nth s n ok) :: nil) = Tuple.nth (♭ s) n ok' :: nil.
 Proof.
   induction s; intros.
   - simpl in ok. inversion ok.
@@ -59,13 +60,13 @@ Proof.
 Defined.
   
 Lemma schema_to_no_name_eq: ∀ s1 s2,
-  s1 = s2 → schema_to_no_name s1 = schema_to_no_name s2.
+  s1 = s2 → ♭ s1 = ♭ s2.
 Proof.
   intros. subst. reflexivity.
 Defined.
 
 Lemma schema_to_no_name_len: ∀ s,
-  List.length (schema_to_no_name s) = List.length s.
+  List.length (♭ s) = List.length s.
 Proof.
   intros. induction s.
   - reflexivity.
@@ -88,14 +89,14 @@ Fixpoint inject_tuple_id_relation
   match r with
   | nil => nil
   | cons t r' =>
-  cons (Tuple.inject_tuple_id (schema_to_no_name s) t id)
+  cons (Tuple.inject_tuple_id (♭ s) t id)
        (inject_tuple_id_relation s r' (id + List.length s))
   end.
 
 Fixpoint extract_as_cell_list s (r: relation s) : list nat :=
   match r with
   | nil => nil
-  | cons t r' => (Tuple.extract_as_cell_id (schema_to_no_name s) t) ++
+  | cons t r' => (Tuple.extract_as_cell_id (♭ s) t) ++
                  (extract_as_cell_list s r')
   end.
 
@@ -118,9 +119,9 @@ refine (
   end
 ).
   intros ok.
-  assert (H': n < List.length (schema_to_no_name s)).
+  assert (H': n < List.length (♭ s)).
   { rewrite schema_to_no_name_len. assumption. }
-  pose (Tuple.nth_col_tuple (schema_to_no_name s) n H' t) as cur.
+  pose (Tuple.nth_col_tuple (♭ s) n H' t) as cur.
   pose (extract_column s r' n ok) as rest.
   specialize nth_type_eq with (s := s) (n := n) (ok := ok) (ok' := H'). intros.
   rewrite <- H in cur.
@@ -128,11 +129,11 @@ refine (
 Defined.
 
 (*
-  [cartesian_product_helper] is a recursive function that takes two schemas [s1] and [s2], a tuple [t] of type [Tuple.tuple (schema_to_no_name s1)], and a relation [r] of type [relation s2]. It returns a relation of type [relation (s1 ++ s2)].
+  [cartesian_product_helper] is a recursive function that takes two schemas [s1] and [s2], a tuple [t] of type [Tuple.tuple (♭ s1)], and a relation [r] of type [relation s2]. It returns a relation of type [relation (s1 ++ s2)].
 
   The function recursively processes the relation [r] and performs a Cartesian product operation between the tuple [t] and each tuple in [r]. It concatenates the resulting tuples with the tuple [t] and returns the resulting relation.
 *)
-Fixpoint cartesian_product_helper (s1 s2: schema) (t: Tuple.tuple (schema_to_no_name s1)) (r: relation s2) : relation (s1 ++ s2).
+Fixpoint cartesian_product_helper (s1 s2: schema) (t: Tuple.tuple (♭ s1)) (r: relation s2) : relation (s1 ++ s2).
 refine (
   match r with
   | nil => nil
@@ -434,7 +435,7 @@ Definition check_value s1 s2
   (proof: ∀ elem, List.In elem common_join_list →
     List.In elem (find_common (join_list_to_index s1 join_by 0) 
       (join_list_to_index s2 join_by 0)))
-  (lhs: Tuple.tuple (schema_to_no_name s1)) (rhs: Tuple.tuple (schema_to_no_name s2)): bool.
+  (lhs: Tuple.tuple (♭ s1)) (rhs: Tuple.tuple (♭ s2)): bool.
 refine (
   (fix check_value common_join_list proof :=
   match common_join_list with
@@ -462,8 +463,8 @@ refine (
   pose (Tuple.nth_col_tuple _ n2 extract2 rhs) as tp2.
   simpl in tp1, tp2. repeat apply fst in tp1, tp2.
   (* Perform case analysis on types and equality. *)
-  destruct (Tuple.nth (schema_to_no_name s1) n1 extract1);
-  destruct (Tuple.nth (schema_to_no_name s2) n2 extract2); simpl in tp1, tp2.
+  destruct (Tuple.nth (♭ s1) n1 extract1);
+  destruct (Tuple.nth (♭ s2) n2 extract2); simpl in tp1, tp2.
   + destruct (tp1 =? tp2) eqn: H'.
     * specialize check_value with (common_join_list := t).
       apply check_value.
@@ -543,12 +544,12 @@ Definition output_schema_join_by s1 s2 (join_by: list string): schema :=
   This function removes the common columns from the two schemas specified by the `common`
   list that contains the indices of the common columns that need to be removed.
 *)
-Definition remove_common_part s (tp: Tuple.tuple (schema_to_no_name s)) (n: nat)
- (common: list nat): Tuple.tuple (schema_to_no_name (remove_common s common n)).
+Definition remove_common_part s (tp: Tuple.tuple (♭ s)) (n: nat)
+ (common: list nat): Tuple.tuple (♭ (remove_common s common n)).
 refine (
   (fix remove_common_part s tp n :=
     (* Pose s = s' for the ease of knowing the structure of `s`. *)
-    match s as s' return s = s' → Tuple.tuple (schema_to_no_name (remove_common s common n)) with
+    match s as s' return s = s' → Tuple.tuple (♭ (remove_common s common n)) with
     | nil => fun _ => _ 
     | h :: t => _
     end eq_refl) s tp n
@@ -562,12 +563,12 @@ refine (
     + simpl. exact (p, rest (n + 1)).
 Defined.
 
-Definition get_common_part s (tp: Tuple.tuple (schema_to_no_name s)) (n: nat)
- (common: list nat): Tuple.tuple (schema_to_no_name (get_common s common n)).
+Definition get_common_part s (tp: Tuple.tuple (♭ s)) (n: nat)
+ (common: list nat): Tuple.tuple (♭ (get_common s common n)).
 refine (
   (fix get_common_part s tp n :=
     (* Pose s = s' for the ease of knowing the structure of `s`. *)
-    match s as s' return s = s' → Tuple.tuple (schema_to_no_name (get_common s common n)) with
+    match s as s' return s = s' → Tuple.tuple (♭ (get_common s common n)) with
     | nil => fun _ => _ 
     | h :: t => _
     end eq_refl) s tp n
@@ -586,10 +587,10 @@ Lemma join_type_eq: ∀ s1 s2 join_by lhs rhs index_lhs index_rhs common_join_li
   common_join_list = find_common lhs rhs →
   index_lhs = List.map (fun x => fst (fst x)) common_join_list →
   index_rhs = List.map (fun x => snd (fst x)) common_join_list →
-  (schema_to_no_name (remove_common s1 index_lhs 0) ++
-  schema_to_no_name (get_common s1 index_lhs 0) ++
-  schema_to_no_name (remove_common s2 index_rhs 0)) =
-  schema_to_no_name (output_schema_join_by s1 s2 join_by).
+  (♭ (remove_common s1 index_lhs 0) ++
+  ♭ (get_common s1 index_lhs 0) ++
+  ♭ (remove_common s2 index_rhs 0)) =
+  ♭ (output_schema_join_by s1 s2 join_by).
 Proof.
   intros. subst.
   repeat rewrite app_assoc'. repeat rewrite <- schema_concat_eq. apply schema_to_no_name_eq.
@@ -598,9 +599,9 @@ Defined.
 
 (* Useful for joining two databases with a join list. *)
 Definition tuple_concat_by s1 s2 join_by
-  (lhs: Tuple.tuple (schema_to_no_name s1))
-  (rhs: Tuple.tuple (schema_to_no_name s2))
-  : option (Tuple.tuple (schema_to_no_name (output_schema_join_by s1 s2 join_by))).
+  (lhs: Tuple.tuple (♭ s1))
+  (rhs: Tuple.tuple (♭ s2))
+  : option (Tuple.tuple (♭ (output_schema_join_by s1 s2 join_by))).
   destruct s1; destruct s2.
   - exact None.
   - exact None.
@@ -659,10 +660,10 @@ Definition tuple_concat_by s1 s2 join_by
       (lhs := lhs_join_list) (rhs := rhs_join_list)
       (index_lhs := index_lhs) (index_rhs := index_rhs) (common_join_list := common_join_list).
     intros.
-    assert (schema_to_no_name (remove_common (a :: s1) index_lhs 0) ++
-            schema_to_no_name (get_common (a :: s1) index_lhs 0) ++
-            schema_to_no_name (remove_common (a0 :: s2) index_rhs 0) =
-    schema_to_no_name (output_schema_join_by (a :: s1) (a0 :: s2) join_by))
+    assert (♭ (remove_common (a :: s1) index_lhs 0) ++
+            ♭ (get_common (a :: s1) index_lhs 0) ++
+            ♭ (remove_common (a0 :: s2) index_rhs 0) =
+    ♭ (output_schema_join_by (a :: s1) (a0 :: s2) join_by))
       by auto.
     rewrite <- H1. rewrite app_assoc'.
     exact (Some result).
@@ -693,8 +694,12 @@ Defined.
 Definition relation_natural_join s1 s2 (r1: relation s1) (r2: relation s2):
   relation (output_schema_join_by s1 s2 (natural_join_list s1 s2)) :=
   relation_join_by s1 s2 r1 r2 (natural_join_list s1 s2).
-Notation "r1 '⋈' r2" := (relation_natural_join _ _ r1 r2) (at level 40).
 
+(* TODO: Implement this. *)
+Definition relation_natural_join_prv s1 s2 (r1: relation s1) (r2: relation s2)
+(Γ1 Γ2: Policy.context) (β1 β2: budget) (p1 p2: prov_ctx)
+  : (relation (output_schema_join_by s1 s2 (natural_join_list s1 s2)) * 
+     Policy.context * budget * prov_ctx). Admitted.
 
 (* =================== Some Test Cases ==================== *)
 Section Test.

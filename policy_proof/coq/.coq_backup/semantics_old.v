@@ -13,7 +13,7 @@ Require Import types.
 Require Import lattice.
 Require Import ordering.
 Require Import prov.
-Require Import relation.
+Require Import Relation.
 Require Import util.
 
 Inductive project_list: Set :=
@@ -96,7 +96,7 @@ Definition normalized (pl: project_list): Prop :=
 *)
 Fixpoint determine_bt_from_expr (s: schema) (arg: simple_atomic_expression): option basic_type :=
   match arg with
-    | simple_atomic_expression_column c => Tuple.nth_nocheck (schema_to_no_name s) c
+    | simple_atomic_expression_column c => Tuple.nth_nocheck (♭ s) c
     | simple_atomic_expression_const bt _ => Some bt
     | simple_atomic_expression_func_unary _ expr => determine_bt_from_expr s expr
     | simple_atomic_expression_func_binary _ lhs rhs =>
@@ -128,7 +128,7 @@ Definition determine_schema (s: schema) (pl: project_list): schema :=
           | nil => nil
           | (x, name) :: ℓ' => match x with
                         | simple_atomic_expression_column c => 
-                          match Tuple.nth_nocheck (schema_to_no_name s) c with
+                          match Tuple.nth_nocheck (♭ s) c with
                               | Some bt => (bt, name) :: determine ℓ'
                               | None => determine ℓ'
                             end
@@ -161,7 +161,7 @@ Proof.
   - apply Nat.lt_eq_cases in IHpl. destruct IHpl; destruct a.
     + destruct s0.
       * simpl in *. apply le_n_S. lia.
-      * simpl in *. destruct (Tuple.nth_nocheck (schema_to_no_name s) n); try lia; auto.
+      * simpl in *. destruct (Tuple.nth_nocheck (♭ s) n); try lia; auto.
       * simpl in *. destruct (determine_bt_from_expr s s0); try lia; auto.
       * simpl in *.
         destruct (determine_bt_from_expr s s0_1); 
@@ -169,7 +169,7 @@ Proof.
         try destruct (type_matches b0 b1); try lia; auto.
     + destruct s0.
       * simpl in *. lia.
-      * simpl in *. destruct (Tuple.nth_nocheck (schema_to_no_name s) n).
+      * simpl in *. destruct (Tuple.nth_nocheck (♭ s) n).
         -- simpl in *. apply le_n_S. lia.
         -- simpl in *. lia.
       * simpl in *. destruct (determine_bt_from_expr s s0).
@@ -187,7 +187,7 @@ Lemma determine_schema_concat: ∀ s a ℓ,
 
 Proof.
   induction a; induction a; auto; intros.
-  - simpl. destruct (Tuple.nth_nocheck (schema_to_no_name s) n); auto.
+  - simpl. destruct (Tuple.nth_nocheck (♭ s) n); auto.
   - simpl. destruct (determine_bt_from_expr s a); auto.
   - simpl. destruct (determine_bt_from_expr s a1);
            destruct (determine_bt_from_expr s a2);
@@ -203,7 +203,7 @@ Qed.
   tuple contains a simple atomic expression and a string.
 
   The function works by iterating over the schema. For each attribute in the schema, it creates a new tuple. The first element of
-  the tuple is a simple atomic expression that represents the attribute's column in the relation, and the second element is the
+  the tuple is a simple atomic expression that represents the attribute's column in the Relation, and the second element is the
   attribute's name. The function uses the natural number [n] to keep track of the current column index. If the schema is empty,
   it returns an empty list.
 *)
@@ -367,7 +367,7 @@ Qed.
 (* Some helper lemmas for manipulating dependent types. *)
 Section DtFacts.
 
-Lemma tuple_single_eq: ∀ ty, Tuple.tuple (schema_to_no_name (ty :: nil)) = (prod (prod (type_to_coq_type (fst ty)) nat) unit).
+Lemma tuple_single_eq: ∀ ty, Tuple.tuple (♭ (ty :: nil)) = (prod (prod (type_to_coq_type (fst ty)) nat) unit).
 Proof.
   intros. simpl. auto.
   destruct ty.
@@ -386,7 +386,7 @@ Axiom nth_type_eq: ∀ s n (ok: n < List.length s) expr name, expr = simple_atom
   nth s n ok :: nil = determine_schema s (project ((expr, name) :: nil)).
 
 (* By now, we can utilize `transport` or `eq_rect` to cast types: this is Leibniz equality. *)
-Example makes_no_sense: ∀ ty (r: relation (ty :: nil)) (t: list (prod (prod (type_to_coq_type (fst ty)) nat) unit)),
+Example makes_no_sense: ∀ ty (r: Relation (ty :: nil)) (t: list (prod (prod (type_to_coq_type (fst ty)) nat) unit)),
   t = transport (tuple_single_eq ty) r.
 Admitted.
 
@@ -416,7 +416,7 @@ Proof.
   destruct (determine_bt_from_expr s arg) eqn: Heq; destruct arg eqn: Harg.
   - inversion Heq. subst. reflexivity.
   - inversion Heq. subst. simpl in *.
-    destruct (Tuple.nth_nocheck (schema_to_no_name s)).
+    destruct (Tuple.nth_nocheck (♭ s)).
     + inversion Heq. subst. reflexivity.
     + inversion Heq.
   - destruct (determine_bt_from_expr s s0) eqn: Heq'.
@@ -460,14 +460,14 @@ Definition groupby_list := (list nat)%type.
 Definition agg_list s := (list (∀ bt, agg_expression s bt))%type.
 
 (* Do we really need `list nat` to represent the lists? *)
-Definition env_slice s := (relation s * list nat * groupby_list * list (Tuple.tuple (schema_to_no_name s)))%type.
+Definition ℰ s := (Relation s * list nat * groupby_list * list (Tuple.tuple (♭ s)))%type.
 
 (*
   `env` is a definition for an environment in a given schema `s`. 
-  It is a list of tuples, where each tuple consists of a relation, 
+  It is a list of tuples, where each tuple consists of a Relation, 
   a list of 'selected' attributes, a groupby list, and a list of tuples.
 
-  - The relation is a list of tuples of type `Tuple.tuple s` for determing the concrete relation
+  - The Relation is a list of tuples of type `Tuple.tuple s` for determing the concrete Relation
     that is used for the expression evaluation.
   - The selected attributes is a list of natural numbers, which are the indices of the attributes
     in the schema that are used for the expression evaluation.
@@ -478,7 +478,7 @@ Definition env_slice s := (relation s * list nat * groupby_list * list (Tuple.tu
   This environment is used in the context of database query operations.
 
   Note that this is a dependent type (heterogeneous list). This is because we need to know the schema
-  of each active relation, but the schema of each relation is different. Consider this case:
+  of each active Relation, but the schema of each Relation is different. Consider this case:
 
   ```
   a: (IntegerType :: StringType :: nil)%type
@@ -496,7 +496,7 @@ Definition env_slice s := (relation s * list nat * groupby_list * list (Tuple.tu
 Fixpoint ℰ (s: list schema) : Type :=
   match s with
     | nil => unit
-    | s :: s' => (env_slice s * ℰ s')%type
+    | s :: s' => (ℰ s * ℰ s')%type
   end.
 
 Definition fuse_env {s1 s2} (e1: ℰ s1) (e2: ℰ s2) : ℰ (s1 ++ s2).
@@ -505,46 +505,46 @@ Definition fuse_env {s1 s2} (e1: ℰ s1) (e2: ℰ s2) : ℰ (s1 ++ s2).
   - simpl. destruct e1 as [es1 e1]. exact (es1, IHs1 e1).
 Defined.
 
-Definition lift_env_slice s (es: env_slice s) : ℰ (s :: nil).
+Definition lift_env_slice s (es: ℰ s) : ℰ (s :: nil).
   exact (es, tt).
 Defined.
 
 (* =============================== Some utility functions =================================== *)
-Definition get_env_slice s (e: ℰ s) (non_empty: List.length s > 0) : env_slice (hd_ok s non_empty).
+Definition get_env_slice s (e: ℰ s) (non_empty: List.length s > 0) : ℰ (hd_ok s non_empty).
   destruct s; simpl in *.
   - lia.
   - exact (fst e).
 Defined.
 
-Definition env_slice_get_tuples s (es: env_slice s) : list (Tuple.tuple (schema_to_no_name s)) :=
+Definition env_slice_get_tuples s (es: ℰ s) : list (Tuple.tuple (♭ s)) :=
   match es with
     | (r, _, _, t) => t
   end.
 
-Definition env_slice_get_groupby s (es: env_slice s) : groupby_list :=
+Definition env_slice_get_groupby s (es: ℰ s) : groupby_list :=
   match es with
     | (_, _, g, _) => g
   end.  
 
-Definition env_slice_get_selected s (es: env_slice s) : list nat :=
+Definition env_slice_get_selected s (es: ℰ s) : list nat :=
   match es with
     | (_, s, _, _) => s
   end.
 
-Definition env_slice_get_relation s (es: env_slice s) : relation s :=
+Definition env_slice_get_relation s (es: ℰ s) : Relation s :=
   match es with
     | (r, _, _, _) => r
   end.
 (* ========================================================================================= *)
 
-Inductive Operator: Type :=
-  | operator_empty: Operator
-  | operator_relation: forall s, relation s → Operator
-  | operator_union: Operator → Operator → Operator
-  | operator_join: Operator → Operator → Operator
-  | operator_project: project_list → Operator → Operator
-  | operator_select: ∀ s, formula s → Operator → Operator
-  | operator_grouby_having: ∀ s, groupby_list → agg_list s → formula s → Operator → Operator
+Inductive operator: Type :=
+  | operator_empty: operator
+  | operator_relation: forall s, Relation s → operator
+  | operator_union: operator → operator → operator
+  | operator_join: operator → operator → operator
+  | operator_project: project_list → operator → operator
+  | operator_select: ∀ s, formula s → operator → operator
+  | operator_grouby_having: ∀ s, groupby_list → agg_list s → formula s → operator → operator
 .
 
 (*
@@ -563,13 +563,13 @@ Inductive config: Type :=
   (* Terminal wraps a configuration by which we can easily analyze the final state. *)
   | config_terminal: config → config
   | config_error: config
-  | config_ok: ∀ s, Policy.context → Configuration.privacy → ℰ s → prov_ctx -> config
+  | config_ok: ∀ s, Policy.context → budget → ℰ s → prov_ctx -> config
 .
 
 Inductive config_cell: Type :=
   | config_cell_terminal: config_cell → config_cell
   | config_cell_error: config_cell
-  | config_cell_ok: Policy.context → Configuration.privacy → prov_ctx → config_cell
+  | config_cell_ok: Policy.context → budget → prov_ctx → config_cell
 .
 
 Notation "'⟨' s Γ β ℰ p '⟩'":= (config_ok s Γ β ℰ p)
@@ -584,14 +584,14 @@ Notation "'⟦' s Γ β ℰ p '⟧'":= (config_cell_ok s Γ β ℰ p)
 
 (*
   @param s The schema, which is a list of tuples where each tuple contains a type and a name.
-  @param n The length of the relation to be created.
+  @param n The length of the Relation to be created.
   @param t The tuple to be repeated.
-  @return A relation of length [n] where each tuple is [t].
+  @return A Relation of length [n] where each tuple is [t].
 
-  [tuple_of_length_n] returns a relation of length [n] where each tuple is [t]. The function
-  works by recursively appending [t] to the relation until it reaches the desired length.
+  [tuple_of_length_n] returns a Relation of length [n] where each tuple is [t]. The function
+  works by recursively appending [t] to the Relation until it reaches the desired length.
 *)
-Fixpoint tuple_of_length_n s (n: nat) (t: Tuple.tuple (schema_to_no_name s)): relation s :=
+Fixpoint tuple_of_length_n s (n: nat) (t: Tuple.tuple (♭ s)): Relation s :=
 match n with
   | O => nil
   | S n' => t :: tuple_of_length_n s n' t
@@ -607,7 +607,7 @@ match n with
   @return An optional tuple containing the result of applying the unary function to the cell
           value, the updated policy context, and the updated provenance context.
 
-  This function applies a unary function to a cell in a relation. If the unary function can
+  This function applies a unary function to a cell in a Relation. If the unary function can
   be successfully applied, it returns a tuple containing the result of the function applica-
   tion, the updated policy context, and the updated provenance context. If the unary function
   cannot be applied (for example, if the function is not defined for the base type of the
@@ -636,18 +636,18 @@ Inductive apply_unary_function_in_cell bt:
 
 (*
   @param ty An attribute containing a type and a name.
-  @param r The relation, which is a list of tuples where each tuple contains a single type.
+  @param r The Relation, which is a list of tuples where each tuple contains a single type.
          Somehow we must calculate the type of `r`.
   @param Γ The policy context.
   @param p The proof context.
-  @return An optional tuple containing the relation, the policy context, and the proof context.
+  @return An optional tuple containing the Relation, the policy context, and the proof context.
 
-  This function does the actual function application on a relation containing only one column on
+  This function does the actual function application on a Relation containing only one column on
   which the unary function should be applied.
 *)
-Inductive do_apply_unary_function (ty: Attribute) (r: relation (ty :: nil)):
+Inductive do_apply_unary_function (ty: Attribute) (r: Relation (ty :: nil)):
   UnOp → unary_func → Policy.context → prov_ctx
-       → option (relation (ty :: nil) * Policy.context * prov_ctx) → Prop :=
+       → option (Relation (ty :: nil) * Policy.context * prov_ctx) → Prop :=
   | E_EmptyRelation: ∀ op f Γ p,
       r = nil →
       do_apply_unary_function ty r op f Γ p (Some (nil, Γ, p))
@@ -674,21 +674,21 @@ Inductive do_apply_unary_function (ty: Attribute) (r: relation (ty :: nil)):
   @param s The schema, which is a list of tuples where each tuple contains a type and a name.
   @param op The unary operation to be applied.
   @param ok A proof that the length of the schema [s] is 1.
-  @param ctx A tuple containing the relation, the policy context, and the proof context.
-  @return An optional tuple containing the relation, the policy context, and the proof context
+  @param ctx A tuple containing the Relation, the policy context, and the proof context.
+  @return An optional tuple containing the Relation, the policy context, and the proof context
           after applying the unary operation.
 
   [apply_unary_function_in_relation] is a function that takes a schema [s], a unary operation
   [op], a proof [ok] that the length of the schema is 1, and a context [ctx] that contains the
-  relation, the policy context, and the proof context. It applies the unary operation [op] to
-  the relation in the context and returns an optional tuple containing the updated relation,
+  Relation, the policy context, and the proof context. It applies the unary operation [op] to
+  the Relation in the context and returns an optional tuple containing the updated Relation,
   policy context, and proof context. If the operation cannot be applied, it returns None.
 
   This is just an entrypoint for the actual function [do_apply_unary_function].
 *)
-Inductive apply_unary_function_in_relation s (r: relation s):
+Inductive apply_unary_function_in_relation s (r: Relation s):
   UnOp → Policy.context → prov_ctx → 
-    option (relation s * Policy.context * prov_ctx) → Prop :=
+    option (Relation s * Policy.context * prov_ctx) → Prop :=
   | E_ApplyEmptyRelation: ∀ op Γ p,
       r = nil →
       apply_unary_function_in_relation s r op Γ p None
@@ -700,9 +700,9 @@ Inductive apply_unary_function_in_relation s (r: relation s):
   (* Others are not defined. *)
 .
 
-Inductive apply_proj_elem s (r: relation s) (expr: simple_atomic_expression * string):
+Inductive apply_proj_elem s (r: Relation s) (expr: simple_atomic_expression * string):
   Policy.context → prov_ctx →
-    option (relation (determine_schema s (project (expr :: nil))) * Policy.context * prov_ctx) → Prop :=
+    option (Relation (determine_schema s (project (expr :: nil))) * Policy.context * prov_ctx) → Prop :=
     (* We forbid directly reading from a column; this may violate the security policy. *)
   | E_ApplyColumn: ∀ Γ p n name
                   (case_column: expr = (simple_atomic_expression_column n, name)),
@@ -732,16 +732,16 @@ Inductive apply_proj_elem s (r: relation s) (expr: simple_atomic_expression * st
 
 (*
   `apply_proj_elem` is a function that applies a projection operation to a
-  single column of a relation. This will further consult the `c [ f ] c'` relation to determine the output relation.
+  single column of a Relation. This will further consult the `c [ f ] c'` Relation to determine the output Relation.
 
   Note that if this function returns `None` then it means that something is wrong with the input.
-  `None` does not imply that the policy is violated. For example, if the input relation is empty,
+  `None` does not imply that the policy is violated. For example, if the input Relation is empty,
   then we cannot apply the projection operation to any column.
 *)
-Definition apply_proj_elem0 s (r: relation s) (expr: simple_atomic_expression * string)
+Definition apply_proj_elem0 s (r: Relation s) (expr: simple_atomic_expression * string)
                              (Γ: Policy.context) (p: prov_ctx)
                              (normalized: normalized_expr (fst expr))
-  : option (relation (determine_schema s (project (expr :: nil))) * Policy.context * prov_ctx).
+  : option (Relation (determine_schema s (project (expr :: nil))) * Policy.context * prov_ctx).
 refine (
 (fix eval_expr expr :=
     match expr with
@@ -780,7 +780,7 @@ refine (
       * exact None.
   (*
     The function has only one argument which is a column. In this case, we need to:
-    1. Obtain the whole column from the relation.
+    1. Obtain the whole column from the Relation.
     2. Obtain the label, provenance from the environment.
     3. Check the permission against the policy label.
     4. Evaluate the function.
@@ -794,23 +794,23 @@ refine (
 Admitted.
 
 (*
-  Since `relation` is a dependent type, we need to apply a helper function to
-  update the relation with regard to the schema. This means we cannot simply
-  quantify over `s` in the definition since that would make the type of `relation`
+  Since `Relation` is a dependent type, we need to apply a helper function to
+  update the Relation with regard to the schema. This means we cannot simply
+  quantify over `s` in the definition since that would make the type of `Relation`
   different in each case and hard to reason about.
 
   Instead, we know that the schema can be determined given the input schema
   and the project list. We can thus manipulate the output schema on which the
-  output relation depends.
+  output Relation depends.
 *)
-Definition apply_proj_in_relation s (r: relation s) (ℓ: list (simple_atomic_expression * string))
+Definition apply_proj_in_relation s (r: Relation s) (ℓ: list (simple_atomic_expression * string))
                                     (Γ: Policy.context) (p: prov_ctx)
                                     (normalized: normalized (project ℓ))
-  : option (relation (determine_schema s (project ℓ)) * Policy.context * prov_ctx).
+  : option (Relation (determine_schema s (project ℓ)) * Policy.context * prov_ctx).
 Proof.
   induction ℓ.
   - exact (Some (nil, Γ, p)).
-  - (* We apply `a` to the relation s and obtain the output. *)
+  - (* We apply `a` to the Relation s and obtain the output. *)
     pose (normalized_implies_each_expr _ normalized a) as norm.
     pose (in_eq a ℓ) as pred. apply norm in pred.
     pose (apply_proj_elem s r a Γ p pred) as col.
@@ -848,10 +848,10 @@ Proof.
     + exact None.
 Defined.
 
-Definition apply_proj_in_env_slice s (es: env_slice s) (ℓ: list (simple_atomic_expression * string))
+Definition apply_proj_in_env_slice s (es: ℰ s) (ℓ: list (simple_atomic_expression * string))
                                      (Γ: Policy.context) (p: prov_ctx)
                                      (norm: normalized (project ℓ))
-  : option (env_slice (determine_schema s (project ℓ)) * Policy.context * prov_ctx) :=
+  : option (ℰ (determine_schema s (project ℓ)) * Policy.context * prov_ctx) :=
   match es with
   | (r, a, b, _) =>
       let r := (apply_proj_in_relation s r ℓ Γ p norm) in
@@ -911,10 +911,10 @@ where "c1 '~[' o ']~>' c2" := (step_cell o c1 c2).
   * Update the privacy budget.
   * Update the cell in the tuple.
   * Update the tuple in the environment.
-  * Update the relation.
+  * Update the Relation.
 *)
 Reserved Notation "c1 '=[' o ']=>' c2" (at level 50, left associativity).
-Inductive step_config: Operator → config → config → Prop :=
+Inductive step_config: operator → config → config → Prop :=
   (* Empty operator clears the environment. *)
   | E_Empty1: ∀ s Γ β p (e: ℰ s),
       ⟨ s Γ β e p ⟩ =[ operator_empty ]=> ⟨ nil nil β tt nil ⟩
