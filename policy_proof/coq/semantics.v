@@ -459,44 +459,26 @@ Definition groupby_list := (list nat)%type.
 Definition agg_list s := (list (∀ bt, agg_expression s bt))%type.
 
 (* Do we really need `list nat` to represent the lists? *)
-Definition env_slice s := (relation s * list nat * groupby_list * list (Tuple.tuple (schema_to_no_name s)))%type.
+Definition ℰ s := (relation s * list nat * groupby_list * list (Tuple.tuple (schema_to_no_name s)))%type.
 
-(*
+Definition env_get_relation s (e: ℰ s): relation s :=
+  match e with
+    | (r, _, _, _) => r
+  end.
 
-  `ℰ` denotes environment. An environment can be thought of as a `database` that contains a list
-  of active relations. In each environment slice, we have:
+Definition env_get_selected s (e: ℰ s): list nat :=
+  match e with
+    | (_, selected, _, _) => selected
+  end.
 
-  - The relation is a list of tuples of type `Tuple.tuple s` for determing the concrete relation
-    that is used for the expression evaluation.
-  - The selected attributes is a list of natural numbers, which are the indices of the attributes
-    in the schema that are used for the expression evaluation.
-  - The groupby list is a list of natural numbers, which are the indices of the attributes in the
-    schema that are used for grouping.
-  - The list of tuples is a list of tuples of type `Tuple.tuple s`.
+Definition env_get_groupby s (e: ℰ s): groupby_list :=
+  match e with
+    | (_, _, groupby, _) => groupby
+  end.
 
-  This environment is used in the context of database query operations when expressions are being
-  evaluated.
-
-  Note that this is a dependent type (heterogeneous list). This is because we need to know the schema
-  of each active relation, but the schema of each relation is different. Consider this case:
-
-  ```
-  a: (IntegerType :: StringType :: nil)%type
-  b: (IntegerType :: BoolType :: nil)%type
-  ```
-
-  We now have a `join` operator:
-
-  ```
-  join a b
-  ```
-
-  After `a` and `b` are evaluated, we have two relations of different schemas.
-*)
-Fixpoint ℰ (s: list schema) : Type :=
-  match s with
-    | nil => unit
-    | s :: s' => (env_slice s * ℰ s')%type
+Definition env_get_tuples s (e: ℰ s): list (Tuple.tuple (schema_to_no_name s)) :=
+  match e with
+    | (_, _, _, tuples) => tuples
   end.
 
 Inductive relation_wrapped: Type :=
@@ -518,43 +500,11 @@ Fixpoint database_get_relation (db: database) (idx: nat): option relation_wrappe
         end
   end.
 
-Definition fuse_env {s1 s2} (e1: ℰ s1) (e2: ℰ s2) : ℰ (s1 ++ s2).
-  induction s1.
-  - simpl. exact e2.
-  - simpl. destruct e1 as [es1 e1]. exact (es1, IHs1 e1).
-Defined.
-
-Definition lift_env_slice s (es: env_slice s) : ℰ (s :: nil).
-  exact (es, tt).
-Defined.
-
-(* =============================== Some utility functions =================================== *)
-Definition get_env_slice s (e: ℰ s) (non_empty: List.length s > 0) : env_slice (hd_ok s non_empty).
-  destruct s; simpl in *.
-  - lia.
-  - exact (fst e).
-Defined.
-
-Definition env_slice_get_tuples s (es: env_slice s) : list (Tuple.tuple (schema_to_no_name s)) :=
-  match es with
-    | (r, _, _, t) => t
+Fixpoint db_size (db: database): nat :=
+  match db with
+    | database_empty => 0
+    | database_relation _ _ db' => S (db_size db')
   end.
-
-Definition env_slice_get_groupby s (es: env_slice s) : groupby_list :=
-  match es with
-    | (_, _, g, _) => g
-  end.  
-
-Definition env_slice_get_selected s (es: env_slice s) : list nat :=
-  match es with
-    | (_, s, _, _) => s
-  end.
-
-Definition env_slice_get_relation s (es: env_slice s) : relation s :=
-  match es with
-    | (r, _, _, _) => r
-  end.
-(* ========================================================================================= *)
 
 (*
   `config` is an inductive type that defines a configuration for the query evaluation.
@@ -824,40 +774,19 @@ Inductive apply_proj_in_relation s (r: relation s) (ℓ: list (simple_atomic_exp
       apply_proj_in_relation s r ℓ Γ p (Some (col, Γfin, pfin))
 .
 
-Inductive apply_proj_in_env_slice s (es: env_slice s) (ℓ: list (simple_atomic_expression * string)):
+Inductive apply_proj_in_env s (es: ℰ s) (ℓ: list (simple_atomic_expression * string)):
   Policy.context → prov_ctx →
-    option (env_slice (determine_schema s (project ℓ)) * Policy.context * prov_ctx) → Prop :=
+    option (ℰ (determine_schema s (project ℓ)) * Policy.context * prov_ctx) → Prop :=
   | E_ApplyInEnvSliceerr: ∀ Γ p r a b c,
       normalized (project ℓ) →
       es = (r, a, b, c) →
       apply_proj_in_relation s r ℓ Γ p None →
-      apply_proj_in_env_slice s es ℓ Γ p None
+      apply_proj_in_env s es ℓ Γ p None
   | E_ApplyInEnvSliceOk: ∀ Γ p Γ' p' r r' a b c,
       normalized (project ℓ) →
       es = (r, a, b, c) →
       apply_proj_in_relation s r ℓ Γ p (Some (r', Γ', p')) →
-      apply_proj_in_env_slice s es ℓ Γ p (Some ((r', a, b, nil), Γ', p'))
-.
-
-(*
-  @param s The schema of the relation.
-  @param evidence The evidence, which is a list of tuples where each tuple corresponds to a row in the relation.
-  @param ℓ A list of simple atomic expressions and their corresponding string identifiers.
-  @param Policy.context The policy context.
-  @param prov_ctx The proof context.
-  @return An optional evidence.
-*)
-Inductive apply_proj_in_env s evidence ℓ: ℰ s → Policy.context → prov_ctx →
-    option (ℰ ((determine_schema (hd_ok s evidence) ℓ) :: (tail s)) * Policy.context * prov_ctx) → Prop :=
-  | E_ProjInEnv: ∀ l tl config' (env: ℰ s) Γ Γ' p p' env'
-                 (case_s: s = (hd_ok s evidence) :: tl),
-      ℓ = project l →
-      apply_proj_in_env_slice (hd_ok s evidence) (fst (case_s ♯ env)) l Γ p (Some config') →
-      apply_proj_in_env s evidence ℓ env Γ p (Some (env', Γ', p'))
-  | E_ProjInEnvError: ∀ l tl Γ p (env: ℰ s) (case_s: s = (hd_ok s evidence) :: tl),
-      ℓ = project l →
-      apply_proj_in_env_slice (hd_ok s evidence) (fst (case_s ♯ env)) l Γ p None →
-      apply_proj_in_env s evidence ℓ env Γ p None
+      apply_proj_in_env s es ℓ Γ p (Some ((r', a, b, nil), Γ', p'))
 .
 
 (* 
@@ -915,17 +844,16 @@ Inductive step_config: (config * operator) → config → Prop :=
       (* We then destruct the output. *)
       c' = config_output (relation_output s' r') (⟨ db' Γ' β' p' ⟩) →
       (* `pl'` means a normalized project list. *)
-      pl' = normalize_project_list s' pl →
-      (* We manually construct an evaluation environment for sub-expressions. *)
-      e = (r', nil, nil, nil, tt) →
-      (* We then apply projection inside the environment. *)
-      apply_proj_in_env (s' :: nil)
-      (list_has_head_gt_zero _ _ (s' :: nil) (nil) eq_refl) pl' e Γ p
-      (Some (e', Γ'', p'')) →
-      (* Then after we applied the project, we extract the results from the environment `e'`. *)
-      r'' = env_slice_get_relation _ (fst e') →
-      c'' = config_output (relation_output _ r'') (⟨ db' Γ'' β'' p'' ⟩) →
-      {{ c o }} ⇓ {{ c'' }}
+      let norm := normalize_project_list s' pl in
+        norm = project pl' →
+        (* We manually construct an evaluation environment for sub-expressions. *)
+        e = (r', nil, nil, nil) →
+        (* We then apply projection inside the environment. *)
+        apply_proj_in_env s' e pl' Γ p (Some (e', Γ'', p'')) →
+        (* Then after we applied the project, we extract the results from the environment `e'`. *)
+        r'' = env_get_relation _ e' →
+        c'' = config_output (relation_output _ r'') (⟨ db' Γ'' β'' p'' ⟩) →
+        {{ c o }} ⇓ {{ c'' }}
   (*
      If the operator returns a valid environment, we can then apply projection. Then if the
      projection fails, we return `config_error`.
@@ -938,14 +866,13 @@ Inductive step_config: (config * operator) → config → Prop :=
       (* We then destruct the output. *)
       c' = config_output (relation_output s' r') (⟨ db' Γ' β' p' ⟩) →
       (* `pl'` means a normalized project list. *)
-      pl' = normalize_project_list s' pl →
-      (* We manually construct an evaluation environment for sub-expressions. *)
-      e = (r', nil, nil, nil, tt) →
-      (* We then apply projection inside the environment. *)
-      apply_proj_in_env (s' :: nil)
-      (list_has_head_gt_zero _ _ (s' :: nil) (nil) eq_refl) pl' e Γ p
-      None →
-      {{ c o }} ⇓ {{ config_error }}
+      let norm := normalize_project_list s' pl in
+        norm = project pl' →
+        (* We manually construct an evaluation environment for sub-expressions. *)
+        e = (r', nil, nil, nil) →
+        (* We then apply projection inside the environment. *)
+        apply_proj_in_env s' e pl' Γ p None →
+        {{ c o }} ⇓ {{ config_error }}
 | E_Union: ∀ c c' c'' db db' db'' Γ Γ' Γ'' β β' β'' p p' p'' s r' r'' o1 o2,
       c = ⟨ db Γ β p ⟩ →
       {{ c o1 }} ⇓ {{ c' }} →
