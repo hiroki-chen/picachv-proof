@@ -13,5 +13,7 @@ pub mod macros;
 pub mod policy;
 pub mod types;
 
+pub(crate) mod lattice;
+
 #[cfg(test)]
 mod test {}

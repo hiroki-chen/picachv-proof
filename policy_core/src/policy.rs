@@ -1,6 +1,14 @@
-use std::{cmp::Ordering, fmt::Debug, ops::Range};
+use std::{cmp::Ordering, collections::HashMap, fmt::Debug, ops::Range};
 
-use crate::{expr::GroupByMethod, types::DataType};
+use itertools::merge;
+use uuid::Uuid;
+
+use crate::{
+    error::{PolicyCarryingError, PolicyCarryingResult},
+    expr::GroupByMethod,
+    lattice::Lattice,
+    types::DataType,
+};
 pub type TParam = f64;
 pub type LParam = f64;
 pub type KParam = f64;
@@ -8,6 +16,10 @@ pub type Schema = Vec<(String, DataType)>;
 
 #[derive(Clone, Copy, Debug)]
 pub struct DpParam(f64, Option<f64>);
+
+#[derive(Clone, Debug, Default)]
+/// A policy context is used for looking up the policy of a given cell.
+pub struct PolicyContext(HashMap<Uuid, Policy<PolicyLabel>>);
 
 impl DpParam {
     #[inline]
@@ -23,14 +35,30 @@ impl DpParam {
 
 /// Denotes the level of the policy that enables direct partial ordering on it.
 #[derive(Clone, Debug, PartialEq)]
-pub enum PolicyLevel {
+pub enum PolicyLabel {
     Top,
-    /// TODO: Add a predicate inside `select`?
     Select,
-    Transform(TransformType),
-    Agg(GroupByMethod),
+    Transform(Vec<TransformType>),
+    Agg(Vec<GroupByMethod>),
     Noise(PrivacyScheme),
     Bottom,
+}
+
+/// Denotes the policy that is applied to each individual cell.
+#[derive(Clone, Debug)]
+pub enum Policy<T>
+where
+    T: Lattice,
+{
+    /// No policy is applied.
+    PolicyNone,
+    /// A declassfiication policy is applied.
+    PolicyDeclassify {
+        /// The label of the policy.
+        label: T,
+        /// The next policy in the chain.
+        next: Box<Self>,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -79,131 +107,167 @@ impl Ord for DpParam {
     }
 }
 
-// /// The trait that represents a basic policy. For any data, in order to be policy-carrying, this trait
-// /// must be correctly implemented. Extenstion to the policy is encouraged.
-// ///
-// /// Since the policies must be carried with the data overview and cannot be determined along by this core
-// /// librray, we only define this basic policy trait. The PCD later will be expanded to Rust source code by
-// /// procedural macro, and it will specify the concrete interfaces that allow untrusted code to play with
-// /// the data. The usage should look like
-// ///
-// /// ```
-// /// pub trait DiagnosisDataPolicy : policy_carrying_data::Policy {
-// ///     // Some concrete API.
-// ///     fn some_api(&self) -> u8;
-// /// }
-// /// ```
-// ///
-// /// Moreover, policies must be comparable so as to allow for meaningful computations on policies. These may
-// /// include something like join, merge, exclude, etc.
-// pub trait Policy: Debug + Send + Sync + 'static {
-//     /// Clone as a box for trait object in case we need something like `Box<dyn T>`.
-//     fn clone_box(&self) -> Box<dyn Policy>;
-//     /// A helper function used to cast between traits.
-//     fn as_any_ref(&self) -> &dyn Any;
-//     /// The eqaulity testing function.
-//     fn eq_impl(&self, other: &dyn Policy) -> bool;
-//     /// The comparison function.
-//     fn partial_cmp_impl(&self, other: &dyn Policy) -> Option<Ordering>;
-//     /// Get the level.
-//     fn level(&self) -> PolicyLevel;
-// }
+impl Lattice for PolicyLabel {
+    fn join(&self, other: &Self) -> Self {
+        match (self, other) {
+            (PolicyLabel::Top, _) => PolicyLabel::Top,
+            (PolicyLabel::Select, PolicyLabel::Top) => PolicyLabel::Top,
+            (PolicyLabel::Select, PolicyLabel::Select) => PolicyLabel::Select,
+            (PolicyLabel::Select, PolicyLabel::Transform(_)) => PolicyLabel::Select,
+            (PolicyLabel::Select, PolicyLabel::Agg(_)) => PolicyLabel::Select,
+            (PolicyLabel::Select, PolicyLabel::Noise(_)) => PolicyLabel::Select,
+            (PolicyLabel::Select, PolicyLabel::Bottom) => PolicyLabel::Select,
+            (PolicyLabel::Transform(_), PolicyLabel::Top) => PolicyLabel::Top,
+            (PolicyLabel::Transform(_), PolicyLabel::Select) => PolicyLabel::Select,
+            (PolicyLabel::Transform(v1), PolicyLabel::Transform(v2)) => {
+                let mut v = merge(v1, v2).cloned().collect::<Vec<_>>();
+                v.dedup();
+                PolicyLabel::Transform(v)
+            }
+            (PolicyLabel::Transform(_), PolicyLabel::Agg(_)) => self.clone(),
+            (PolicyLabel::Transform(_), PolicyLabel::Noise(_)) => todo!(),
+            (PolicyLabel::Transform(_), PolicyLabel::Bottom) => todo!(),
+            (PolicyLabel::Agg(_), PolicyLabel::Top) => todo!(),
+            (PolicyLabel::Agg(_), PolicyLabel::Select) => todo!(),
+            (PolicyLabel::Agg(_), PolicyLabel::Transform(_)) => todo!(),
+            (PolicyLabel::Agg(_), PolicyLabel::Agg(_)) => todo!(),
+            (PolicyLabel::Agg(_), PolicyLabel::Noise(_)) => todo!(),
+            (PolicyLabel::Agg(_), PolicyLabel::Bottom) => todo!(),
+            (PolicyLabel::Noise(_), PolicyLabel::Top) => todo!(),
+            (PolicyLabel::Noise(_), PolicyLabel::Select) => todo!(),
+            (PolicyLabel::Noise(_), PolicyLabel::Transform(_)) => todo!(),
+            (PolicyLabel::Noise(_), PolicyLabel::Agg(_)) => todo!(),
+            (PolicyLabel::Noise(_), PolicyLabel::Noise(_)) => todo!(),
+            (PolicyLabel::Noise(_), PolicyLabel::Bottom) => todo!(),
+            (PolicyLabel::Bottom, PolicyLabel::Top) => todo!(),
+            (PolicyLabel::Bottom, PolicyLabel::Select) => todo!(),
+            (PolicyLabel::Bottom, PolicyLabel::Transform(_)) => todo!(),
+            (PolicyLabel::Bottom, PolicyLabel::Agg(_)) => todo!(),
+            (PolicyLabel::Bottom, PolicyLabel::Noise(_)) => todo!(),
+            (PolicyLabel::Bottom, PolicyLabel::Bottom) => todo!(),
+        }
+    }
 
-// /// A marker trait that denotes a given struct is policy carrying.
-// pub trait PolicyCarrying {}
+    fn meet(&self, other: &Self) -> Self {
+        todo!()
+    }
 
-// impl PartialEq for dyn Policy + '_ {
-//     fn eq(&self, other: &Self) -> bool {
-//         self.eq_impl(other)
-//     }
-// }
+    fn top() -> Self {
+        Self::Top
+    }
 
-// impl PartialOrd for dyn Policy + '_ {
-//     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-//         self.partial_cmp_impl(other)
-//     }
-// }
+    fn bottom() -> Self {
+        Self::Bottom
+    }
+}
 
-// impl Clone for Box<dyn Policy> {
-//     fn clone(&self) -> Self {
-//         self.clone_box()
-//     }
-// }
+impl<T> Default for Policy<T>
+where
+    T: Lattice,
+{
+    fn default() -> Self {
+        Self::PolicyNone
+    }
+}
 
-// /// A top policy that serves at the starting point of any policy. In a lattice, it serves as the maximum
-// /// upper bound for each possible element. It should accept every operation on the data.
-// #[derive(Clone)]
-// pub struct TopPolicy {}
+impl<T> Policy<T>
+where
+    T: Lattice,
+{
+    pub fn new() -> Self {
+        Self::PolicyNone
+    }
 
-// impl Debug for TopPolicy {
-//     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-//         write!(f, "Top Policy")
-//     }
-// }
+    pub fn cons(self, label: T) -> Self {
+        let next = Box::new(self);
+        Self::PolicyDeclassify { label, next }
+    }
 
-// impl Policy for TopPolicy {
-//     fn as_any_ref(&self) -> &dyn Any {
-//         self
-//     }
+    pub fn le(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::PolicyNone, _) => true,
+            (Self::PolicyDeclassify { .. }, Self::PolicyNone) => false,
+            (
+                Self::PolicyDeclassify {
+                    label: label1,
+                    next: next1,
+                },
+                Self::PolicyDeclassify {
+                    label: label2,
+                    next: next2,
+                },
+            ) => label1.flowsto(label2) && next1.le(next2),
+        }
+    }
+}
 
-//     fn clone_box(&self) -> Box<dyn Policy> {
-//         Box::new(self.clone())
-//     }
+impl PolicyContext {
+    pub fn new() -> Self {
+        Self::default()
+    }
 
-//     fn eq_impl(&self, other: &dyn Policy) -> bool {
-//         match other.level() {
-//             PolicyLevel::Top => true,
-//             _ => false,
-//         }
-//     }
+    pub fn lookup(&self, id: &Uuid) -> PolicyCarryingResult<&Policy<PolicyLabel>> {
+        self.0.get(id).ok_or_else(|| {
+            PolicyCarryingError::PolicyNotFound(format!(
+                "No policy found for cell with id {}",
+                id.as_hyphenated().to_string()
+            ))
+        })
+    }
 
-//     fn partial_cmp_impl(&self, other: &dyn Policy) -> Option<Ordering> {
-//         Some(match other.level() {
-//             PolicyLevel::Top => Ordering::Equal,
-//             _ => Ordering::Greater,
-//         })
-//     }
+    pub fn merge_context(self, other: Self) -> Self {
+        let mut map = self.0;
+        map.extend(other.0);
+        Self(map)
+    }
+}
 
-//     fn level(&self) -> PolicyLevel {
-//         PolicyLevel::Top
-//     }
-// }
+impl<T> PartialEq for Policy<T>
+where
+    T: Lattice,
+{
+    fn eq(&self, other: &Self) -> bool {
+        self.le(other) && other.le(self)
+    }
+}
 
-// /// A bottom policy that serves at the sink point of any policy. In a lattice, it serves as the least
-// /// lower bound for each possible element. It should deny any operation on the data.
-// #[derive(Clone)]
-// pub struct BottomPolicy {}
+impl<T> PartialOrd for Policy<T>
+where
+    T: Lattice,
+{
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        if self.le(other) {
+            if other.le(self) {
+                Some(Ordering::Equal)
+            } else {
+                Some(Ordering::Less)
+            }
+        } else if other.le(self) {
+            Some(Ordering::Greater)
+        } else {
+            None
+        }
+    }
+}
 
-// impl Debug for BottomPolicy {
-//     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-//         write!(f, "Bottom Policy")
-//     }
-// }
-
-// impl Policy for BottomPolicy {
-//     fn as_any_ref(&self) -> &dyn Any {
-//         self
-//     }
-
-//     fn clone_box(&self) -> Box<dyn Policy> {
-//         Box::new(self.clone())
-//     }
-
-//     fn eq_impl(&self, other: &dyn Policy) -> bool {
-//         match other.level() {
-//             PolicyLevel::Bottom => true,
-//             _ => false,
-//         }
-//     }
-
-//     fn partial_cmp_impl(&self, other: &dyn Policy) -> Option<Ordering> {
-//         Some(match other.level() {
-//             PolicyLevel::Bottom => Ordering::Equal,
-//             _ => Ordering::Less,
-//         })
-//     }
-
-//     fn level(&self) -> PolicyLevel {
-//         PolicyLevel::Bottom
-//     }
-// }
+impl PartialOrd for TransformType {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        match (self, other) {
+            (TransformType::Identify, TransformType::Identify) => Some(Ordering::Equal),
+            (TransformType::Identify, _) => Some(Ordering::Less),
+            (_, TransformType::Identify) => Some(Ordering::Greater),
+            (TransformType::Redact { .. }, TransformType::Redact { .. }) => Some(Ordering::Equal),
+            (TransformType::Redact { .. }, _) => Some(Ordering::Less),
+            (_, TransformType::Redact { .. }) => Some(Ordering::Greater),
+            (TransformType::Generalize { .. }, TransformType::Generalize { .. }) => {
+                Some(Ordering::Equal)
+            }
+            (TransformType::Generalize { .. }, _) => Some(Ordering::Less),
+            (_, TransformType::Generalize { .. }) => Some(Ordering::Greater),
+            (TransformType::Replace, TransformType::Replace) => Some(Ordering::Equal),
+            (TransformType::Replace, _) => Some(Ordering::Less),
+            (_, TransformType::Replace) => Some(Ordering::Greater),
+            (TransformType::Shift { .. }, TransformType::Shift { .. }) => Some(Ordering::Equal),
+        }
+    }
+}

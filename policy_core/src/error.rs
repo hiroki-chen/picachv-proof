@@ -41,6 +41,8 @@ pub enum PolicyCarryingError {
     ParseError(String, String),
     /// Version error.
     VersionMismatch(String),
+    /// Policy not found.
+    PolicyNotFound(String),
     /// Unknown error.
     #[default]
     Unknown,
@@ -70,6 +72,7 @@ pub enum StatusCode {
     SymbolNotFound = 17,
     TypeMismatch = 18,
     VersionMismatch = 19,
+    PolicyNotFound = 20,
     #[default]
     Unknown = 0x100,
 }
@@ -100,6 +103,7 @@ impl From<PolicyCarryingError> for StatusCode {
             PolicyCarryingError::SymbolNotFound(_) => StatusCode::SymbolNotFound,
             PolicyCarryingError::TypeMismatch(_) => StatusCode::TypeMismatch,
             PolicyCarryingError::VersionMismatch(_) => StatusCode::VersionMismatch,
+            PolicyCarryingError::PolicyNotFound(_) => StatusCode::PolicyNotFound,
             _ => StatusCode::Unknown,
         }
     }
@@ -124,6 +128,7 @@ impl From<StatusCode> for PolicyCarryingError {
             StatusCode::SerializeError => PolicyCarryingError::SerializeError("".into()),
             StatusCode::TypeMismatch => PolicyCarryingError::TypeMismatch("".into()),
             StatusCode::VersionMismatch => PolicyCarryingError::VersionMismatch("".into()),
+            StatusCode::PolicyNotFound => PolicyCarryingError::PolicyNotFound("".into()),
             _ => PolicyCarryingError::Unknown,
         }
     }
@@ -157,6 +162,7 @@ impl Display for PolicyCarryingError {
                 write!(f, "Privacy scheme encountered a fatal error: {}", info)
             }
             Self::ParseError(file, info) => write!(f, "Cannot parse {}, {}", file, info),
+            Self::PolicyNotFound(info) => write!(f, "Policy not found: {}", info),
             Self::Unknown => write!(
                 f,
                 "Unknown error. This may be due to some implementation bugs"
