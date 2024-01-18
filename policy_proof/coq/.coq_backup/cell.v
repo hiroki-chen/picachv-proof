@@ -36,7 +36,7 @@ Inductive step_cell_single: unary_func → (Cell.cell * nat) → config → conf
           (* t => The first tuple. *)
           t = hd_ok tl tl_non_empty →
           (* we now get the label encodings. *)
-          Some (true, (ℓcur, Some ℓdisc)) = Policy.label_lookup c_idx Γ →
+          Some (true, (ℓcur, Some ℓdisc)) = label_lookup c_idx Γ →
           ~ (ℓcur ⊑ ℓ1) →
           ⟨ s Γ β e p ⟩ >[ f : arg ]> config_error
   (* No active labels are found; this should be an error. *)
@@ -48,7 +48,7 @@ Inductive step_cell_single: unary_func → (Cell.cell * nat) → config → conf
           (* t => The first tuple. *)
           t = hd_ok tl tl_non_empty →
           (* we now get the label encodings. *)
-          None = Policy.label_lookup c_idx Γ →
+          None = label_lookup c_idx Γ →
           ⟨ s Γ β e p ⟩ >[ f : arg ]> config_error *)
 
   (* Type error: we do not support casting for the time being. *)
@@ -61,7 +61,7 @@ Inductive step_cell_single: unary_func → (Cell.cell * nat) → config → conf
           (* t => The first tuple. *)
           t = hd_ok tl tl_non_empty →
           (* we now get the label encodings. *)
-          Some (true, (ℓcur, Some ℓdisc)) = Policy.label_lookup c_idx Γ →
+          Some (true, (ℓcur, Some ℓdisc)) = label_lookup c_idx Γ →
           (ℓ1, ℓ2) = get_policy_label f →
           (* udpate the policy environment. *)
           ℓcur ⊑ ℓ1 → Γ' = Policy.update_label c_idx Γ (true, (ℓ2, Some ℓdisc)) →
@@ -81,7 +81,7 @@ Inductive step_cell_single: unary_func → (Cell.cell * nat) → config → conf
           (* t => The first tuple. *)
           t = hd_ok tl tl_non_empty →
           (* we now get the label encodings. *)
-          Some (true, (ℓcur, Some ℓdisc)) = Policy.label_lookup c_idx Γ →
+          Some (true, (ℓcur, Some ℓdisc)) = label_lookup c_idx Γ →
           (ℓ1, ℓ2) = get_policy_label f →
           (* udpate the policy environment. *)
           ℓcur ⊑ ℓ1 → Γ' = Policy.update_label c_idx Γ (true, (ℓ2, Some ℓdisc)) →
@@ -102,7 +102,7 @@ Inductive step_cell_single: unary_func → (Cell.cell * nat) → config → conf
           (* t => The first tuple. *)
           t = hd_ok tl tl_non_empty →
           (* we now get the label encodings. *)
-          Some (false, (ℓ1, ℓ2)) = Policy.label_lookup c_idx Γ →
+          Some (false, (ℓ1, ℓ2)) = label_lookup c_idx Γ →
           (* update the cell. *)
           c = Tuple.nth _ c_idx idx_bound → c' = (interp_transformation f) c →
           (* update the tuple by updating this cell. *)

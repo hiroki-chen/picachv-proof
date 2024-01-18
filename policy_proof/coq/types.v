@@ -27,7 +27,7 @@ Definition dp_param := (nat * nat)%type.
   Please note that budget is meaningless for a single cell. It only makes sense when
   we are talking about a column.
 *)
-Definition budget := list (nat * dp_param).
+Definition budget := list (nat * nat * dp_param).
 
 (* Note that these operators are not designed to be exhaustive. *)
 (* Logical connections. *)

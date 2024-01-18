@@ -617,16 +617,16 @@ Inductive apply_unary_function_in_cell bt:
   UnOp → unary_func → (type_to_coq_type bt * nat) → Policy.context → prov_ctx
        → option (type_to_coq_type bt * Policy.context * prov_ctx) → Prop :=
   | E_PolicyNotFound: ∀ op f arg Γ p,
-      Policy.label_lookup (snd arg) Γ = None →
+      label_lookup (snd arg) Γ = None →
       apply_unary_function_in_cell bt op f arg Γ p None
   | E_PolicyErr: ∀ op f arg Γ p p_cur p_f,
-      Policy.label_lookup (snd arg) Γ = Some p_cur →
+      label_lookup (snd arg) Γ = Some p_cur →
       p_f = (∘ (Policy.policy_transform ((unary_trans_op op) :: nil))) →
       ¬ (p_cur ⪯ p_f) →
       apply_unary_function_in_cell bt op f arg Γ p None
   (* TODO: Not finished yet. *)
   | E_PolicyOk: ∀ op f lambda arg Γ p p_cur p_f res Γ' p',
-      Policy.label_lookup (snd arg) Γ = Some p_cur →
+      label_lookup (snd arg) Γ = Some p_cur →
       p_f = (∘ (Policy.policy_transform ((unary_trans_op op) :: nil))) →
       p_cur ⪯ p_f → f = (unary_function bt lambda) →
       lambda (fst arg) = res →

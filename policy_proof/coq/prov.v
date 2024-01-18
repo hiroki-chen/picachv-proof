@@ -3,6 +3,7 @@ Require Import Unicode.Utf8.
 
 Require Import data_model.
 Require Import types.
+Require Import util.
 
 Inductive prov_type: Set :=
   | prov_trans_unary: UnOp → prov_type
@@ -21,4 +22,10 @@ Inductive prov: Set :=
   | prov_none: prov
 .
 
-Definition prov_ctx := list (nat * prov).
+Definition prov_ctx := ctx prov.
+
+Fixpoint empty_prov_from_pctx (Γ: Policy.context): prov_ctx :=
+  match Γ with
+  | nil => nil
+  | (n, _) :: Γ' => (n, prov_none) :: empty_prov_from_pctx Γ'
+  end.

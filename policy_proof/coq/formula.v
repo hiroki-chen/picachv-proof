@@ -44,6 +44,10 @@ Inductive simple_atomic_expression: Set :=
 
     For example, we can transform `f(a, b, c)` into `f'(a, f''(b, c))`, although we
     do not actually do this in the code; we assume someone else has done this for us.
+
+    The reason why we do not curry binary functions is because we do not want to check
+    if `op` is consistent with the number of arguments; this would incur a lot of undue
+    complexity.
   *)
   | simple_atomic_expression_func_unary:
       UnOp → simple_atomic_expression → simple_atomic_expression

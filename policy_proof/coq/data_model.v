@@ -41,13 +41,30 @@ Inductive policy_label : Type :=
     then we will have the next policy `policy`.
 *)
 Inductive policy: Type :=
-  | policy_clean: ∀ ℓ, ℓ = policy_bot → policy
+  | policy_clean: policy
   | policy_declass: policy_label → policy → policy
 .
 
+Fixpoint policy_store (s: schema_no_name): Type :=
+  match s with
+  | nil => unit
+  | h :: t => (policy * policy_store t)%type
+  end.
+
 Notation "x ⇝ y" := (policy_declass x y) (at level 10, no associativity).
-Notation "'∎'" := (policy_clean policy_bot eq_refl).
+Notation "'∎'" := (policy_clean).
 Notation "'∘' x" := (x ⇝ ∎) (at level 10, no associativity).
+
+Definition can_declassify ℓ ℓop : Prop :=
+  match ℓ, ℓop with
+  | policy_bot, _ => True
+  | policy_transform s1, policy_transform s2 => s2 ⊆ s1
+  | policy_agg s1, policy_agg s2 => s2 ⊆ s1
+  | policy_top, _ => False
+  | _, _ => ℓ = ℓop
+  end.
+
+Axiom can_declassify_dec : ∀ ℓ ℓop, {can_declassify ℓ ℓop} + {~ can_declassify ℓ ℓop}.
 
 Fixpoint policy_as_list (p: policy): list policy_label :=
   match p with
@@ -586,6 +603,7 @@ Notation "x ≡ y" := (policy_eq x y) (at level 10, no associativity).
 
 Reserved Notation "x ∪ y" (at level 10, no associativity).
 Inductive policy_join: policy → policy → policy → Prop :=
+  | policy_join_clean: ∀ p, ∎ ∪ p p
   (*
     ℓ1 ⊑ ℓ2
     ------------- = policy_join_label1
@@ -678,53 +696,7 @@ Proof.
         -- apply n1. assumption.
 Qed.
 
-(* Lemma policy_join_dec: ∀ (lhs rhs: policy), { ∃ res, lhs ∪ rhs res } + {~ (∃ res, lhs ∪ rhs res)}. *)
-
-Definition context: Type := list (nat * policy).
-Fixpoint label_lookup (id: nat) (Γ: context): option policy :=
-  match Γ with
-    | nil => None
-    | (id', p) :: l' =>
-        if Nat.eqb id id' then Some p else label_lookup id l'
-  end.
-
-Fixpoint next_available_id (Γ: context) (n: nat): nat :=
-  match Γ with
-    | nil => n
-    | (id, _) :: l' => S (next_available_id l' (max id n))
-  end.
-
-Lemma new_id_non_exists: ∀ (Γ: context) (n: nat),
-  ~ (In (next_available_id Γ n) (map fst Γ)).
-Admitted.
-
-Definition id_of_length (Γ: context) (len: nat): list nat :=
-  let next_id := next_available_id Γ 0 in
-    (fix id_of_length (len: nat) (next_id: nat): list nat :=
-      match len with
-        | O => nil
-        | S len' => next_id :: id_of_length len' (S next_id)
-      end) len next_id.
-
-Fixpoint update_label (id: nat) (ctx: context) (p: policy): context :=
-  match ctx with
-  | nil => nil
-  | (id', p') :: l' =>
-      if Nat.eqb id id' then (id, p) :: l' else (id', p') :: update_label id l' p
-  end.
-
-Lemma update_valid: ∀ id ctx p p',
-  label_lookup id ctx = Some p →
-  label_lookup id (update_label id ctx p') = Some p'.
-Proof.
-  induction ctx.
-  - simpl in *. intros. inversion H.
-  - destruct a.
-    + simpl in *. destruct (Nat.eqb id n) eqn: Heq.
-      * intros. simpl. rewrite Nat.eqb_refl. reflexivity.
-      * intros. simpl in *. rewrite Heq. specialize IHctx with (p := p0) (p' := p').
-        apply IHctx. assumption.
-Qed.
+Definition context := ctx policy.
 
 Section Tests.
 
@@ -737,6 +709,19 @@ Example policy_res :=
       (policy_agg nil ⇝
         ((policy_noise (differential_privacy (2, 1))) ⇝
           (∘ policy_bot)))))).
+
+Example policy_lhs' := (∘ policy_bot).
+Example policy_rhs' := (∘ policy_select).
+Example policy_res' := (policy_select ⇝ (∘ policy_bot)).
+
+
+Example policy_lhs'' := ∎.
+Example policy_rhs'' := (∘ policy_select).
+
+Example ord_correct: policy_rhs ⪯ (∘ policy_top).
+Proof.
+  repeat constructor; intros; assumption.
+Qed.
 
 Example join_correct: policy_lhs ∪ policy_rhs policy_res.
 Proof.
@@ -751,6 +736,16 @@ Proof.
       }
       eauto.
     + econstructor. simpl. reflexivity.
+Qed.
+
+Example join_correct': policy_lhs' ∪ policy_rhs' policy_res'.
+Proof.
+  constructor. simpl. reflexivity.
+Qed.
+
+Example join_correct'': policy_rhs'' ∪ policy_lhs''  policy_rhs''.
+Proof.
+  repeat constructor.
 Qed.
 
 End Tests.
@@ -799,15 +794,35 @@ Fixpoint bounded_list (l: list nat) (ty: tuple_type): Prop :=
     | n :: l' => n < List.length ty ∧ bounded_list l' ty
   end.
 
+Fixpoint tuple_as_cell_ids ty (t: tuple ty): list nat :=
+  match ty as ty' return ty = ty' → tuple ty' → list nat with
+  | nil => fun _ _ => nil
+  | bt :: t' => fun _ t => (snd (fst t)) :: tuple_as_cell_ids t' (snd t)
+  end eq_refl t.
+
 Fixpoint inject_tuple_id
   (ty: tuple_type)
   (t: tuple_np ty)
-  (id: nat)
+  (stream: Stream)
 : tuple ty :=
-  match ty return ∀ (t: tuple_np ty) (id: nat), tuple ty with
-    | nil => fun _  _ => tt
-    | bt :: t' => fun t id => (((fst t), id), inject_tuple_id t' (snd t) (id + 1))
-  end t id.
+  match ty return ∀ (t: tuple_np ty) (stream: Stream), tuple ty with
+    | nil => fun _ _ => tt
+    | bt :: t' => fun t stream => (((fst t), (hd stream)), inject_tuple_id t' (snd t) (tl stream))
+  end t stream.
+
+Fixpoint inject_new_id s (tp: Tuple.tuple (♭ s)) (start: nat): Tuple.tuple (♭ s).
+refine (
+  match s as s' return s = s' → Tuple.tuple (♭ s') → nat → Tuple.tuple (♭ s') with
+    | nil => fun _ _ _ => tt
+    | bt :: t' => fun _ tp start => _
+  end eq_refl tp start
+).
+  destruct bt.
+  simpl in tp. destruct tp as [ [ty _] tp ].
+  pose (ty, start) as hd.
+  pose (inject_new_id _ tp (S start)) as tl.
+  exact (hd, tl).
+Defined.
 
 Fixpoint tuple_value_lt (ty: tuple_type): ∀ (lhs rhs: tuple ty), Prop :=
   match ty return ∀ (lhs rhs: tuple ty), Prop with
@@ -985,12 +1000,34 @@ refine (
     tuple ty → tuple ((nth ty n extract) :: nil) :=
       match ty as ty', n as n' return ty = ty' → n = n' → 
             ∀ (extract: n' < List.length ty'), tuple ty' → tuple ((nth ty' n' extract) :: nil) with
-        |_  :: l', 0 => fun _ _ _ t => ((fst t), tt)
+        | _ :: l', 0 => fun _ _ _ t => ((fst t), tt)
         | _ :: l', S n' => fun _ _ _ t => nth_col_tuple' l' n' _ (snd t)
         | _, _ => fun _ _ _ => fun _ => False_rec _ _
       end (refl_equal _) (refl_equal _)).
 Proof.
   simpl in *. lia.
+Defined.
+
+(*
+  @param ty The type of the tuples.
+  @param l A list of natural numbers representing the indices of the columns to be extracted.
+  @param extract A bounded list that ensures the indices in `l` are within the bounds of `ty`.
+  @param tuple The original tuple from which to extract the subtuple.
+  @return A subtuple extracted from the original tuple.
+
+  The `subtuple` function extracts a subtuple from a given tuple. The subtuple is specified by
+  a list of natural numbers `l`, which represent the indices of the columns to be extracted.
+*)
+Fixpoint subtuple (l: list nat): ∀ (ty: tuple_type) (extract: bounded_list l ty), tuple ty → tuple (ntypes l ty extract).
+  intros. destruct l.
+  - exact tt.
+  - destruct extract.
+    rename H into t.
+    pose (nth_col_tuple ty n l0 t).
+    specialize subtuple with (l := l) (ty := ty) (extract := b).
+    pose (subtuple t) as subtuple'.
+    pose (tuple_concat _ _ t0 subtuple') as res.
+    exact res.
 Defined.
 
 Definition extract_as_cell_id: ∀ (ty: tuple_type) (t: tuple ty), list nat.
@@ -1224,6 +1261,17 @@ Proof.
   simpl. repeat split; simpl; reflexivity.
 Qed.
 
+Example sublist := 1 :: nil.
+Example sublist_bounded: bounded_list sublist example_tuple_ty.
+Proof.
+  simpl. split. lia. auto.
+Defined.
+
+Example subtuple': subtuple sublist example_tuple_ty sublist_bounded example_tuple_lhs = ((true, 2), tt).
+Proof.
+  reflexivity.
+Qed.
+
 End Tuple.
 
 Ltac str_eq:= auto; simpl in *; unfold char_eq in *; unfold char_lt in *; lia.
@@ -1243,7 +1291,7 @@ Notation "'<<' x ; x0 '>>'" := (x, x0) (at level 0, x at next level, x0 at next 
 Notation "'[[' x , y , .. , z ']]'" := (x, (y, .. (z, tt) ..)) (at level 0, x at next level, y at next level, z at next level).
 Notation "'[[' x ']]'" := (x, tt) (at level 0, x at next level).
 Notation "x ⇝ y" := (Policy.policy_declass x y) (at level 10, no associativity).
-Notation "'∎'" := (Policy.policy_clean Policy.policy_bot eq_refl) (at level 10, no associativity).
+Notation "'∎'" := (Policy.policy_clean) (at level 10, no associativity).
 Notation "'∘' p " := (p ⇝ ∎) (at level 10, no associativity).
 Notation "x '⪯' y" := (Policy.policy_ordering x y) (at level 10, no associativity).
 Notation "x '∪' y" := (Policy.policy_join x y) (at level 10, no associativity).

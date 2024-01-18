@@ -1,3 +1,4 @@
+Require Import Arith.
 Require Import Decidable.
 Require Import Lia.
 Require Import List.
@@ -7,6 +8,27 @@ Require Import SetoidDec.
 Require Import SetoidClass.
 Require Import String.
 Require Import Unicode.Utf8.
+
+CoInductive Stream : Set :=
+  | Cons : nat -> Stream -> Stream
+.
+
+Definition hd (x: Stream) := let (a, _) := x in a.
+Definition tl (x: Stream) := let (_, s) := x in s.
+
+CoFixpoint rand (seed n1 n2 : nat) : Stream :=
+    let seed' := seed mod n2 in Cons seed' (rand (seed' * n1) n1 n2).
+
+Definition stream: Stream := rand 11 4 514.
+
+(* For simplicity, let us assume that new_id's will never have duplicates. *)
+Fixpoint new_id (s: Stream) (times: nat) :=
+  match times with
+  | 0 => hd s
+  | S n => new_id (tl s) n
+  end.
+
+Definition ctx (A: Type) := list (nat * A).
 
 (*
   The type `=` accepts only homogeneous equality proofs. This is a problem when we 
@@ -31,7 +53,7 @@ Definition hd_option {A : Type} (l : list A) : option A :=
   | nil => None
   | cons h _ => Some h
   end.
-
+  
 Definition hd_ok {A: Type} (l: list A) (non_empty: List.length l > 0) : A.
   destruct l.
   - simpl in non_empty. lia.
@@ -55,39 +77,51 @@ Fixpoint eqb_list {A: Type} (eqb: A → A → bool) (l1 l2: list A): bool :=
   | h1 :: t1, h2 :: t2 => if eqb h1 h2 then eqb_list eqb t1 t2 else false
   end.
 
-Fixpoint lookup {A: Type} (n: nat) (l: list (nat * A)) : option A :=
-  match l with
-  | nil => None
-  | (n', a) :: t => if Nat.eqb n n' then Some a else lookup n t
+Fixpoint label_lookup {A: Type} (Γ: ctx A) (id: nat): option A :=
+  match Γ with
+    | nil => None
+    | (id', p) :: l' =>
+        if Nat.eqb id id' then Some p else label_lookup l' id
   end.
 
-Fixpoint update {A: Type} (l: list (nat * A)) (n: nat) (a: A) : list (nat * A) :=
-  match l with
-  | nil => nil
-  | (n', a') :: t => if Nat.eqb n n' then (n, a) :: t else (n', a') :: update t n a
+Fixpoint next_available_id {A: Type} (Γ: ctx A) (n: nat): nat :=
+  match Γ with
+    | nil => n
+    | (id, _) :: l' => S (next_available_id l' (max id n))
   end.
 
-(*
-  This function merges two lists of (nat * A) pairs. The first list is the new
-  list, and the second list is the old list. The function returns a new list.
-
-  The function works as follows:
-  - If the new list is empty, then the old list is returned.
-  - If the old list is empty, then the new list is returned.
-  - If the element of the new list is not in the old list, then the element is
-    added to the old list.
-  - If the element of the new list is in the old list, then the element is
-    replaced in the old list.
-*) 
-Fixpoint merge {A: Type} (new old: list (nat * A)) : list (nat * A) :=
-  match new with
-  | nil => old
-  | (n, a) :: t =>
-    match lookup n old with
-    | None => (n, a) :: merge t old
-    | Some _ => merge t (update old n a)
-    end
+Fixpoint update_label {A: Type} (Γ: ctx A) (id: nat) (p: A): ctx A :=
+  match Γ with
+    | nil => nil
+    | (id', p') :: l' =>
+        if Nat.eqb id id'
+          then 
+            let new_id := next_available_id Γ 0 in
+              (id', p') :: l' ++ ((new_id, p) :: nil)
+          else (id', p') :: update_label l' id p
   end.
+
+(* 
+Lemma update_valid: ∀ {A: Type} id (context: ctx A) p p',
+  label_lookup context id = Some p →
+  label_lookup (update_label context id p') id = Some p'.
+Proof.
+  induction context.
+  - simpl in *. intros. inversion H.
+  - destruct a as [ [n b] p].
+    + simpl in *. destruct (Nat.eqb id n) eqn: Heq.
+      * intros. simpl. rewrite Heq. reflexivity.
+      * intros. simpl in *. rewrite Heq. specialize IHcontext with (p := p0) (p' := p').
+        apply IHcontext. assumption.
+Qed. *)
+
+Definition id_of_length {A: Type} (Γ: ctx A) (len: nat): list nat :=
+  let next_id := next_available_id Γ 0 in
+    (fix id_of_length (len: nat) (next_id: nat): list nat :=
+      match len with
+        | O => nil
+        | S len' => next_id :: id_of_length len' (S next_id)
+      end) len next_id.
 
 Theorem eqb_list_refl :
   ∀ (A : Type) (eqb : A → A → bool),
@@ -126,6 +160,19 @@ Fixpoint list_of_length_n {A: Type} (n: nat) (a: A): list A :=
   | S n' => a :: list_of_length_n n' a
   end.
 
+Fixpoint mark_updated {A: Type} (l: list (nat * bool * A)) (id: list nat): option (list (nat * bool * A)) :=
+  match l with
+  | nil => Some nil
+  | (n, b, a) :: t =>
+    match existsb (Nat.eqb n) id with
+    | true => match mark_updated t id with
+              | None => None
+              | Some t' => Some ((n, true, a) :: t')
+              end
+    | false => None
+    end
+  end.
+
 (*
   Coq cannot guess if `n / 10` and `n mod 10` will terminate;
   we use binary representation for the time being.
@@ -151,6 +198,43 @@ Fixpoint redact_string_helper (s: string) (n: nat): string :=
     | String _ s' => append "*"%string (redact_string_helper s' n')
     end
   end.
+
+Fixpoint is_unique_list {A: Type} (dec: ∀ a b, { a = b } + { a ≠ b }) (l: list A): Prop :=
+  match l with
+  | nil => True
+  | h :: t => 
+  if existsb (
+      fun n => match dec h n with 
+      | left _ => true
+      | right _ => false
+      end
+  ) l then False else is_unique_list dec t
+  end.
+
+Fixpoint dedup_aux {A: Type} (dec: ∀ a b, { a = b } + { a ≠ b }) (new old : list A) : list A :=
+  match old with
+  | nil => new
+  | x :: xs =>
+    if existsb (
+      fun n => match dec x n with 
+      | left _ => true
+      | right _ => false
+      end
+    ) new then
+      dedup_aux dec new xs
+    else
+      dedup_aux dec (x :: new) xs
+  end.
+
+Definition dedup {A: Type} (dec: ∀ a b, { a = b } + { a ≠ b }) (l : list A) : list A :=
+  dedup_aux dec nil l.
+
+Theorem dedup_correct: ∀ {A: Type} (dec: ∀ a b, { a = b } + { a ≠ b }) (l: list A),
+  is_unique_list dec (dedup dec l).
+Admitted.
+
+Definition merge_env {A: Type} (lhs rhs: ctx A) : ctx A := (lhs ++ rhs).
+Notation "l1 '⊍' l2" := (merge_env l1 l2) (at level 70).
 
 Definition redact_string (s: string) (n: nat) (rev: bool): string :=
   match rev with
@@ -243,7 +327,7 @@ Lemma set_eq_dec: ∀ (A: Type) (dec: ∀ (a1 a2: A), {a1 = a2} + {a1 ≠ a2}) (
   {set_eq ℓ ℓ'} + {~(set_eq ℓ ℓ')}.
 Proof.
   intros.
-  induction ℓ. induction ℓ'.
+  induction ℓ; induction ℓ'.
   - left. red. split; intuition.
   - destruct IHℓ'.
     + right. red. intros.
@@ -258,7 +342,12 @@ Proof.
       intros. inversion H2. intros. apply H1.
       destruct (dec a0 a).
       subst. apply in_eq. apply in_cons. assumption.
-  - 
+  - right. red. intros. inversion H.
+    assert (set_In a nil → False).
+    {
+      intros. inversion H2.
+    }
+    apply H2. apply H0. apply in_eq.
 Admitted.
 
 Lemma subset_neq_implies_neq: ∀ (A: Type) (s1 s2: set A),
@@ -419,3 +508,7 @@ Proof.
   - apply H0. apply H. assumption.
   - intros. destruct H1, H2, H3. split; intros; intuition.
 Qed.
+
+Section Tests.
+
+End Tests.

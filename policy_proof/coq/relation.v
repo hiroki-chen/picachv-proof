@@ -33,6 +33,25 @@ Definition relation_np (s: schema) := fbag (Tuple.tuple_np (♭ s)).
 Definition relation (s: schema) := fbag (Tuple.tuple (♭ s)).
 Hint Unfold relation: core.
 
+(*
+  [database] represents an abstract database that consists of a collection of relations. This type is defined inductively
+  because schemas are different, in which case we cannot use a list (type should be the smae) to represent a database.
+*)
+Inductive database: Type :=
+  | database_empty: database
+  (*
+    A database entry that stores a list of tuples as relations; this is for assigning
+    new UUIDs to each cell.
+  *)
+  | database_relation: ∀ s, list (Tuple.tuple_np (♭ s) * Policy.policy_store (♭ s)) → database → database
+.
+
+Fixpoint db_size (db: database): nat :=
+  match db with
+    | database_empty => 0
+    | database_relation _ _ db' => S (db_size db')
+  end.
+
 Lemma schema_concat_eq: ∀ s1 s2,
   ♭ (s1 ++ s2) = ♭ s1 ++ ♭ s2.
 Proof.
@@ -73,25 +92,6 @@ Proof.
   - destruct a. simpl. rewrite IHs. reflexivity.
 Defined.
 
-(**
-  [inject_tuple_id_relation] is a function that takes a tuple type [ty], a relation [r] of type [relation_np ty] and an id [id] as arguments and returns a relation of type [relation ty].
-  This function is used to inject an id into a relation. This is useful when we want to inject a policy into a relation.
-  @param s   The schema of the relation that we want to inject an id into.
-  @param r   The relation that we want to inject an id into.
-  @param id  The id that we want to inject into the relation.
-  @return    A relation of type [relation ty].
-*)
-Fixpoint inject_tuple_id_relation
-  (s: schema)
-  (r: relation_np s)
-  (id: nat)
-: relation s :=
-  match r with
-  | nil => nil
-  | cons t r' =>
-  cons (Tuple.inject_tuple_id (♭ s) t id)
-       (inject_tuple_id_relation s r' (id + List.length s))
-  end.
 
 Fixpoint extract_as_cell_list s (r: relation s) : list nat :=
   match r with
@@ -597,11 +597,28 @@ Proof.
   unfold output_schema_join_by. rewrite <- app_assoc'. reflexivity.
 Defined.
 
-(* Useful for joining two databases with a join list. *)
+(*
+  @param s1 The schema of the left-hand side relation.
+  @param s2 The schema of the right-hand side relation.
+  @param join_by The list of column names to join by.
+  @param lhs The left-hand side tuple.
+  @param rhs The right-hand side tuple.
+  @return An optional tuple containing the resulting tuple after the join operation and a list of triples where
+          the first element is the id of the cell joined on the left-hand side, the second element is the id of
+          the cell joined on the right-hand side, and the third element is the merged new id.
+
+  The `tuple_concat_by` function performs a join operation on two tuples `lhs` and `rhs` based on the list of column
+  names `join_by`. The schemas of the tuples are `s1` and `s2` respectively. If the join operation can be successfully
+  applied, the function returns `Some` with a tuple containing the resulting tuple after the join operation and two
+  lists of natural numbers. The two lists of natural numbers represent the indices of the columns from `lhs` and `rhs`
+  that are included in the resulting tuple. If the join operation cannot be applied (for example, if a column name in 
+  join_by` does not exist in either `lhs` or `rhs`), the function returns `None`.
+*)
 Definition tuple_concat_by s1 s2 join_by
-  (lhs: Tuple.tuple (♭ s1))
-  (rhs: Tuple.tuple (♭ s2))
-  : option (Tuple.tuple (♭ (output_schema_join_by s1 s2 join_by))).
+  (lhs: Tuple.tuple (schema_to_no_name s1))
+  (rhs: Tuple.tuple (schema_to_no_name s2))
+  : option (Tuple.tuple (schema_to_no_name (output_schema_join_by s1 s2 join_by)) *
+           (list nat * list nat * list nat)).
   destruct s1; destruct s2.
   - exact None.
   - exact None.
@@ -640,7 +657,7 @@ Definition tuple_concat_by s1 s2 join_by
     (* Now we need to join the two tuples. *)
     pose (index_lhs := List.map (fun x => fst (fst x)) common_join_list).
     pose (index_rhs := List.map (fun x => snd (fst x)) common_join_list).
-    
+
     (* In the next step, we need to:
        1. Remove unneeded columns of `rhs`.
        2. Concatenate `lhs` and `rhs`.
@@ -651,7 +668,13 @@ Definition tuple_concat_by s1 s2 join_by
     *)
     pose (remove_common_part _ lhs 0 index_lhs) as lhs'.
     pose (remove_common_part _ rhs 0 index_rhs) as rhs'.
-    pose (get_common_part _ lhs 0 index_lhs) as com.
+    pose (get_common_part _ lhs 0 index_lhs) as comlhs.
+    pose (get_common_part _ rhs 0 index_rhs) as comrhs.
+
+    pose (new_id stream 114) as new_id.
+    pose (Tuple.inject_new_id _ comlhs new_id) as com.
+    pose (Tuple.extract_as_cell_id _ com) as comid.
+
     (* Find the shared part. *)
     pose (Tuple.tuple_concat _ _ lhs' com) as tmp.
     pose (Tuple.tuple_concat _ _ tmp rhs') as result.
@@ -660,46 +683,78 @@ Definition tuple_concat_by s1 s2 join_by
       (lhs := lhs_join_list) (rhs := rhs_join_list)
       (index_lhs := index_lhs) (index_rhs := index_rhs) (common_join_list := common_join_list).
     intros.
-    assert (♭ (remove_common (a :: s1) index_lhs 0) ++
-            ♭ (get_common (a :: s1) index_lhs 0) ++
-            ♭ (remove_common (a0 :: s2) index_rhs 0) =
-    ♭ (output_schema_join_by (a :: s1) (a0 :: s2) join_by))
+    assert (schema_to_no_name (remove_common (a :: s1) index_lhs 0) ++
+            schema_to_no_name (get_common (a :: s1) index_lhs 0) ++
+            schema_to_no_name (remove_common (a0 :: s2) index_rhs 0) =
+    schema_to_no_name (output_schema_join_by (a :: s1) (a0 :: s2) join_by))
       by auto.
     rewrite <- H1. rewrite app_assoc'.
-    exact (Some result).
+
+    pose (Tuple.tuple_as_cell_ids _ comlhs) as cell_id_lhs.
+    pose (Tuple.tuple_as_cell_ids _ comrhs) as cell_id_rhs.
+
+    exact (Some (result, (cell_id_lhs, cell_id_rhs, comid))).
 Defined.
 
-(*
-  This function computes the joined result of two relations provided a join list.
+Lemma tuple_concat_by_same_len: ∀ s1 s2 join_by res lhs rhs id_lhs id_rhs com,
+  tuple_concat_by s1 s2 join_by lhs rhs = Some (res, (id_lhs, id_rhs, com)) →
+  List.length id_lhs = List.length id_rhs.
+Admitted.
 
-  TODO: What happens if we are joining tables with `nil` as one of the schemas?
-*)
-Definition relation_join_by s1 s2 (r1: relation s1) (r2: relation s2) (join_by: list string):
-  relation (output_schema_join_by s1 s2 join_by).
-  destruct s1; destruct s2.
-  - exact nil.
-  - exact nil.
-  - exact nil.
-  - induction r1.
-    + exact nil.
-    + induction r2.
-      * exact nil.
-      * (* concatenate two tuples a1 and a2. *)
-        pose (tuple_concat_by _ _ join_by a1 a2).
-        destruct o.
-        -- (* Some *) exact ((t :: IHr1) ++ IHr2).
-        -- (* None *) exact (IHr1 ++ IHr2).
-Defined.
+Inductive join_policy: list nat → list nat → list nat → Policy.context → Policy.context →
+  option Policy.context → Prop :=
+  | join_policy_nil_l: ∀ l com Γ1 Γ2, join_policy nil l com Γ1 Γ2 (Some (merge_env Γ1 Γ2))
+  | join_policy_nil_r: ∀ l com Γ1 Γ2, join_policy l nil com Γ1 Γ2 (Some (merge_env Γ1 Γ2))
+  | join_policy_no_com: ∀ l1 l2 Γ1 Γ2, join_policy l1 l2 nil Γ1 Γ2 (Some (merge_env Γ1 Γ2))
+  | join_policy_cons_err: ∀ l1 l2 com Γ1 Γ2 hd1 hd2 tl1 tl2,
+      l1 = hd1 :: tl1 →
+      l2 = hd2 :: tl2 →
+      label_lookup Γ1 hd1 = None ∨ label_lookup Γ2 hd2 = None →
+      join_policy l1 l2 com Γ1 Γ2 None
+  | join_policy_cons_ok: ∀ l1 l2 com Γ1 Γ2 Γ hd1 hd2 hd3 tl1 tl2 tl3 p1 p2 pjoin,
+      l1 = hd1 :: tl1 →
+      l2 = hd2 :: tl2 →
+      com = hd3 :: tl3 →
+      label_lookup Γ1 hd1 = Some p1 →
+      label_lookup Γ2 hd2 = Some p2 →
+      p1 ∪ p2 pjoin →
+      join_policy tl1 tl2 tl3 Γ1 Γ2 (Some Γ) →
+      join_policy l1 l2 com Γ1 Γ2 (Some ((hd3, pjoin) :: Γ))
+.
 
-Definition relation_natural_join s1 s2 (r1: relation s1) (r2: relation s2):
-  relation (output_schema_join_by s1 s2 (natural_join_list s1 s2)) :=
-  relation_join_by s1 s2 r1 r2 (natural_join_list s1 s2).
+Inductive join_prov: list nat → list nat → list nat → prov_ctx → prov_ctx →
+  option prov_ctx → Prop :=
+.
 
-(* TODO: Implement this. *)
-Definition relation_natural_join_prv s1 s2 (r1: relation s1) (r2: relation s2)
-(Γ1 Γ2: Policy.context) (β1 β2: budget) (p1 p2: prov_ctx)
-  : (relation (output_schema_join_by s1 s2 (natural_join_list s1 s2)) * 
-     Policy.context * budget * prov_ctx). Admitted.
+Inductive relation_join_by_prv: ∀ s1 s2 join_by, relation s1 → relation s2 →
+  Policy.context → Policy.context → budget → budget → prov_ctx → prov_ctx →
+  option (relation (output_schema_join_by s1 s2 join_by) * Policy.context * budget * prov_ctx) → Prop :=
+  | E_RelationJoinSchemaNilL: ∀ s join_by r1 r2 Γ1 Γ2 β1 β2 p1 p2,
+      relation_join_by_prv s nil join_by r1 r2 Γ1 Γ2 β1 β2 p1 p2
+      (Some (nil, nil, nil, nil))
+  | E_RelationJoinSchemaNilR: ∀ s join_by r1 r2 Γ1 Γ2 β1 β2 p1 p2,
+      relation_join_by_prv nil s join_by r1 r2 Γ1 Γ2 β1 β2 p1 p2
+      (Some (nil, nil, nil, nil))
+  | E_RelationJoinNilL: ∀ s1 s2 join_by r Γ1 Γ2 β1 β2 p1 p2,
+      relation_join_by_prv s1 s2 join_by nil r Γ1 Γ2 β1 β2 p1 p2
+      (Some (nil, nil, nil, nil))
+  | E_RelationJoinNilR: ∀ s1 s2 join_by r Γ1 Γ2 β1 β2 p1 p2,
+      relation_join_by_prv s1 s2 join_by r nil Γ1 Γ2 β1 β2 p1 p2
+      (Some (nil, nil, nil, nil))
+  | E_RelationJoinConsOk: ∀ s1 s2 join_by r1 r2 rout hd1 hd2 tl1 tl2
+                            t_cur index_lhs index_rhs comid
+                            Γ1 Γ2 Γ_merged Γ_out
+                            (* TODO: Join budget? *)
+                            β1 β2 β_out
+                            p1 p2 p_merged p_out,
+      s1 ≠ nil ∧ s2 ≠ nil →
+      r1 = hd1 :: tl1 ∧ r2 = hd2 :: tl2 →
+      Some (t_cur, (index_lhs, index_rhs, comid)) = tuple_concat_by s1 s2 join_by hd1 hd2 →
+      join_policy index_lhs index_rhs comid Γ1 Γ2 (Some Γ_merged) →
+      join_prov index_lhs index_rhs comid p1 p2 (Some p_merged) →
+      relation_join_by_prv s1 s2 join_by tl1 tl2 Γ1 Γ2 β1 β2 p1 p2 (Some (rout, Γ_out, β_out, p_out)) →
+      relation_join_by_prv s1 s2 join_by tl1 tl2 Γ1 Γ2 β1 β2 p1 p2 (Some (rout, Γ_out, β_out, p_out))
+.
 
 (* =================== Some Test Cases ==================== *)
 Section Test.
@@ -787,7 +842,7 @@ Proof.
 Qed.
 
 Example tuple_concat_by_test := tuple_concat_by tuple_schema_lhs tuple_schema_rhs ("bar"%string :: "baz"%string :: nil) tuple_a tuple_b.
-
+(* 
 Example tuple_concat_by_test_correct:
   tuple_concat_by_test =
   Some [[ << 1 >>, << ("abcd"%string) >>, << 2 >>, << 3 >>, << 4 >>, << ("dcba"%string) >> ]].
@@ -801,6 +856,6 @@ Proof.
     To check if we are obtaining the correct result, we can just use `reflexivity`.
    *)
   reflexivity.
-Qed.
+Qed. *)
 
 End Test.

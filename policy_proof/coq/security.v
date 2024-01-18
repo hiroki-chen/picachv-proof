@@ -50,7 +50,7 @@ prov_list_ok: Policy.context → Policy.context → Policy.policy → prov_ctx �
   | prov_list_ok_empty: ∀ Γ Γ' ε' p τ, prov_list_ok Γ Γ' ε' p τ nil
   | prov_list_ok_cons: ∀ Γ Γ' ε ε' p τ c prov l l',
       l = (c, prov) :: l' →
-      Policy.label_lookup c Γ = Some ε →
+      label_lookup Γ c  = Some ε →
       can_release ε →
       valid_transition τ ε ε' →
       prov_list_ok Γ Γ' ε' p τ l' →
@@ -62,10 +62,10 @@ Inductive label_transition_valid_es: Policy.context → Policy.context → prov_
   | label_valid_empty_list: ∀ Γ Γ' p, label_transition_valid_es Γ Γ' p nil
   | label_valid_transition: ∀ Γ Γ' p c lc lc' ε ε' prov_term,
       lc = c :: lc' →
-      Policy.label_lookup c Γ = Some ε →
-      Policy.label_lookup c Γ' = Some ε' →
+      label_lookup Γ c = Some ε →
+      label_lookup Γ' c = Some ε' →
       can_release ε →
-      lookup c p = Some prov_term →
+      label_lookup p c = Some (prov_term) →
       prov_ok Γ Γ' ε' p prov_term →
       label_transition_valid_es Γ Γ' p lc' →
       label_transition_valid_es Γ Γ' p lc
@@ -74,7 +74,7 @@ Inductive label_transition_valid_es: Policy.context → Policy.context → prov_
 Inductive label_transition_valid: ∀ s, relation s → Policy.context → Policy.context → prov_ctx → Prop :=
   | valid_refl: ∀ s r Γ p, label_transition_valid s r Γ Γ p
   | valid_empty_schema: ∀ s r Γ Γ' p, s = nil → label_transition_valid s r Γ Γ' p
-  | valid_env: ∀ s r r' Γ Γ' p, s <> nil →
+  | valid_env: ∀ s r r' Γ Γ' p, s ≠ nil →
       r' = extract_as_cell_list s r →
       label_transition_valid_es Γ Γ' p r' →
       label_transition_valid s r Γ Γ' p
@@ -89,7 +89,7 @@ Inductive label_transition_valid: ∀ s, relation s → Policy.context → Polic
  *)
 Theorem secure_query:
   ∀ c db Γ β p o,
-  c = ⟨ db Γ β p ⟩ →
+  c = ⟨ db Γ β p ⟩ ∧ config_valid c →
   {{ c o }} ⇓ {{ config_error }} ∨ 
     (∃ s c' db' Γ' β' p' r, 
         c' = config_output (relation_output s r) (⟨ db' Γ' β' p' ⟩) →
@@ -103,21 +103,19 @@ Proof.
       * red. trivial.
   - destruct db eqn: Hdb.
     + left. eapply E_GetRelationDbEmpty; eauto.
-    + destruct (database_get_relation db n) eqn: Hget.
-      * right. destruct r0. exists s0, c, db, Γ, β, p, r0.
-        intros. split.
-        -- specialize E_GetRelation with (db := db); eauto. intros. eapply H1.
-           ++ intuition. rewrite Hdb in H2. inversion H2.
-           ++ eapply Ho.
-           ++ eapply Hget.
-           ++ subst. inversion H0.
-        -- split.
-          ++ constructor.
-          ++ red. trivial.
-      * left. specialize E_GetRelationError with (db := db). intros. eapply H0.
-        -- intuition. rewrite Hdb in H1. inversion H1.
-        -- eapply Ho.
-        -- eapply Hget.
-        -- reflexivity.
-    - 
+    + destruct (database_get_contexts db n) as [ [ [ r' Γ' ] p' ] | ] eqn: Hget.
+      * destruct r'. right. exists s0, (⟨ db Γ' β p' ⟩), db, Γ', β, p', r. split.
+        -- eapply E_GetRelation with (db := db).
+          ++ red. intros. rewrite Hdb in H1. inversion H1.
+          ++ eapply Ho.
+          ++ rewrite <- Hdb in H. destruct H. eapply H.
+          ++ eapply Hget.
+          ++ eapply H0.
+        -- split; simpl.
+          ++ destruct s0.
+            ** constructor. reflexivity.
+            ** eapply valid_env.
+              --- simpl. intros. discriminate.
+              --- simpl. reflexivity.
+              --- simpl. econstructor.
 Admitted.

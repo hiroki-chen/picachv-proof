@@ -485,25 +485,53 @@ Inductive relation_wrapped: Type :=
   | relation_output: ∀ s, relation s → relation_wrapped
 .
 
-Inductive database: Type :=
-  | database_empty: database
-  | database_relation: ∀ s, relation s → database → database
-.
+Fixpoint inject_id_tuple s (t: (Tuple.tuple_np (♭ s))) (p: Policy.policy_store (♭ s)) (id_start: nat)
+  : (Tuple.tuple (♭ s) * Policy.context).
+refine (
+  match s as s' return s = s' → (Tuple.tuple (♭ s) * Policy.context) with
+    | nil => fun _ => _
+    | h :: t' => fun _ => _
+  end eq_refl
+).
+  - subst. simpl. exact (tt, nil).
+Admitted.
 
-Fixpoint database_get_relation (db: database) (idx: nat): option relation_wrapped :=
+(*
+  @param s The schema of the relation.
+  @param r A list of tuples and their associated policy stores. Each tuple corresponds to a row in the relation.
+  @param id_start The starting identifier for the injection of identifiers into the relation.
+  @return A tuple containing the relation with injected identifiers and the policy context.
+
+  The `inject_id_helper` function injects identifiers into a relation. The relation is represented as a list of
+  tuples `r`, where each tuple corresponds to a row in the relation and is associated with a policy store. The
+  identifiers are injected starting with the identifier `id_start`. The function returns a tuple containing the
+  relation with injected identifiers and the policy context.
+*)
+Fixpoint inject_id_helper s (r: list (Tuple.tuple_np (♭ s) * Policy.policy_store (♭ s))) (id_start: nat)
+  : (relation s * Policy.context) :=
+  match r with
+    | nil => (nil, nil)
+    | (h, p) :: t =>
+        let (r, Γ) := inject_id_tuple _ h p (S id_start) in
+        match inject_id_helper s t (id_start + List.length s) with
+        | (r', Γ') => (r :: r', Γ ++ Γ')
+        end
+  end.
+
+Fixpoint database_get_contexts (db: database) (idx: nat)
+  : option (relation_wrapped * Policy.context * prov_ctx) :=
   match db with
     | database_empty => None
     | database_relation s r db' =>
         match eq_nat_dec idx O with
-          | left _ => Some (relation_output s r)
-          | right _ => database_get_relation db' (idx - 1)
+          | left _ =>
+                match inject_id_helper s r 10 with
+                | (r', Γ') => 
+                  let p := empty_prov_from_pctx Γ' in
+                  Some (relation_output s r', Γ', p)
+                end
+          | right _ => database_get_contexts db' (idx - 1)
         end
-  end.
-
-Fixpoint db_size (db: database): nat :=
-  match db with
-    | database_empty => 0
-    | database_relation _ _ db' => S (db_size db')
   end.
 
 (*
@@ -531,6 +559,19 @@ Inductive config: Type :=
 Notation "'⟨' db Γ β p '⟩'":= (config_ok db Γ β p)
   (at level 10, db at next level, Γ at next level, β at next level, p at next level, no associativity).
 
+Definition valid_contexts (Γ: Policy.context) (p: prov_ctx): Prop :=
+  let l1 := List.map fst Γ in
+  let l2 := List.map fst p in
+  sublist _ l1 l2 ∧ sublist _ l2 l1.
+
+Fixpoint config_valid c: Prop :=
+  match c with
+  | config_terminal c' => config_valid c'
+  | config_error => False
+  | config_ok db Γ β p => valid_contexts Γ p
+  | config_output _ c' => config_valid c'
+  end.
+
 Inductive operator: Type :=
   | operator_empty: operator
   (* `nat` means the index of the relation it wants to access inside `db`. *)
@@ -557,6 +598,16 @@ match n with
   | S n' => t :: tuple_of_length_n s n' t
   end.
 
+Definition get_new_policy cur op: Policy.policy :=
+  match cur with
+  | ∎ => cur
+  | ℓ ⇝ p =>
+    match Policy.can_declassify_dec ℓ op with
+    | left _ => p
+    | right _ => cur
+    end
+  end.
+
 (*
   @param bt The base type of the cell.
   @param f_type The type of the unary function.
@@ -573,25 +624,27 @@ match n with
   cannot be applied (for example, if the function is not defined for the base type of the
   cell), the function returns `None`.
 *)
-
 Inductive apply_unary_function_in_cell bt:
   UnOp → unary_func → (type_to_coq_type bt * nat) → Policy.context → prov_ctx
        → option (type_to_coq_type bt * Policy.context * prov_ctx) → Prop :=
   | E_PolicyNotFound: ∀ op f arg Γ p,
-      Policy.label_lookup (snd arg) Γ = None →
+      label_lookup Γ (snd arg)  = None →
       apply_unary_function_in_cell bt op f arg Γ p None
   | E_PolicyErr: ∀ op f arg Γ p p_cur p_f,
-      Policy.label_lookup (snd arg) Γ = Some p_cur →
+      label_lookup Γ (snd arg) = Some p_cur →
       p_f = ∘ (Policy.policy_transform ((unary_trans_op op) :: nil)) →
       ¬ (p_cur ⪯ p_f) →
       apply_unary_function_in_cell bt op f arg Γ p None
-  (* TODO: Not finished yet. *)
-  | E_PolicyOk: ∀ op f lambda arg Γ p p_cur p_f res Γ' p',
-      Policy.label_lookup (snd arg) Γ = Some p_cur →
-      p_f = (∘ (Policy.policy_transform ((unary_trans_op op) :: nil))) →
-      p_cur ⪯ p_f → f = (unary_function bt lambda) →
+  (* TODO: Not finished yet: the label seems to be incorrect. *)
+  | E_PolicyOk: ∀ op f lambda arg Γ p p_cur p_new ℓ p_f res Γ' p',
+      label_lookup Γ (snd arg) = Some p_cur →
+      ℓ = (Policy.policy_transform ((unary_trans_op op) :: nil)) →
+      p_f = (∘ ℓ) →
+      p_cur ⪯ p_f →
+      p_new = get_new_policy p_cur ℓ →
+      f = (unary_function bt lambda) →
       lambda (fst arg) = res →
-      Γ' = Policy.update_label (snd arg) Γ p_f →
+      Γ' = update_label Γ (snd arg) p_new →
       apply_unary_function_in_cell bt op f arg Γ p (Some (res, Γ', p'))
 .
 
@@ -620,14 +673,14 @@ Inductive do_apply_unary_function (ty: Attribute) (r: relation (ty :: nil)):
       (tuple_single_eq ty) ♯ r = [[ (arg, id) ]] :: tl →
       do_apply_unary_function ty (eq_sym (tuple_single_eq ty) ♯ tl) op f Γ p None →
       do_apply_unary_function ty r op f Γ p None
-  | E_ApplyOk: ∀ op f arg id tl tl' Γ p ret Γ1 Γ2 Γ' p1 p2 p' res,
+  | E_ApplyOk: ∀ op f arg id tl tl' Γ p ret Γ1 Γ2 p1 p2 res,
       (tuple_single_eq ty) ♯ r = [[ (arg, id) ]] :: tl →
       apply_unary_function_in_cell (fst ty) op f (arg, id) Γ p (Some (ret, Γ1, p1)) →
-      do_apply_unary_function ty (eq_sym (tuple_single_eq ty) ♯ tl) op f Γ p (Some (tl', Γ2, p2)) →
-      Γ' = merge Γ1 Γ2 → p' = merge p1 p2 →
+      (* Since this operation is sequential, we can just feed the updated env to cons. *)
+      do_apply_unary_function ty (eq_sym (tuple_single_eq ty) ♯ tl) op f Γ1 p1 (Some (tl', Γ2, p2)) →
       res = (Some (eq_sym (tuple_single_eq ty) ♯ ([[ (ret, id) ]] ::
                   ((tuple_single_eq ty) ♯ tl')),
-                  Γ', p')) →
+                  Γ2, p2)) →
       do_apply_unary_function ty r op f Γ p res
 .
 
@@ -754,8 +807,8 @@ Inductive apply_proj_in_relation s (r: relation s) (ℓ: list (simple_atomic_exp
                 (proj_case: ℓ = hd :: tl),
       apply_proj_elem s r hd Γ p (Some (hd', Γ', p')) →
       apply_proj_in_relation s r tl Γ p (Some (tl', Γ'', p'')) →
-      Γfin = merge Γ' Γ'' →
-      pfin = merge p' p'' →
+      Γfin = merge_env Γ' Γ'' →
+      pfin = merge_env p' p'' →
       (*
         Goal:
         (determine_schema s (project (hd :: nil)) ++
@@ -848,17 +901,19 @@ Inductive step_config: (config * operator) → config → Prop :=
       c' = config_output (relation_output s nil) c →
       {{ c operator_empty }} ⇓ {{ c' }}
   (* Getting the relation is an identity operation w.r.t. configurations. *)
-  | E_GetRelation: ∀ c c' db o n r,
+  | E_GetRelation: ∀ c c' db o n r Γ Γ' β p p',
       db ≠ database_empty →
       o = operator_relation n →
-      database_get_relation db n = Some r →
-      c' = config_output r c →
+      c = ⟨ db Γ β p ⟩ →
+      database_get_contexts db n = Some (r, Γ', p') →
+      c' = config_output r (⟨ db Γ' β p' ⟩) →
       {{ c (operator_relation n) }} ⇓ {{ c' }}
   (* The given relation index is not found in the database. *)
-  | E_GetRelationError: ∀ c c' db o n,
+  | E_GetRelationError: ∀ c c' db o n Γ β p,
       db ≠ database_empty →
       o = operator_relation n →
-      database_get_relation db n = None →
+      c = ⟨ db Γ β p ⟩ →
+      database_get_contexts db n = None →
       c' = config_error →
       {{ c (operator_relation n) }} ⇓ {{ c' }}
   (* Database is empty! *)
@@ -936,8 +991,12 @@ Inductive step_config: (config * operator) → config → Prop :=
       c' = config_output (relation_output s r') (⟨ db' Γ' β' p' ⟩) →
       {{ c o2 }} ⇓ {{ c'' }} →
       c'' = config_output (relation_output s r'') (⟨ db'' Γ'' β'' p'' ⟩) →
-      let merged_p := merge p' p'' in
-        let merged_Γ := merge Γ' Γ'' in
+      (*
+        We ensure that cells are always assigned new ids;
+        so it is safe for us to just append them together.
+      *)
+      let merged_p := merge_env p' p'' in
+        let merged_Γ := merge_env Γ' Γ'' in
           (* TODO: How to deal with privacy budget? *)
           {{ c (operator_union o1 o2) }} ⇓
           {{ config_output (relation_output s (r' ++ r'')) (⟨ db'' merged_Γ β'' merged_p ⟩) }}
@@ -947,17 +1006,29 @@ Inductive step_config: (config * operator) → config → Prop :=
       {{ c o2 }} ⇓ {{ c'' }} →
       c' = config_error ∨ c'' = config_error →
       {{ c (operator_join o1 o2) }} ⇓ {{ config_error }}
+  | E_JoinError2: ∀ c c' c'' db db' db'' Γ Γ' Γ'' β β' β'' p p' p'' s1 s2 r' r'' o1 o2,
+      c = ⟨ db Γ β p ⟩ →
+      {{ c o1 }} ⇓ {{ c' }} →
+      c' = config_output (relation_output s1 r') (⟨ db' Γ' β' p' ⟩) →
+      {{ c o2 }} ⇓ {{ c'' }} →
+      c'' = config_output (relation_output s2 r'') (⟨ db'' Γ'' β'' p'' ⟩) →
+      let join_by := (natural_join_list s1 s2) in
+        (relation_join_by_prv s1 s2 join_by r' r'' Γ' Γ'' β' β'' p' p'')
+        None →
+        {{ c (operator_join o1 o2) }} ⇓ {{ config_error }}
   | E_JoinOk: ∀ c c' c'' db db' db'' Γ Γ' Γ'' Γout β β' β'' βout p p' p'' pout s1 s2 r' r'' r rout o1 o2,
       c = ⟨ db Γ β p ⟩ →
       {{ c o1 }} ⇓ {{ c' }} →
       c' = config_output (relation_output s1 r') (⟨ db' Γ' β' p' ⟩) →
       {{ c o2 }} ⇓ {{ c'' }} →
       c'' = config_output (relation_output s2 r'') (⟨ db'' Γ'' β'' p'' ⟩) →
-      (rout, Γout, βout, pout) = (relation_natural_join_prv s1 s2 r' r'' Γ' Γ'' β' β'' p' p'') →
-      r = relation_output _ rout →
-      {{ c (operator_join o1 o2) }} ⇓
-      (* TODO: Should join. *)
-      {{ config_output r (⟨ db'' Γout βout pout ⟩) }}
+      let join_by := (natural_join_list s1 s2) in
+        (relation_join_by_prv s1 s2 join_by r' r'' Γ' Γ'' β' β'' p' p'')
+        (Some (rout, Γout, βout, pout))→
+        r = relation_output _ rout →
+        {{ c (operator_join o1 o2) }} ⇓
+        (* TODO: Should join. *)
+        {{ config_output r (⟨ db'' Γout βout pout ⟩) }}
 where "'{{' c op '}}' '⇓' '{{' c' '}}'" := (step_config (c, op) c').
 Hint Constructors step_config: core.
 
