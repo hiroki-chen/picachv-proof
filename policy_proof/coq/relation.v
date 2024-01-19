@@ -724,36 +724,102 @@ Inductive join_policy: list nat → list nat → list nat → Policy.context →
 
 Inductive join_prov: list nat → list nat → list nat → prov_ctx → prov_ctx →
   option prov_ctx → Prop :=
+  | join_prov_nil_l: ∀ l com p1 p2, join_prov nil l com p1 p2 (Some (merge_env p1 p2))
+  | join_prov_nil_r: ∀ l com p1 p2, join_prov l nil com p1 p2 (Some (merge_env p1 p2))
+  | join_prov_no_com: ∀ l1 l2 p1 p2, join_prov l1 l2 nil p1 p2 (Some (merge_env p1 p2))
+  | join_prov_cons_err: ∀ l1 l2 com p1 p2 hd1 hd2 tl1 tl2,
+      l1 = hd1 :: tl1 →
+      l2 = hd2 :: tl2 →
+      label_lookup p1 hd1 = None ∨ label_lookup p2 hd2 = None →
+      join_prov l1 l2 com p1 p2 None
+  | join_prov_cons_ok: ∀ l1 l2 com p1 p2 hd1 hd2 hd3 tl1 tl2 tl3 prov1 prov2 (provjoin: prov) prov_cons,
+      l1 = hd1 :: tl1 →
+      l2 = hd2 :: tl2 →
+      com = hd3 :: tl3 →
+      label_lookup p1 hd1 = Some prov1 →
+      label_lookup p2 hd2 = Some prov2 →
+      provjoin = prov_list prov_join ((hd1, prov1) :: (hd2, prov2) :: nil) →
+      join_prov tl1 tl2 tl3 p1 p2 (Some prov_cons) →
+      join_prov l1 l2 com p1 p2 (Some ((hd3, provjoin) :: prov_cons))
+.
+
+(* Coq cannot do "nested loop"; this performs one-time pass over rhs. *)
+Inductive relation_join_by_prv_helper: ∀ s1 s2 join_by, Tuple.tuple (♭ s1) → relation s2 →
+  Policy.context → Policy.context → budget → budget → prov_ctx → prov_ctx →
+  option (relation (output_schema_join_by s1 s2 join_by) * Policy.context * budget * prov_ctx) → Prop :=
+  | E_JoinEmpty: ∀ s1 s2 join_by t Γ1 Γ2 Γ_out ε1 ε2 ε_out p1 p2 p_out,
+      Γ_out = merge_env Γ1 Γ2 →
+      ε_out = calculate_budget ε1 ε2 →
+      p_out = merge_env p1 p2 →
+      relation_join_by_prv_helper s1 s2 join_by t nil Γ1 Γ2 ε1 ε2 p1 p2
+      (Some (nil, Γ_out, ε_out, p_out))
+  | E_JoinConsError1: ∀ s1 s2 join_by t1 t2 r tl Γ1 Γ2 ε1 ε2 p1 p2,
+      r = t2 :: tl →
+      None = tuple_concat_by s1 s2 join_by t1 t2 →
+      relation_join_by_prv_helper s1 s2 join_by t1 r Γ1 Γ2 ε1 ε2 p1 p2 None
+  | E_JoinConsError2: ∀ s1 s2 join_by t1 t2 t' r tl Γ1 Γ2 ε1 ε2 p1 p2
+                        index_lhs index_rhs comid,
+      r = t2 :: tl →
+      Some(t', (index_lhs, index_rhs, comid)) = tuple_concat_by s1 s2 join_by t1 t2 →
+      join_policy index_lhs index_rhs comid Γ1 Γ2 None ∨
+      join_prov index_lhs index_rhs comid p1 p2 None →
+      relation_join_by_prv_helper s1 s2 join_by t1 r Γ1 Γ2 ε1 ε2 p1 p2 None
+  | E_JoinConsError3: ∀ s1 s2 join_by t1 t2 t' r tl Γ1 Γ2
+                    Γ_merged
+                    ε1 ε2 ε_merged
+                    p1 p2 p_merged
+                    index_lhs index_rhs comid,
+      r = t2 :: tl →
+      Some(t', (index_lhs, index_rhs, comid)) = tuple_concat_by s1 s2 join_by t1 t2 →
+      join_policy index_lhs index_rhs comid Γ1 Γ2 (Some Γ_merged) →
+      join_prov index_lhs index_rhs comid p1 p2 (Some p_merged) →
+      ε_merged = calculate_budget ε1 ε2 →
+      relation_join_by_prv_helper s1 s2 join_by t1 tl Γ1 Γ2 ε1 ε2 p1 p2 None →
+      relation_join_by_prv_helper s1 s2 join_by t1 r Γ1 Γ2 ε1 ε2 p1 p2 None
+  | E_JoinConsOk: ∀ s1 s2 join_by t1 t2 t' r r_cons tl Γ1 Γ2
+                    Γ_merged Γ_cons Γ_out
+                    ε1 ε2 ε_merged ε_cons ε_out
+                    p1 p2 p_merged p_cons p_out
+                    index_lhs index_rhs comid,
+      r = t2 :: tl →
+      Some(t', (index_lhs, index_rhs, comid)) = tuple_concat_by s1 s2 join_by t1 t2 →
+      join_policy index_lhs index_rhs comid Γ1 Γ2 (Some Γ_merged) →
+      join_prov index_lhs index_rhs comid p1 p2 (Some p_merged) →
+      ε_merged = calculate_budget ε1 ε2 →
+      relation_join_by_prv_helper s1 s2 join_by t1 tl Γ1 Γ2 ε1 ε2 p1 p2
+      (Some (r_cons, Γ_cons, ε_cons, p_cons)) →
+      Γ_out = merge_env Γ_merged Γ_cons →
+      ε_out = calculate_budget ε_merged ε_cons →
+      p_out = merge_env p_merged p_cons →
+      relation_join_by_prv_helper s1 s2 join_by t1 r Γ1 Γ2 ε1 ε2 p1 p2
+      (Some (t' :: r_cons, Γ_out, ε_out, p_out))
 .
 
 Inductive relation_join_by_prv: ∀ s1 s2 join_by, relation s1 → relation s2 →
   Policy.context → Policy.context → budget → budget → prov_ctx → prov_ctx →
   option (relation (output_schema_join_by s1 s2 join_by) * Policy.context * budget * prov_ctx) → Prop :=
-  | E_RelationJoinSchemaNilL: ∀ s join_by r1 r2 Γ1 Γ2 β1 β2 p1 p2,
-      relation_join_by_prv s nil join_by r1 r2 Γ1 Γ2 β1 β2 p1 p2
+  | E_RelationJoinSchemaNilL: ∀ s join_by r1 r2 Γ1 Γ2 ε1 ε2 p1 p2,
+      relation_join_by_prv s nil join_by r1 r2 Γ1 Γ2 ε1 ε2 p1 p2
       (Some (nil, nil, nil, nil))
-  | E_RelationJoinSchemaNilR: ∀ s join_by r1 r2 Γ1 Γ2 β1 β2 p1 p2,
-      relation_join_by_prv nil s join_by r1 r2 Γ1 Γ2 β1 β2 p1 p2
+  | E_RelationJoinSchemaNilR: ∀ s join_by r1 r2 Γ1 Γ2 ε1 ε2 p1 p2,
+      relation_join_by_prv nil s join_by r1 r2 Γ1 Γ2 ε1 ε2 p1 p2
       (Some (nil, nil, nil, nil))
-  | E_RelationJoinNilL: ∀ s1 s2 join_by r Γ1 Γ2 β1 β2 p1 p2,
-      relation_join_by_prv s1 s2 join_by nil r Γ1 Γ2 β1 β2 p1 p2
+  | E_RelationJoinNilL: ∀ s1 s2 join_by r Γ1 Γ2 ε1 ε2 p1 p2,
+      relation_join_by_prv s1 s2 join_by nil r Γ1 Γ2 ε1 ε2 p1 p2
       (Some (nil, nil, nil, nil))
-  | E_RelationJoinNilR: ∀ s1 s2 join_by r Γ1 Γ2 β1 β2 p1 p2,
-      relation_join_by_prv s1 s2 join_by r nil Γ1 Γ2 β1 β2 p1 p2
-      (Some (nil, nil, nil, nil))
-  | E_RelationJoinConsOk: ∀ s1 s2 join_by r1 r2 rout hd1 hd2 tl1 tl2
-                            t_cur index_lhs index_rhs comid
-                            Γ1 Γ2 Γ_merged Γ_out
+  | E_RelationJoinConsOk: ∀ s1 s2 join_by r1 r2 r_hd r_cons r_out hd tl
+                            Γ1 Γ2 Γ_hd Γ_cons Γ_out
                             (* TODO: Join budget? *)
-                            β1 β2 β_out
-                            p1 p2 p_merged p_out,
+                            ε1 ε2 ε_hd ε_cons ε_out
+                            p1 p2 p_hd p_cons p_out,
       s1 ≠ nil ∧ s2 ≠ nil →
-      r1 = hd1 :: tl1 ∧ r2 = hd2 :: tl2 →
-      Some (t_cur, (index_lhs, index_rhs, comid)) = tuple_concat_by s1 s2 join_by hd1 hd2 →
-      join_policy index_lhs index_rhs comid Γ1 Γ2 (Some Γ_merged) →
-      join_prov index_lhs index_rhs comid p1 p2 (Some p_merged) →
-      relation_join_by_prv s1 s2 join_by tl1 tl2 Γ1 Γ2 β1 β2 p1 p2 (Some (rout, Γ_out, β_out, p_out)) →
-      relation_join_by_prv s1 s2 join_by tl1 tl2 Γ1 Γ2 β1 β2 p1 p2 (Some (rout, Γ_out, β_out, p_out))
+      r1 = hd :: tl  →
+      relation_join_by_prv_helper s1 s2 join_by hd r2 Γ1 Γ2 ε1 ε2 p1 p2 (Some (r_hd, Γ_hd, ε_hd, p_out)) →
+      relation_join_by_prv s1 s2 join_by tl r2 Γ1 Γ2 ε1 ε2 p1 p2 (Some (r_cons, Γ_cons, ε_cons, p_cons)) →
+      Γ_out = merge_env Γ_hd Γ_cons →
+      p_out = merge_env p_hd p_cons →
+      ε_out = calculate_budget ε1 ε2 →
+      relation_join_by_prv s1 s2 join_by r1 r2 Γ1 Γ2 ε1 ε2 p1 p2 (Some (r_out, Γ_out, ε_out, p_out))
 .
 
 (* =================== Some Test Cases ==================== *)

@@ -14,20 +14,18 @@ Require Import ordering.
 (*
   By its design, privacy budget should be real numbers, but this would introduce undue
   burden for formal verification that we are not prepared to handle. As ℕ is equinume-
-  rous to ℚ, we use ℕ to represent the real numbers, and this is indeed without loss of
-  generality.
+  rous to ℚ (in fact, it can be made universal model of computation), we use ℕ to repre-
+  sent the real numbers, and this is indeed without loss of generality.
 *)
 Definition dp_param := (nat * nat)%type.
 
 (*
-  budgets are defined over each column which is represented in a form that resembles a
-  de-brujin index. The first element of the pair is the column index, and the second
-  element is the budget for that column.
-
-  Please note that budget is meaningless for a single cell. It only makes sense when
-  we are talking about a column.
+  budgets are defined for each dataset.
 *)
-Definition budget := list (nat * nat * dp_param).
+Definition budget := list (nat * dp_param).
+
+(* We assume there is a well-defined mechanism for doing this. *)
+Definition calculate_budget (ε1 ε2: budget): budget. Admitted.
 
 (* Note that these operators are not designed to be exhaustive. *)
 (* Logical connections. *)

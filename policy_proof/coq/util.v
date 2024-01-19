@@ -199,41 +199,52 @@ Fixpoint redact_string_helper (s: string) (n: nat): string :=
     end
   end.
 
-Fixpoint is_unique_list {A: Type} (dec: ∀ a b, { a = b } + { a ≠ b }) (l: list A): Prop :=
+Fixpoint unique_env {A: Type} (l: ctx A): Prop :=
   match l with
   | nil => True
-  | h :: t => 
-  if existsb (
-      fun n => match dec h n with 
-      | left _ => true
-      | right _ => false
-      end
-  ) l then False else is_unique_list dec t
-  end.
-
-Fixpoint dedup_aux {A: Type} (dec: ∀ a b, { a = b } + { a ≠ b }) (new old : list A) : list A :=
-  match old with
-  | nil => new
-  | x :: xs =>
-    if existsb (
-      fun n => match dec x n with 
-      | left _ => true
-      | right _ => false
-      end
-    ) new then
-      dedup_aux dec new xs
+  | (n, _) :: t =>
+    if existsb (fun x => Nat.eqb (fst x) n) t then
+      False
     else
-      dedup_aux dec (x :: new) xs
+      unique_env t
   end.
 
-Definition dedup {A: Type} (dec: ∀ a b, { a = b } + { a ≠ b }) (l : list A) : list A :=
-  dedup_aux dec nil l.
+Fixpoint dedup {A: Type} (l: ctx A) :=
+    match l with
+    | nil => nil
+    | hd :: tl =>
+      if existsb (fun x => Nat.eqb (fst x) (fst hd)) tl then
+        dedup tl
+      else
+        hd :: dedup tl
+    end.
 
-Theorem dedup_correct: ∀ {A: Type} (dec: ∀ a b, { a = b } + { a ≠ b }) (l: list A),
-  is_unique_list dec (dedup dec l).
-Admitted.
+Lemma existsb_dedup: ∀ (A: Type) (l: ctx A) (a: nat * A),
+  existsb (fun x => fst x =? fst a) l = false → existsb (fun x => fst x =? fst a) (dedup l) = false.
+Proof.
+  induction l; intros.
+  - simpl. reflexivity.
+  - simpl in *. destruct a, a0.
+    apply Bool.orb_false_iff in H. destruct H.
+    simpl. apply IHl in H0.
+    destruct (existsb (λ x : nat * A, fst x =? n) l).
+    + simpl in *. rewrite H0. reflexivity.
+    + simpl in *. apply Bool.orb_false_iff. split.
+      * apply H.
+      * apply H0.
+Qed.
 
-Definition merge_env {A: Type} (lhs rhs: ctx A) : ctx A := (lhs ++ rhs).
+Lemma dedup_correct: ∀ (A: Type) (l: ctx A),
+  unique_env (dedup l).
+Proof.
+  induction l.
+  - simpl. trivial.
+  - simpl. destruct (existsb (λ x : nat * A, fst x =? fst a) l) eqn: H.
+    + apply IHl.
+    + simpl. destruct a. apply existsb_dedup in H. simpl in H. rewrite H. apply IHl.
+Qed.
+
+Definition merge_env {A: Type} (lhs rhs: ctx A) : ctx A := dedup (lhs ++ rhs).
 Notation "l1 '⊍' l2" := (merge_env l1 l2) (at level 70).
 
 Definition redact_string (s: string) (n: nat) (rev: bool): string :=

@@ -627,24 +627,27 @@ Definition get_new_policy cur op: Policy.policy :=
 Inductive apply_unary_function_in_cell bt:
   UnOp → unary_func → (type_to_coq_type bt * nat) → Policy.context → prov_ctx
        → option (type_to_coq_type bt * Policy.context * prov_ctx) → Prop :=
-  | E_PolicyNotFound: ∀ op f arg Γ p,
-      label_lookup Γ (snd arg)  = None →
+  | E_LabelNotFound: ∀ op f arg Γ p,
+      label_lookup Γ (snd arg) = None ∨
+      label_lookup p (snd arg) = None →
       apply_unary_function_in_cell bt op f arg Γ p None
   | E_PolicyErr: ∀ op f arg Γ p p_cur p_f,
       label_lookup Γ (snd arg) = Some p_cur →
       p_f = ∘ (Policy.policy_transform ((unary_trans_op op) :: nil)) →
       ¬ (p_cur ⪯ p_f) →
       apply_unary_function_in_cell bt op f arg Γ p None
-  (* TODO: Not finished yet: the label seems to be incorrect. *)
-  | E_PolicyOk: ∀ op f lambda arg Γ p p_cur p_new ℓ p_f res Γ' p',
+  | E_PolicyOk: ∀ op f lambda arg Γ p p_cur prov_cur p_new prov_new ℓ p_f res Γ' p',
       label_lookup Γ (snd arg) = Some p_cur →
+      label_lookup p (snd arg) = Some prov_cur →
       ℓ = (Policy.policy_transform ((unary_trans_op op) :: nil)) →
       p_f = (∘ ℓ) →
       p_cur ⪯ p_f →
       p_new = get_new_policy p_cur ℓ →
+      prov_new = prov_list (prov_trans_unary op) ((snd arg, prov_cur) :: nil) →
       f = (unary_function bt lambda) →
       lambda (fst arg) = res →
       Γ' = update_label Γ (snd arg) p_new →
+      p' = update_label p (snd arg) prov_new →
       apply_unary_function_in_cell bt op f arg Γ p (Some (res, Γ', p'))
 .
 
@@ -997,9 +1000,10 @@ Inductive step_config: (config * operator) → config → Prop :=
       *)
       let merged_p := merge_env p' p'' in
         let merged_Γ := merge_env Γ' Γ'' in
+          let merged_β := calculate_budget β' β'' in
           (* TODO: How to deal with privacy budget? *)
           {{ c (operator_union o1 o2) }} ⇓
-          {{ config_output (relation_output s (r' ++ r'')) (⟨ db'' merged_Γ β'' merged_p ⟩) }}
+          {{ config_output (relation_output s (r' ++ r'')) (⟨ db'' merged_Γ merged_β merged_p ⟩) }}
   | E_JoinError: ∀ c c' c'' db Γ β p o1 o2,
       c = ⟨ db Γ β p ⟩ → 
       {{ c o1 }} ⇓ {{ c' }} →
