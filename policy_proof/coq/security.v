@@ -95,7 +95,7 @@ Theorem secure_query:
         c' = config_output (relation_output s r) (⟨ db' Γ' β' p' ⟩) →
       {{ c o }} ⇓ {{ c' }} ∧ label_transition_valid s r Γ Γ' p' ∧ budget_bounded β').
 Proof.
-  induction o eqn: Ho; intros.
+  induction o; intros.
   - right. exists nil, (config_output (relation_output nil nil) c), db, Γ, β, p, nil. split.
     + apply E_Empty1 with nil. reflexivity.
     + constructor.
@@ -105,18 +105,36 @@ Proof.
     + left. eapply E_GetRelationDbEmpty; eauto.
     + destruct (database_get_contexts db n) as [ [ [ r' Γ' ] p' ] | ] eqn: Hget.
       * destruct r'. right. exists s0, (⟨ db Γ' β p' ⟩), db, Γ', β, p', r. split.
-        -- eapply E_GetRelation with (db := db).
+        -- eapply E_GetRelation with (db := db) (o := operator_relation n).
           ++ red. intros. rewrite Hdb in H1. inversion H1.
-          ++ eapply Ho.
+          ++ reflexivity.
           ++ rewrite <- Hdb in H. destruct H. eapply H.
           ++ eapply Hget.
           ++ eapply H0.
         -- split; simpl.
           ++ destruct s0.
             ** constructor. reflexivity.
-            ** eapply valid_env.
-              --- simpl. intros. discriminate.
-              --- simpl. reflexivity.
-              --- simpl. econstructor.
+            ** inversion H0.
+          ++ inversion H0.
+      * left. eapply E_GetRelationError with (db := db) (Γ := Γ) (β := β) (p := p); eauto.
+        -- red. intros. rewrite Hdb in H0. inversion H0.
+        -- intuition. subst. reflexivity.
+  - specialize (operator_always_terminate c o2). intros.
+        assert (c ≠ config_error). {
+          destruct H. subst. red. intros. inversion H.
+        }
+        apply H0 in H1. clear H0.
+      destruct IHo1; destruct IHo2; try assumption.
+    + left. eapply E_UnionError with (db := db) (Γ := Γ) (β := β) (p := p).
+      * destruct H. assumption.
+      * eapply H0.
+      * eapply H2.
+      * intuition.
+    + 
+      destruct H2 as [ s [ c' [ db' [ Γ' [ β' [ p' [ r H3 ] ] ] ] ] ] ].
+      left. eapply E_UnionError with (db := db) (Γ := Γ) (β := β) (p := p).
+      * destruct H. assumption.
+      * eapply H0.
+      *
 
 Admitted.

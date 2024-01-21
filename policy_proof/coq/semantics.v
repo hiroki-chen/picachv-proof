@@ -537,7 +537,6 @@ Fixpoint database_get_contexts (db: database) (idx: nat)
 (*
   `config` is an inductive type that defines a configuration for the query evaluation.
   It is either:
-  * `config_terminal` => The query evaluation is done.
   * `config_error` => An error has occurred.
   * `config_ok` => The query evaluation is ok. It consists of:
     - `db` => The database.
@@ -549,8 +548,6 @@ Fixpoint database_get_contexts (db: database) (idx: nat)
     - `c` => The output configuration.
 *)
 Inductive config: Type :=
-  (* Terminal wraps a configuration by which we can easily analyze the final state. *)
-  | config_terminal: config → config
   | config_error: config
   | config_ok: database → Policy.context → budget → prov_ctx -> config
   | config_output: relation_wrapped → config → config
@@ -566,7 +563,6 @@ Definition valid_contexts (Γ: Policy.context) (p: prov_ctx): Prop :=
 
 Fixpoint config_valid c: Prop :=
   match c with
-  | config_terminal c' => config_valid c'
   | config_error => False
   | config_ok db Γ β p => valid_contexts Γ p
   | config_output _ c' => config_valid c'
@@ -903,6 +899,9 @@ Inductive step_config: (config * operator) → config → Prop :=
   | E_Empty1: ∀ c c' s,
       c' = config_output (relation_output s nil) c →
       {{ c operator_empty }} ⇓ {{ c' }}
+  | E_Already: ∀ c c' o r,
+      c = config_output r c' →
+      {{ c o }} ⇓ {{ c }}
   (* Getting the relation is an identity operation w.r.t. configurations. *)
   | E_GetRelation: ∀ c c' db o n r Γ Γ' β p p',
       db ≠ database_empty →
@@ -1035,6 +1034,40 @@ Inductive step_config: (config * operator) → config → Prop :=
         {{ config_output r (⟨ db'' Γout βout pout ⟩) }}
 where "'{{' c op '}}' '⇓' '{{' c' '}}'" := (step_config (c, op) c').
 Hint Constructors step_config: core.
+
+(* This theorem ensures the "sanity" of the semantics to ensure that operators won't get stuck. *)
+Theorem operator_always_terminate: ∀ c o, c ≠ config_error → ∃ c', {{ c o }} ⇓ {{ c' }}.
+Proof.
+  induction o; unfold not; intros; destruct c.
+  - exfalso. auto.
+  - (* Although we don't need `s`, we need to introduce this term into the context. *)
+    pose (s := @nil Attribute).
+    exists (config_output (relation_output s nil) (⟨ d c b p ⟩)).
+    apply E_Empty1 with (s := s).
+    reflexivity.
+  - pose (s := @nil Attribute). exists (config_output r c).
+    eapply E_Already with (r := r) (c := (config_output r c)) (c' := c). reflexivity.
+  - exfalso. auto.
+  - destruct d eqn: Hdb.
+    + exists config_error. eapply E_GetRelationDbEmpty; eauto.
+    + destruct (database_get_contexts d n) as [ [ [ r' Γ' ] p' ] | ] eqn: Hget.
+      * exists (config_output r' (⟨ d Γ' b p' ⟩)).
+        eapply E_GetRelation with (db := d) (o := operator_relation n) (Γ := c) (β := b) (p := p).
+        -- red. intros. subst. inversion H0.
+        -- reflexivity.
+        -- subst. reflexivity.
+        -- eapply Hget.
+        -- reflexivity.
+      * exists config_error.
+        eapply E_GetRelationError with (db := d) (o := operator_relation n) (Γ := c) (β := b) (p := p).
+        -- red. intros. subst. inversion H0.
+        -- reflexivity.
+        -- subst. reflexivity.
+        -- assumption.
+        -- reflexivity.
+  - pose (s := @nil Attribute). exists (config_output r c).
+    eapply E_Already with (r := r) (c := (config_output r c)) (c' := c). reflexivity.
+Admitted.
 
 Example simple_project_list := project ((simple_atomic_expression_column 0, "foo"%string) :: nil).
 Example simple_project_list_res := normalize_project_list sample_schema simple_project_list.
