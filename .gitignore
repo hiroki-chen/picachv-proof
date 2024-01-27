@@ -18,3 +18,4 @@ lib
 *.aux
 *.cache
 *.glob
+*Makefile
