@@ -90,14 +90,14 @@ Inductive label_transition_valid: ∀ s, relation s → Policy.context → Polic
 Theorem secure_query:
   ∀ c db Γ β p o,
   c = ⟨ db Γ β p ⟩ ∧ config_valid c →
-  {{ c o }} ⇓ {{ config_error }} ∨ 
+  ⟦ c o ⟧ ⇓ ⟦ config_error ⟧ ∨ 
     (∃ s c' db' Γ' β' p' r, 
         c' = config_output (relation_output s r) (⟨ db' Γ' β' p' ⟩) →
-      {{ c o }} ⇓ {{ c' }} ∧ label_transition_valid s r Γ Γ' p' ∧ budget_bounded β').
+      ⟦ c o ⟧ ⇓ ⟦ c' ⟧ ∧ label_transition_valid s r Γ Γ' p' ∧ budget_bounded β').
 Proof.
   induction o; intros.
   - right. exists nil, (config_output (relation_output nil nil) c), db, Γ, β, p, nil. split.
-    + apply E_Empty1 with nil. reflexivity.
+    + apply E_Empty with nil. reflexivity.
     + constructor.
       * constructor.
       * red. trivial.
@@ -119,22 +119,34 @@ Proof.
       * left. eapply E_GetRelationError with (db := db) (Γ := Γ) (β := β) (p := p); eauto.
         -- red. intros. rewrite Hdb in H0. inversion H0.
         -- intuition. subst. reflexivity.
-  - specialize (operator_always_terminate c o2). intros.
-        assert (c ≠ config_error). {
-          destruct H. subst. red. intros. inversion H.
-        }
-        apply H0 in H1. clear H0.
-      destruct IHo1; destruct IHo2; try assumption.
+  - specialize (operator_always_terminate c o2).
+    specialize (operator_always_terminate c o1).
+    intros.
+    assert (c ≠ config_error). {
+      destruct H. subst. red. intros. inversion H.
+    }
+    (*
+      We need to introduce this existential variable *before* each sub-case to avoid
+      scoping issues; otherwise, Coq will complain that it cannot find the variable.
+    *)
+    destruct H0 as [x H0]; destruct H1 as [x' H1]; try assumption. clear H2.
+  destruct IHo1; destruct IHo2; try assumption.
     + left. eapply E_UnionError with (db := db) (Γ := Γ) (β := β) (p := p).
       * destruct H. assumption.
       * eapply H0.
-      * eapply H2.
+      * eauto.
       * intuition.
-    + 
-      destruct H2 as [ s [ c' [ db' [ Γ' [ β' [ p' [ r H3 ] ] ] ] ] ] ].
+    + destruct H3 as [ s [ c' [ db' [ Γ' [ β' [ p' [ r H3 ] ] ] ] ] ] ].
       left. eapply E_UnionError with (db := db) (Γ := Γ) (β := β) (p := p).
       * destruct H. assumption.
       * eapply H0.
-      *
+      * eauto.
+      * left. eapply operator_deterministic; eauto.
+    + intuition. subst. destruct H2 as [ s [ c' [ db' [ Γ' [ β' [ p' [ r H2 ] ] ] ] ] ] ].
+      left. eapply E_UnionError with (db := db) (Γ := Γ) (β := β) (p := p).
+      * reflexivity.
+      * eauto.
+      * eauto.
+      * right. eapply operator_deterministic; eauto.
 
 Admitted.

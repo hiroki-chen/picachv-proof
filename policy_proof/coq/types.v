@@ -60,6 +60,12 @@ Inductive basic_type: Set :=
   | BoolType
   | StringType.
 
+Lemma basic_type_eq_dec: ∀ (t1 t2: basic_type), {t1 = t2} + {t1 ≠ t2}.
+Proof.
+  intros.
+  destruct t1, t2; try (right; discriminate); try (left; congruence).
+Qed.
+
 Definition type_matches (lhs rhs: basic_type): bool :=
   match lhs, rhs with
   | IntegerType, IntegerType => true
@@ -106,6 +112,17 @@ Defined.
 Definition Attribute := (basic_type * string)%type.
 Definition Symbol := string.
 Definition Aggregate := string.
+
+Lemma attribute_eq_dec: ∀ (a1 a2: Attribute), {a1 = a2} + {a1 ≠ a2}.
+Proof.
+  intros.
+  destruct a1, a2.
+  destruct (basic_type_eq_dec b b0).
+  - destruct (string_dec s s0).
+    + left. subst. auto.
+    + right. unfold not. intros. inversion H. auto.
+  - right. unfold not. intros. inversion H. auto.
+Qed.
 
 Inductive transform_func (bt: basic_type): Set :=
   | tf_id: transform_func bt

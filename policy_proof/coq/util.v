@@ -361,6 +361,22 @@ Proof.
     apply H2. apply H0. apply in_eq.
 Admitted.
 
+Lemma list_eq_dec: ∀ {A: Type} (dec: ∀ (a1 a2: A), {a1 = a2} + {a1 ≠ a2}) (ℓ ℓ': list A),
+  {ℓ = ℓ'} + {ℓ ≠ ℓ'}.
+Proof.
+  induction ℓ.
+  - intros. destruct ℓ'.
+    + left. trivial.
+    + right. intros. red. intuition. discriminate.
+  - intros. destruct ℓ'.
+    + right. intros. red. intuition. discriminate.
+    + destruct (dec a a0).
+      * subst. destruct (IHℓ ℓ').
+        -- left. subst. trivial.
+        -- right. red. intros. inversion H. intuition.
+      * right. red. intros. inversion H. intuition.
+Qed.
+
 Lemma subset_neq_implies_neq: ∀ (A: Type) (s1 s2: set A),
   s1 ⊂ s2 → ~(set_eq s1 s2).
 Proof.

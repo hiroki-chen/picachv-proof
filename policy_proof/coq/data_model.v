@@ -19,6 +19,9 @@ Module Policy.
   The `policy_label` inductive type represents the different types of policies that can be
   applied to data in the data model. Each policy_label can be applied to a cell in a rela-
   tion, and the effect of the policy_label depends on its type.
+
+  This is the definition for ℓ^{op} in the paper; altough for simplicity we have modified
+  the definition slightly.
 *)
 Inductive policy_label : Type :=
   | policy_bot: policy_label
@@ -29,6 +32,60 @@ Inductive policy_label : Type :=
   | policy_noise: NoiseOp → policy_label
   | policy_top : policy_label
 .
+
+Definition policy_base_label_eq (lhs rhs: policy_label): Prop :=
+  match lhs, rhs with
+  | policy_bot, policy_bot => True
+  | policy_select, policy_select => True
+  | policy_transform _, policy_transform _ => True
+  | policy_agg _, policy_agg _ => True
+  | policy_noise _, policy_noise _ => True
+  | policy_top, policy_top => True
+  | _, _ => False
+  end.
+Notation "x '≃' y" := (policy_base_label_eq x y) (at level 10, y at next level, no associativity).
+
+(* FIXME: Such a proof is ugly. Perhaps we need to write some neat ltac. *)
+Lemma policy_base_label_eq_dec: ∀ (lhs rhs: policy_label), {lhs ≃ rhs} + {~ (lhs ≃ rhs)}.
+Proof.
+  intros. destruct lhs; destruct rhs.
+  - left. red. auto.
+  - right. red. auto.
+  - right. red. auto.
+  - right. red. auto.
+  - right. red. auto.
+  - right. red. auto.
+  - right. red. auto.
+  - left. red. auto.
+  - right. red. auto.
+  - right. red. auto.
+  - right. red. auto.
+  - right. red. auto.
+  - right. red. auto.
+  - right. red. auto.
+  - left. red. auto.
+  - right. red. auto.
+  - right. red. auto.
+  - right. red. auto.
+  - right. red. auto.
+  - right. red. auto.
+  - right. red. auto.
+  - left. red. auto.
+  - right. red. auto.
+  - right. red. auto.
+  - right. red. auto.
+  - right. red. auto.
+  - right. red. auto.
+  - right. red. auto.
+  - left. red. auto.
+  - right. red. auto.
+  - right. red. auto.
+  - right. red. auto.
+  - right. red. auto.
+  - right. red. auto.
+  - right. red. auto.
+  - left. red. auto.
+Qed.
 
 (*
   The `policy` inductive type represents the different types of policies that can be applied
@@ -109,7 +166,7 @@ Definition policy_label_join (lhs rhs: policy_label): policy_label :=
         end
   end.
 
-(* Meets two policy_label labels. *)
+(* Meets two policy_label labels; not used but for compatibility with the type class definition. *)
 Definition policy_meet (lhs rhs: policy_label): policy_label :=
   match lhs, rhs with
     | policy_top, _ => rhs
@@ -581,62 +638,24 @@ Inductive policy_ordering: policy → policy → Prop :=
      ∎ ⪯ p
   *)
   | policy_ordering_trivial: ∀ p, valid_policy p → ∎ ⪯ p
-  | policy_ordering_label: ∀ ℓ1 ℓ2, ℓ1 ⊑ ℓ2 → (∘ ℓ1) ⪯ (∘ ℓ2)
   (*
-     ℓ1 ⊑ ℓ2
-    ---------
-     ℓ1 ⪯ ℓ2 ⇝ p
+    ℓ1 ⊑ ℓ2 p1 ⪯ p2
+    -------------- = policy_ordering_label
+    ℓ1 ⇝ p1 ⪯ ℓ2 ⇝ p2
   *)
-  | policy_ordering_elim1: ∀ ℓ1 ℓ2 p, valid_policy (ℓ2 ⇝ p) → ℓ1 ⊑ ℓ2 → (ℓ1 ⇝ p) ⪯ (∘ ℓ2)
-  | policy_ordering_elim2: ∀ ℓ1 ℓ2 p, valid_policy (ℓ2 ⇝ p) → ℓ1 ⊑ ℓ2 → (∘ ℓ1) ⪯ (ℓ2 ⇝ p)
-  (*
-    ℓ' ⊑ ℓ'   p ⪯ p'
-    -----------------
-    ℓ ⇝ p ⪯ ℓ' ⇝ p'
-  *)
-  | policy_ordering_spec: ∀ ℓ ℓ' p p', ℓ ⊑ ℓ' → p ⪯ p' → (ℓ ⇝ p) ⪯ (ℓ' ⇝ p')
+  | policy_ordering_spec: ∀ ℓ ℓ' p p', ℓ ⊑ ℓ' → valid_policy p → valid_policy p' →
+                          p ⪯ p' → (ℓ ⇝ p) ⪯ (ℓ' ⇝ p')
 where "x ⪯ y" := (policy_ordering x y).
-(* a -> b -> c -> d <= b -> d? *)
 
 Definition policy_eq (lhs rhs: policy): Prop := lhs ⪯ rhs ∧ rhs ⪯ lhs.
 Notation "x ≡ y" := (policy_eq x y) (at level 10, no associativity).
 
-Reserved Notation "x ∪ y" (at level 10, no associativity).
+Reserved Notation "x '∪' y '=' z" (at level 10, y at next level, z at next level, no associativity).
 Inductive policy_join: policy → policy → policy → Prop :=
-  | policy_join_clean: ∀ p, ∎ ∪ p p
-  (*
-    ℓ1 ⊑ ℓ2
-    ------------- = policy_join_label1
-    (∘ ℓ1) ∪ (∘ ℓ2) = (ℓ2 ⇝ (∘ ℓ1))
-  *)
-  | policy_join_label:
-      ∀ ℓ1 ℓ2, ℓ1 ⊑ ℓ2 →
-         (∘ ℓ1) ∪ (∘ ℓ2) (ℓ2 ⇝ (∘ ℓ1))
-  (*
-    ℓ1 ⊔ ℓ2 = ℓ3
-    ----------------- = policy_join_elim1
-    (∘ ℓ1) ∪ (ℓ2 ⇝ p) = ℓ3 ⇝ p
-  *)
-  | policy_join_elim1: ∀ ℓ1 ℓ2 p, ℓ2 ⊑ ℓ1 →
-      (∘ ℓ1) ∪ (ℓ2 ⇝ p) (ℓ1 ⇝ (ℓ2 ⇝ p))
-  (*
-    ℓ1 ⊑ ℓ2
-    p' = p ∪ (∘ ℓ1)
-    ----------------- = policy_join_elim2
-    (∘ ℓ1) ∪ (ℓ2 ⇝ p) = ℓ2 ⇝ p'
-  *)
-  | policy_join_elim2: ∀ ℓ1 ℓ2 p p', ℓ1 ⊑ ℓ2 →
-      (∘ ℓ1) ∪ p p' →
-      (∘ ℓ1) ∪ (ℓ2 ⇝ p) (ℓ2 ⇝ p')
-  (*
-    ℓ2 ⊑ ℓ1
-    p1 ∪ p2 = p3
-    ----------------- = policy_join_spec1
-    (ℓ1 ⇝ p1) ∪ (ℓ2 ⇝ p2) = ℓ1 ⇝ (ℓ2 ⇝ p3)
-  *)
-  | policy_join_spec1: ∀ ℓ1 ℓ2 p1 p2 p3, ℓ2 ⊑ ℓ1 →
-      p1 ∪ p2 p3 →
-      (ℓ1 ⇝ p1) ∪ (ℓ2 ⇝ p2) (ℓ1 ⇝ (ℓ2 ⇝ p3))
+  | policy_join_bot: ∀ p, ∎ ∪ p = p
+  | policy_join_spec1: ∀ ℓ1 ℓ2 p1 p2 p3, ℓ2 ⊑ ℓ1 → ¬ (ℓ2 ≃ ℓ1) →
+      p1 ∪ p2 = p3 → valid_policy (ℓ1 ⇝ p1) → valid_policy (ℓ2 ⇝ p2) →
+      (ℓ1 ⇝ p1) ∪ (ℓ2 ⇝ p2) = (ℓ1 ⇝ (ℓ2 ⇝ p3))
   (*
     ℓ1 ⊑ ℓ2
     p1 ∪ p2 = p3
@@ -644,16 +663,16 @@ Inductive policy_join: policy → policy → policy → Prop :=
     ----------------- = policy_join_spec2
     (ℓ1 ⇝ p1) ∪ (ℓ2 ⇝ p2) = ℓ2 ⇝ p4
   *)
-  | policy_join_spec2: ∀ ℓ1 ℓ2 p1 p2 p3 p4, ℓ1 ⊑ ℓ2 →
-      p1 ∪ p2 p3 → (∘ ℓ1) ∪ p3 p4 →
-      (ℓ1 ⇝ p1) ∪ (ℓ2 ⇝ p2) (ℓ2 ⇝ p4)
+  | policy_join_spec2: ∀ ℓ1 ℓ2 ℓ3 p1 p2 p3, ℓ1 ≃ ℓ2 → ℓ1 ⊔ ℓ2 = ℓ3 →
+      p1 ∪ p2 = p3 → valid_policy (ℓ1 ⇝ p1) → valid_policy (ℓ2 ⇝ p2) →
+      (ℓ1 ⇝ p1) ∪ (ℓ2 ⇝ p2) = (ℓ3 ⇝ p3)
   (*
     p1 ∪ p2 = p3
-    ------------- = policy_join_commute
+    ------------- = policy_join_symmetry
     p2 ∪ p1 = p3
   *)
-  | policy_join_commute: ∀ p1 p2 p3, p1 ∪ p2 p3 → p2 ∪ p1 p3 
-where "x ∪ y" := (policy_join x y).
+  | policy_join_symmetry: ∀ p1 p2 p3, p1 ∪ p2 = p3 → p2 ∪ p1 = p3 
+where "x '∪' y '=' z" := (policy_join x y z).
 
 (*
   The `policy_ord_dec` lemma provides a decision procedure for the policy ordering.
@@ -674,26 +693,15 @@ Proof.
   - destruct IHlhs, IHrhs; try assumption;
     try (apply valid_policy_implies in H0; assumption); try (apply valid_policy_implies in H; assumption).
     + destruct (flowsto_dec _ policy_lattice policy_eq_dec' p p0).
-      * left. constructor; assumption.
+      * left. constructor; try assumption; try eapply valid_policy_implies; eauto.
       * right. unfold not in *. intros. apply n. inversion H1; subst; auto.
     + destruct (flowsto_dec _ policy_lattice policy_eq_dec' p p0).
-      * left. constructor; assumption.
+      * left. constructor; try assumption; try eapply valid_policy_implies; eauto.
       * right. unfold not in *. intros. apply n0. inversion H1; subst; auto.
     + right. unfold not in *. intros. apply n. inversion H1; subst; auto.
-      * constructor. constructor.
-      * inversion p1.
-      * constructor. apply valid_policy_implies in H5. assumption.
     + destruct (flowsto_dec _ policy_lattice policy_eq_dec' p p0).
-      * destruct rhs.
-        -- left. subst. constructor. eapply valid_policy_stronger; eauto. assumption.
-        -- right. unfold not in *. intros. inversion H1; subst.
-          ++ apply n. constructor. eapply valid_policy_implies. eauto.
-          ++ apply n. assumption.
-      * right. unfold not in *. intros.  inversion H1; subst.
-        -- apply n1. assumption.
-        -- apply n1. assumption.
-        -- apply n1. assumption.
-        -- apply n1. assumption.
+      * right. red. intros. apply n. inversion H1. assumption.
+      * right. unfold not in *. intros.  inversion H1; subst. apply n1. assumption.
 Qed.
 
 Definition context := ctx policy.
@@ -714,36 +722,41 @@ Example policy_lhs' := (∘ policy_bot).
 Example policy_rhs' := (∘ policy_select).
 Example policy_res' := (policy_select ⇝ (∘ policy_bot)).
 
-
 Example policy_lhs'' := ∎.
 Example policy_rhs'' := (∘ policy_select).
+Example policy_trans_lhs := (policy_transform nil) ⇝ (∘ (policy_agg nil)).
+Example policy_trans_rhs := (∘ (policy_transform (unary_trans_op Identity :: nil))).
 
-Example ord_correct: policy_rhs ⪯ (∘ policy_top).
-Proof.
-  repeat constructor; intros; assumption.
-Qed.
-
-Example join_correct: policy_lhs ∪ policy_rhs policy_res.
+Example join_correct: policy_lhs ∪ policy_rhs = policy_res.
 Proof.
   constructor.
   - simpl. reflexivity.
-  - econstructor.
+  - red. unfold "≃". auto.
+  - apply policy_join_symmetry. constructor.
     + simpl. reflexivity.
-    + assert (((∘ policy_bot) ∪ (∘ (policy_noise (differential_privacy (2, 1)))))
-             (((policy_noise (differential_privacy (2, 1)))) ⇝ (∘ policy_bot))).
-      {
-        constructor. simpl. auto.
-      }
-      eauto.
-    + econstructor. simpl. reflexivity.
+    + red. unfold "≃". auto.
+    + constructor; intuition.
+      * red. auto.
+      * constructor.
+      * constructor.
+      * constructor.
+    + repeat constructor; intuition.
+    + repeat constructor; intuition.
+  - repeat constructor; intuition.
+  - repeat constructor; intuition.
 Qed.
 
-Example join_correct': policy_lhs' ∪ policy_rhs' policy_res'.
+Example join_correct': policy_lhs' ∪ policy_rhs' = policy_res'.
 Proof.
-  constructor. simpl. reflexivity.
+  apply policy_join_symmetry. constructor.
+  - red. auto.
+  - red. auto.
+  - constructor.
+  - constructor.
+  - constructor.
 Qed.
 
-Example join_correct'': policy_rhs'' ∪ policy_lhs''  policy_rhs''.
+Example join_correct'': policy_rhs'' ∪ policy_lhs'' = policy_rhs''.
 Proof.
   repeat constructor.
 Qed.

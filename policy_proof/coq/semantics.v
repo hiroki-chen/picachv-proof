@@ -891,17 +891,19 @@ Inductive eval_expr_in_relation:
   * Update the tuple in the environment.
   * Update the relation.
 *)
-Reserved Notation "'{{' c op '}}' '⇓' '{{' c' '}}'"
-  (at level 10, c at next level, op at next level, c' at next level,
-    no associativity).
+Reserved Notation "'⟦' c op '⟧' '⇓' '⟦' c' '⟧'"
+  (at level 10, c at next level, op at next level, c' at next level).
 Inductive step_config: (config * operator) → config → Prop :=
-  (* Empty operator returns nothing and does not affect the configuration. *)
-  | E_Empty1: ∀ c c' s,
-      c' = config_output (relation_output s nil) c →
-      {{ c operator_empty }} ⇓ {{ c' }}
   | E_Already: ∀ c c' o r,
       c = config_output r c' →
-      {{ c o }} ⇓ {{ c }}
+      ⟦ c o ⟧ ⇓ ⟦ c ⟧
+  | E_ErrorState: ∀ o,
+      ⟦ config_error o ⟧ ⇓ ⟦ config_error ⟧
+  (* Empty operator returns nothing and does not affect the configuration. *)
+  | E_Empty: ∀ c c' db Γ β p,
+      c = ⟨ db Γ β p ⟩ →
+      c' = config_output (relation_output nil nil) c →
+      ⟦ (⟨ db Γ β p ⟩) operator_empty ⟧ ⇓ ⟦ c' ⟧
   (* Getting the relation is an identity operation w.r.t. configurations. *)
   | E_GetRelation: ∀ c c' db o n r Γ Γ' β p p',
       db ≠ database_empty →
@@ -909,7 +911,7 @@ Inductive step_config: (config * operator) → config → Prop :=
       c = ⟨ db Γ β p ⟩ →
       database_get_contexts db n = Some (r, Γ', p') →
       c' = config_output r (⟨ db Γ' β p' ⟩) →
-      {{ c (operator_relation n) }} ⇓ {{ c' }}
+      ⟦ c (operator_relation n) ⟧ ⇓ ⟦ c' ⟧
   (* The given relation index is not found in the database. *)
   | E_GetRelationError: ∀ c c' db o n Γ β p,
       db ≠ database_empty →
@@ -917,25 +919,27 @@ Inductive step_config: (config * operator) → config → Prop :=
       c = ⟨ db Γ β p ⟩ →
       database_get_contexts db n = None →
       c' = config_error →
-      {{ c (operator_relation n) }} ⇓ {{ c' }}
+      ⟦ c (operator_relation n) ⟧ ⇓ ⟦ c' ⟧
   (* Database is empty! *)
-  | E_GetRelationDbEmpty: ∀ c c' db o n,
+  | E_GetRelationDbEmpty: ∀ c c' db Γ β p o n,
       db = database_empty →
       o = operator_relation n →
+      c = ⟨ db Γ β p ⟩ →
       c' = config_error →
-      {{ c (operator_relation n) }} ⇓ {{ c' }}
+      ⟦ c (operator_relation n) ⟧ ⇓ ⟦ c' ⟧
   (* If the operator returns an empty relation, we do nothing. *)
-  | E_ProjEmpty: ∀ c c' s r o pl,
-      {{ c o }} ⇓ {{ c' }} →
-      r = nil ∨ (s = nil) →
+  | E_ProjEmpty: ∀ c c' db Γ β p s r o pl,
+      c = ⟨ db Γ β p ⟩ →
+      ⟦ c o ⟧ ⇓ ⟦ c' ⟧ →
       c' = config_output (relation_output s r) c →
-      {{ c (operator_project pl o) }} ⇓ {{ c' }}
+      r = nil ∧ s = nil →
+      ⟦ c (operator_project pl o) ⟧ ⇓ ⟦ c' ⟧
   (* If the operator returns a valid relation, we can then apply projection. *)
   | E_ProjOk: ∀ c c' c'' db db' pl pl' s'
                 Γ Γ' Γ'' β β' β'' p p' p'' r' r'' o e e' ,
       c = ⟨ db Γ β p ⟩ →
       (* We first evaluate the inner operator and get the output. *)
-      {{ c o }} ⇓ {{ c' }} →
+      ⟦ c o ⟧ ⇓ ⟦ c' ⟧ →
       (* We then destruct the output. *)
       c' = config_output (relation_output s' r') (⟨ db' Γ' β' p' ⟩) →
       (* `pl'` means a normalized project list. *)
@@ -948,7 +952,7 @@ Inductive step_config: (config * operator) → config → Prop :=
         (* Then after we applied the project, we extract the results from the environment `e'`. *)
         r'' = env_get_relation _ e' →
         c'' = config_output (relation_output _ r'') (⟨ db' Γ'' β'' p'' ⟩) →
-        {{ c o }} ⇓ {{ c'' }}
+        ⟦ c (operator_project pl o) ⟧ ⇓ ⟦ c'' ⟧
   (*
      If the operator returns a valid environment, we can then apply projection. Then if the
      projection fails, we return `config_error`.
@@ -957,7 +961,7 @@ Inductive step_config: (config * operator) → config → Prop :=
                 Γ Γ' β β' p p' r' o e,
       c = ⟨ db Γ β p ⟩ →
       (* We first evaluate the inner operator and get the output. *)
-      {{ c o }} ⇓ {{ c' }} →
+      ⟦ c o ⟧ ⇓ ⟦ c' ⟧ →
       (* We then destruct the output. *)
       c' = config_output (relation_output s' r') (⟨ db' Γ' β' p' ⟩) →
       (* `pl'` means a normalized project list. *)
@@ -967,31 +971,39 @@ Inductive step_config: (config * operator) → config → Prop :=
         e = (r', nil, nil, nil) →
         (* We then apply projection inside the environment. *)
         apply_proj_in_env s' e pl' Γ p None →
-        {{ c o }} ⇓ {{ config_error }}
+        ⟦ c (operator_project pl o) ⟧ ⇓ ⟦ config_error ⟧
   | E_SelectError: ∀ c c' db db' Γ Γ' β β' p p' s' r' o expr,
       c = ⟨ db Γ β p ⟩ →
-      {{ c o }} ⇓ {{ c' }} →
+      ⟦ c o ⟧ ⇓ ⟦ c' ⟧ →
       c' = config_output (relation_output s' r') (⟨ db' Γ' β' p' ⟩) →
       eval_expr_in_relation s' Γ' β' p' expr r' None →
-      {{ c o }} ⇓ {{ config_error }}
+      ⟦ c (operator_select _ expr o) ⟧ ⇓ ⟦ config_error ⟧
   | E_SelectOk: ∀ c c' c'' db db' Γ Γ' Γ'' β β' β'' p p' p'' s' r' r'' o expr,
       c = ⟨ db Γ β p ⟩ →
-      {{ c o }} ⇓ {{ c' }} →
+      ⟦ c o ⟧ ⇓ ⟦ c' ⟧ →
       c' = config_output (relation_output s' r') (⟨ db' Γ' β' p' ⟩) →
       eval_expr_in_relation s' Γ' β' p' expr r' (Some (r'', Γ'', β'', p'')) →
       c'' = config_output (relation_output s' r'') (⟨ db' Γ'' β'' p'' ⟩) →
-      {{ c o }} ⇓ {{ c'' }}
+      ⟦ c (operator_select _ expr o)⟧ ⇓ ⟦ c'' ⟧
   | E_UnionError: ∀ c c' c'' db Γ β p o1 o2,
       c = ⟨ db Γ β p ⟩ → 
-      {{ c o1 }} ⇓ {{ c' }} →
-      {{ c o2 }} ⇓ {{ c'' }} →
+      ⟦ c o1 ⟧ ⇓ ⟦ c' ⟧ →
+      ⟦ c o2 ⟧ ⇓ ⟦ c'' ⟧ →
       c' = config_error ∨ c'' = config_error →
-      {{ c (operator_union o1 o2) }} ⇓ {{ config_error }}
+      ⟦ c (operator_union o1 o2) ⟧ ⇓ ⟦ config_error ⟧
+| E_UnionSchemaError: ∀ c c' c'' db db' db'' Γ Γ' Γ'' β β' β'' p p' p'' s1 s2 r' r'' o1 o2,
+      c = ⟨ db Γ β p ⟩ → 
+      ⟦ c o1 ⟧ ⇓ ⟦ c' ⟧ →
+      c' = config_output (relation_output s1 r') (⟨ db' Γ' β' p' ⟩) →
+      ⟦ c o2 ⟧ ⇓ ⟦ c'' ⟧ →
+      c'' = config_output (relation_output s2 r'') (⟨ db'' Γ'' β'' p'' ⟩) →
+      s1 ≠ s2 →
+      ⟦ c (operator_union o1 o2) ⟧ ⇓ ⟦ config_error ⟧
   | E_UnionOk: ∀ c c' c'' db db' db'' Γ Γ' Γ'' β β' β'' p p' p'' s r' r'' o1 o2,
       c = ⟨ db Γ β p ⟩ → 
-      {{ c o1 }} ⇓ {{ c' }} →
+      ⟦ c o1 ⟧ ⇓ ⟦ c' ⟧ →
       c' = config_output (relation_output s r') (⟨ db' Γ' β' p' ⟩) →
-      {{ c o2 }} ⇓ {{ c'' }} →
+      ⟦ c o2 ⟧ ⇓ ⟦ c'' ⟧ →
       c'' = config_output (relation_output s r'') (⟨ db'' Γ'' β'' p'' ⟩) →
       (*
         We ensure that cells are always assigned new ids;
@@ -1001,55 +1013,85 @@ Inductive step_config: (config * operator) → config → Prop :=
         let merged_Γ := merge_env Γ' Γ'' in
           let merged_β := calculate_budget β' β'' in
           (* TODO: How to deal with privacy budget? *)
-          {{ c (operator_union o1 o2) }} ⇓
-          {{ config_output (relation_output s (r' ++ r'')) (⟨ db'' merged_Γ merged_β merged_p ⟩) }}
+          ⟦ c (operator_union o1 o2) ⟧ ⇓
+          ⟦ config_output (relation_output s (r' ++ r'')) (⟨ db'' merged_Γ merged_β merged_p ⟩) ⟧
   | E_JoinError: ∀ c c' c'' db Γ β p o1 o2,
       c = ⟨ db Γ β p ⟩ → 
-      {{ c o1 }} ⇓ {{ c' }} →
-      {{ c o2 }} ⇓ {{ c'' }} →
+      ⟦ c o1 ⟧ ⇓ ⟦ c' ⟧ →
+      ⟦ c o2 ⟧ ⇓ ⟦ c'' ⟧ →
       c' = config_error ∨ c'' = config_error →
-      {{ c (operator_join o1 o2) }} ⇓ {{ config_error }}
+      ⟦ c (operator_join o1 o2) ⟧ ⇓ ⟦ config_error ⟧
   | E_JoinError2: ∀ c c' c'' db db' db'' Γ Γ' Γ'' β β' β'' p p' p'' s1 s2 r' r'' o1 o2,
       c = ⟨ db Γ β p ⟩ →
-      {{ c o1 }} ⇓ {{ c' }} →
+      ⟦ c o1 ⟧ ⇓ ⟦ c' ⟧ →
       c' = config_output (relation_output s1 r') (⟨ db' Γ' β' p' ⟩) →
-      {{ c o2 }} ⇓ {{ c'' }} →
+      ⟦ c o2 ⟧ ⇓ ⟦ c'' ⟧ →
       c'' = config_output (relation_output s2 r'') (⟨ db'' Γ'' β'' p'' ⟩) →
       let join_by := (natural_join_list s1 s2) in
         (relation_join_by_prv s1 s2 join_by r' r'' Γ' Γ'' β' β'' p' p'')
         None →
-        {{ c (operator_join o1 o2) }} ⇓ {{ config_error }}
+        ⟦ c (operator_join o1 o2) ⟧ ⇓ ⟦ config_error ⟧
   | E_JoinOk: ∀ c c' c'' db db' db'' Γ Γ' Γ'' Γout β β' β'' βout p p' p'' pout s1 s2 r' r'' r rout o1 o2,
       c = ⟨ db Γ β p ⟩ →
-      {{ c o1 }} ⇓ {{ c' }} →
+      ⟦ c o1 ⟧ ⇓ ⟦ c' ⟧ →
       c' = config_output (relation_output s1 r') (⟨ db' Γ' β' p' ⟩) →
-      {{ c o2 }} ⇓ {{ c'' }} →
+      ⟦ c o2 ⟧ ⇓ ⟦ c'' ⟧ →
       c'' = config_output (relation_output s2 r'') (⟨ db'' Γ'' β'' p'' ⟩) →
       let join_by := (natural_join_list s1 s2) in
         (relation_join_by_prv s1 s2 join_by r' r'' Γ' Γ'' β' β'' p' p'')
         (Some (rout, Γout, βout, pout))→
         r = relation_output _ rout →
-        {{ c (operator_join o1 o2) }} ⇓
+        ⟦ c (operator_join o1 o2) ⟧ ⇓
         (* TODO: Should join. *)
-        {{ config_output r (⟨ db'' Γout βout pout ⟩) }}
-where "'{{' c op '}}' '⇓' '{{' c' '}}'" := (step_config (c, op) c').
+        ⟦ config_output r (⟨ db'' Γout βout pout ⟩) ⟧
+where "'⟦' c op '⟧' '⇓' '⟦' c' '⟧'" := (step_config (c, op) c').
 Hint Constructors step_config: core.
 
-(* This theorem ensures the "sanity" of the semantics to ensure that operators won't get stuck. *)
-Theorem operator_always_terminate: ∀ c o, c ≠ config_error → ∃ c', {{ c o }} ⇓ {{ c' }}.
+Theorem operator_returns_result: ∀ db db' Γ Γ' β β' p p' o,
+  ¬ (⟦ (⟨ db Γ β p ⟩) o ⟧ ⇓ ⟦ ⟨ db' Γ' β' p' ⟩ ⟧) .
+Admitted.
+
+(* For Hongbo: can you help me prove this theorem? *)
+Theorem operator_deterministic: ∀ c o c1 c2, 
+  ⟦ c o ⟧ ⇓ ⟦ c1 ⟧ →
+  ⟦ c o ⟧ ⇓ ⟦ c2 ⟧ →
+  c1 = c2.
+Proof.
+  induction o; intros.
+  - inversion H0; inversion H; subst; auto; try discriminate.
+    inversion H5. subst. reflexivity.
+  - inversion H0; inversion H; subst; auto; try discriminate.
+    + inversion H13. subst. rewrite H14 in H6. inversion H6. subst. reflexivity.
+    + inversion H13. subst. rewrite H14 in H6. inversion H6.
+    + inversion H13. subst. discriminate.
+    + inversion H13. subst. rewrite H14 in H6. inversion H6.
+    + inversion H12. subst. discriminate.
+  - inversion H0; inversion H; subst; auto; try discriminate; try inversion H12; subst.
+    + destruct H8; subst.
+      * specialize IHo1 with (c2 := (config_output (relation_output s r') (⟨ db' Γ' β' p' ⟩))).
+        apply IHo1 in H5. inversion H5. assumption.
+      * specialize IHo2 with (c2 := (config_output (relation_output s r'') (⟨ db'' Γ'' β'' p'' ⟩))).
+        apply IHo2 in H7. inversion H7. assumption.
+    + 
+
+Admitted.
+ 
+(* This theorem ensures the "sanity" of the semantics to ensure that operators won't get stuck.
+  For Hongbo: also can you finish the remaining part?
+ *)
+Theorem operator_always_terminate: ∀ c o, c ≠ config_error → ∃ c', ⟦ c o ⟧ ⇓ ⟦ c' ⟧.
 Proof.
   induction o; unfold not; intros; destruct c.
   - exfalso. auto.
   - (* Although we don't need `s`, we need to introduce this term into the context. *)
     pose (s := @nil Attribute).
-    exists (config_output (relation_output s nil) (⟨ d c b p ⟩)).
-    apply E_Empty1 with (s := s).
-    reflexivity.
+    exists (config_output (relation_output nil nil) (⟨ d c b p ⟩)).
+    econstructor; reflexivity.
   - pose (s := @nil Attribute). exists (config_output r c).
     eapply E_Already with (r := r) (c := (config_output r c)) (c' := c). reflexivity.
   - exfalso. auto.
   - destruct d eqn: Hdb.
-    + exists config_error. eapply E_GetRelationDbEmpty; eauto.
+    + exists config_error. eapply E_GetRelationDbEmpty with (o := operator_relation n); reflexivity.
     + destruct (database_get_contexts d n) as [ [ [ r' Γ' ] p' ] | ] eqn: Hget.
       * exists (config_output r' (⟨ d Γ' b p' ⟩)).
         eapply E_GetRelation with (db := d) (o := operator_relation n) (Γ := c) (β := b) (p := p).
@@ -1067,6 +1109,50 @@ Proof.
         -- reflexivity.
   - pose (s := @nil Attribute). exists (config_output r c).
     eapply E_Already with (r := r) (c := (config_output r c)) (c' := c). reflexivity.
+  - contradiction.
+  - (* We now introduce the existential variables into the context. *)
+    intuition. destruct H0. destruct H1.
+    destruct x; destruct x0.
+    + exists config_error. econstructor; try eauto.
+    + exists config_error. econstructor; try eauto.
+    + exists config_error. econstructor; try eauto.
+    + exists config_error. econstructor; try eauto.
+    + specialize (operator_returns_result) with
+        (db := d) (db' := d0) (Γ := c) (Γ' := c0) (β := b) (β' := b0) (p := p) (p' := p0) (o := o1).
+      intros. intuition.
+    + specialize (operator_returns_result) with
+        (db := d) (db' := d0) (Γ := c) (Γ' := c0) (β := b) (β' := b0) (p := p) (p' := p0) (o := o1).
+      intros. intuition.
+    + exists config_error. econstructor; try eauto.
+    + specialize (operator_returns_result) with
+        (db := d) (db' := d0) (Γ := c) (Γ' := c0) (β := b) (β' := b0) (p := p) (p' := p0) (o := o2).
+      intros. intuition.
+    + destruct r, r0, x, x0; subst.
+      * inversion H1; subst; try discriminate.
+      * inversion H0; subst; try discriminate.
+      * inversion H0; subst; try discriminate.
+      * inversion H1; subst; try discriminate.
+      * destruct (list_eq_dec (attribute_eq_dec) s0 s).
+        -- subst.
+          pose (merged_p := merge_env p0 p1).
+          pose (merged_Γ := merge_env c0 c1).
+          pose (merged_β := calculate_budget b0 b1).
+          exists (config_output (relation_output s (r ++ r0)) (⟨ d1 merged_Γ merged_β merged_p ⟩)).
+          econstructor; try reflexivity; eauto.
+        -- exists config_error. eapply E_UnionSchemaError with (s1 := s) (s2 := s0); try eauto.
+      * (* There should be no rule for constructing nested output. *)
+        inversion H1; subst; try discriminate.
+      * inversion H0; subst; try discriminate.
+      * inversion H0; subst; try discriminate.
+      * inversion H1; subst; try discriminate.
+  - 
+(* 
+     let merged_p := merge_env p' p'' in
+        let merged_Γ := merge_env Γ' Γ'' in
+          let merged_β := calculate_budget β' β'' in
+          (* TODO: How to deal with privacy budget? *)
+          ⟦ c (operator_union o1 o2) ⟧ ⇓
+          ⟦ config_output (relation_output s (r' ++ r'')) (⟨ db'' merged_Γ merged_β merged_p ⟩) ⟧ *)
 Admitted.
 
 Example simple_project_list := project ((simple_atomic_expression_column 0, "foo"%string) :: nil).
