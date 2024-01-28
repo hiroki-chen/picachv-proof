@@ -575,7 +575,7 @@ Inductive operator: Type :=
   | operator_union: operator → operator → operator
   | operator_join: operator → operator → operator
   | operator_project: project_list → operator → operator
-  | operator_select: ∀ s, formula s → operator → operator
+  | operator_select: ∀ s, formula (♭ s) → operator → operator
   | operator_grouby_having: ∀ s, groupby_list → agg_list s → formula s → operator → operator
 .
 
@@ -841,6 +841,10 @@ Inductive apply_proj_in_env s (es: ℰ s) (ℓ: list (simple_atomic_expression *
       apply_proj_in_env s es ℓ Γ p (Some ((r', a, b, nil), Γ', p'))
 .
 
+Lemma apply_proj_in_env_terminate: ∀ s es ℓ Γ p, ∃ res,
+  apply_proj_in_env s es ℓ Γ p res.
+Admitted.
+
 (*
   @param s The schema of the relation.
   @param Policy.context The policy context.
@@ -878,6 +882,11 @@ Inductive eval_expr_in_relation:
       f_denote hd = false →
       eval_expr_in_relation s Γ β p f r (Some (tl', Γ', β', p'))
 .
+
+Lemma eval_expr_in_relation_terminate: ∀ s Γ β p f r, ∃ res,
+  eval_expr_in_relation s Γ β p f r res.
+Proof.
+Admitted.
 
 (* 
   `step_config` is an inductive type representing the transition rules for configurations. 
@@ -972,26 +981,45 @@ Inductive step_config: (config * operator) → config → Prop :=
         (* We then apply projection inside the environment. *)
         apply_proj_in_env s' e pl' Γ p None →
         ⟦ c (operator_project pl o) ⟧ ⇓ ⟦ config_error ⟧
+      (*
+     If the operator returns a valid environment, we can then apply projection. Then if the
+     projection fails, we return `config_error`.
+  *)
+  | E_ProjError2: ∀ c db Γ β p pl o,
+      c = ⟨ db Γ β p ⟩ →
+      (* We first evaluate the inner operator and get the output. *)
+      ⟦ c o ⟧ ⇓ ⟦ config_error ⟧ →
+      ⟦ c (operator_project pl o) ⟧ ⇓ ⟦ config_error ⟧
   | E_SelectError: ∀ c c' db db' Γ Γ' β β' p p' s' r' o expr,
       c = ⟨ db Γ β p ⟩ →
       ⟦ c o ⟧ ⇓ ⟦ c' ⟧ →
       c' = config_output (relation_output s' r') (⟨ db' Γ' β' p' ⟩) →
       eval_expr_in_relation s' Γ' β' p' expr r' None →
-      ⟦ c (operator_select _ expr o) ⟧ ⇓ ⟦ config_error ⟧
+      ⟦ c (operator_select s' expr o) ⟧ ⇓ ⟦ config_error ⟧
+  | E_SelectError2: ∀ c db Γ β p s o expr,
+      c = ⟨ db Γ β p ⟩ →
+      ⟦ c o ⟧ ⇓ ⟦ config_error ⟧ →
+      ⟦ c (operator_select s expr o) ⟧ ⇓ ⟦ config_error ⟧
+  | E_SelectError3: ∀ c c' db db' Γ Γ' β β' p p' s1 s2 r' o expr,
+      c = ⟨ db Γ β p ⟩ →
+      ⟦ c o ⟧ ⇓ ⟦ c' ⟧ →
+      c' = config_output (relation_output s2 r') (⟨ db' Γ' β' p' ⟩) →
+      s1 ≠ s2 →
+      ⟦ c (operator_select s1 expr o) ⟧ ⇓ ⟦ config_error ⟧
   | E_SelectOk: ∀ c c' c'' db db' Γ Γ' Γ'' β β' β'' p p' p'' s' r' r'' o expr,
       c = ⟨ db Γ β p ⟩ →
       ⟦ c o ⟧ ⇓ ⟦ c' ⟧ →
       c' = config_output (relation_output s' r') (⟨ db' Γ' β' p' ⟩) →
       eval_expr_in_relation s' Γ' β' p' expr r' (Some (r'', Γ'', β'', p'')) →
       c'' = config_output (relation_output s' r'') (⟨ db' Γ'' β'' p'' ⟩) →
-      ⟦ c (operator_select _ expr o)⟧ ⇓ ⟦ c'' ⟧
+      ⟦ c (operator_select s' expr o)⟧ ⇓ ⟦ c'' ⟧
   | E_UnionError: ∀ c c' c'' db Γ β p o1 o2,
       c = ⟨ db Γ β p ⟩ → 
       ⟦ c o1 ⟧ ⇓ ⟦ c' ⟧ →
       ⟦ c o2 ⟧ ⇓ ⟦ c'' ⟧ →
       c' = config_error ∨ c'' = config_error →
       ⟦ c (operator_union o1 o2) ⟧ ⇓ ⟦ config_error ⟧
-| E_UnionSchemaError: ∀ c c' c'' db db' db'' Γ Γ' Γ'' β β' β'' p p' p'' s1 s2 r' r'' o1 o2,
+  | E_UnionSchemaError: ∀ c c' c'' db db' db'' Γ Γ' Γ'' β β' β'' p p' p'' s1 s2 r' r'' o1 o2,
       c = ⟨ db Γ β p ⟩ → 
       ⟦ c o1 ⟧ ⇓ ⟦ c' ⟧ →
       c' = config_output (relation_output s1 r') (⟨ db' Γ' β' p' ⟩) →
@@ -1145,14 +1173,75 @@ Proof.
       * inversion H0; subst; try discriminate.
       * inversion H0; subst; try discriminate.
       * inversion H1; subst; try discriminate.
-  - 
-(* 
-     let merged_p := merge_env p' p'' in
-        let merged_Γ := merge_env Γ' Γ'' in
-          let merged_β := calculate_budget β' β'' in
-          (* TODO: How to deal with privacy budget? *)
-          ⟦ c (operator_union o1 o2) ⟧ ⇓
-          ⟦ config_output (relation_output s (r' ++ r'')) (⟨ db'' merged_Γ merged_β merged_p ⟩) ⟧ *)
+  - exists (config_output r c). eapply E_Already; reflexivity.
+  - exists config_error. eapply E_ErrorState.
+  - destruct IHo1; destruct IHo2; intuition.
+    destruct x; destruct x0.
+    + exists config_error. econstructor; try eauto.
+    + exists config_error. econstructor; try eauto.
+    + exists config_error. econstructor; try eauto.
+    + exists config_error. econstructor; try eauto.
+    + inversion H0; subst; try discriminate.
+    + inversion H0; subst; try discriminate.
+    + exists config_error; econstructor; try eauto.
+    + inversion H1; subst; try discriminate.
+    + destruct r; destruct r0; destruct x; destruct x0; subst.
+      * inversion H0; subst; try discriminate.
+      * inversion H0; subst; try discriminate.
+      * inversion H0; subst; try discriminate.
+      * inversion H1; subst; try discriminate.
+      * 
+        (* TODO: prove that this relation is decidable.  *)
+        destruct (relation_join_by_prv_terminate s s0 (natural_join_list s s0) r r0 c0 c1 b0 b1 p0 p1).
+        destruct x as[ [ [ [rjoin cjoin ] bjoin] pjoin] |].
+        -- (* x = Some *)
+          pose (rout := relation_output _ rjoin).
+          exists (config_output rout (⟨ d1 cjoin bjoin pjoin ⟩)).
+          econstructor; eauto.
+        -- exists config_error. eapply E_JoinError2; eauto.
+      * inversion H1; subst; try discriminate.
+      * inversion H1; subst; try discriminate.
+      * inversion H0; subst; try discriminate.
+      * inversion H0; subst; try discriminate.
+  - exists (config_output r c). eapply E_Already; reflexivity.
+  - intuition.
+  - intuition. destruct H0. clear H.
+    destruct x.
+    + exists config_error. eapply E_ProjError2; eauto.
+    + inversion H0; subst; try discriminate.
+    + destruct r. destruct (normalize_project_list s p) as [|pl] eqn: Hpl.
+      * inversion Hpl.
+      * destruct x.
+        -- inversion H0; subst; try discriminate.
+        -- destruct (apply_proj_in_env_terminate s (r, nil, nil, nil) pl c p0).
+           destruct x as [ [ [e' Γ''] p'']|].
+           ++ (* Some. *)
+             pose (r'' := env_get_relation _ e').
+             pose (c'' := config_output (relation_output _ r'') (⟨ d0 Γ'' b p'' ⟩)).
+             exists c''. eapply E_ProjOk; eauto; try reflexivity.
+           ++ exists config_error. eapply E_ProjError; eauto.
+        -- inversion H0; subst; try discriminate.
+  - intuition. exists (config_output r c). eapply E_Already; eauto.
+  - contradiction.
+  - intuition. destruct H0. clear H.
+    destruct x.
+    + exists config_error. eapply E_SelectError2; eauto.
+    + inversion H0; subst; try discriminate.
+    + destruct r; destruct x.
+      * inversion H0; subst; try discriminate.
+      * destruct (list_eq_dec (attribute_eq_dec) s s0).
+        -- subst. destruct (eval_expr_in_relation_terminate _ c0 b0 p0 f r).
+           destruct x as [ [ [ [ r' c'] b' ] p'] | ].
+           ++ (* Some. *)
+              exists (config_output (relation_output _ r') (⟨ d0 c' b' p' ⟩)).
+              eapply E_SelectOk; eauto; try reflexivity.
+           ++ exists config_error. eapply E_SelectError; eauto.
+        -- exists config_error. eapply E_SelectError3; eauto.
+      * inversion H0; subst; try discriminate.
+  - intuition. exists (config_output r c). eapply E_Already; eauto.
+  - contradiction.
+  - intuition.
+  (* TODO: operator_grouby_having *)
 Admitted.
 
 Example simple_project_list := project ((simple_atomic_expression_column 0, "foo"%string) :: nil).

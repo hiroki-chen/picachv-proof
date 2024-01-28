@@ -88,65 +88,71 @@ Inductive label_transition_valid: ∀ s, relation s → Policy.context → Polic
     Should we start from empty environment? Or this condition is unnecessary?
  *)
 Theorem secure_query:
-  ∀ c db Γ β p o,
-  c = ⟨ db Γ β p ⟩ ∧ config_valid c →
-  ⟦ c o ⟧ ⇓ ⟦ config_error ⟧ ∨ 
-    (∃ s c' db' Γ' β' p' r, 
-        c' = config_output (relation_output s r) (⟨ db' Γ' β' p' ⟩) →
+  ∀ c c' s db db' Γ Γ' β β' p p' o r,
+    c = ⟨ db Γ β p ⟩ ∧ config_valid c →
+    ⟦ c o ⟧ ⇓ ⟦ config_error ⟧ ∨ 
+    (c' = config_output (relation_output s r) (⟨ db' Γ' β' p' ⟩) →
       ⟦ c o ⟧ ⇓ ⟦ c' ⟧ ∧ label_transition_valid s r Γ Γ' p' ∧ budget_bounded β').
 Proof.
-  induction o; intros.
-  - right. exists nil, (config_output (relation_output nil nil) c), db, Γ, β, p, nil. split.
-    + apply E_Empty with nil. reflexivity.
+  induction o; intros; destruct H.
+  (* - right.
+    exists nil, (config_output (relation_output nil nil) c), db, Γ, β, p, nil. split.
+    + specialize E_Empty with
+      (c := c) (c' := config_output (relation_output nil nil) c) (db := db) (Γ := Γ) (β := β) (p := p).
+      intros. intuition. subst. apply H2.
     + constructor.
       * constructor.
       * red. trivial.
   - destruct db eqn: Hdb.
-    + left. eapply E_GetRelationDbEmpty; eauto.
+    + left. eapply E_GetRelationDbEmpty; subst; eauto.
     + destruct (database_get_contexts db n) as [ [ [ r' Γ' ] p' ] | ] eqn: Hget.
       * destruct r'. right. exists s0, (⟨ db Γ' β p' ⟩), db, Γ', β, p', r. split.
         -- eapply E_GetRelation with (db := db) (o := operator_relation n).
           ++ red. intros. rewrite Hdb in H1. inversion H1.
           ++ reflexivity.
-          ++ rewrite <- Hdb in H. destruct H. eapply H.
+          ++ rewrite <- Hdb in H. eapply H.
           ++ eapply Hget.
-          ++ eapply H0.
+          ++ eapply H1.
         -- split; simpl.
           ++ destruct s0.
             ** constructor. reflexivity.
-            ** inversion H0.
-          ++ inversion H0.
+            ** inversion H1.
+          ++ inversion H1.
       * left. eapply E_GetRelationError with (db := db) (Γ := Γ) (β := β) (p := p); eauto.
-        -- red. intros. rewrite Hdb in H0. inversion H0.
+        -- red. intros. subst. inversion H1.
         -- intuition. subst. reflexivity.
   - specialize (operator_always_terminate c o2).
     specialize (operator_always_terminate c o1).
-    intros.
-    assert (c ≠ config_error). {
-      destruct H. subst. red. intros. inversion H.
-    }
+    intros. intuition. subst.
     (*
       We need to introduce this existential variable *before* each sub-case to avoid
       scoping issues; otherwise, Coq will complain that it cannot find the variable.
     *)
-    destruct H0 as [x H0]; destruct H1 as [x' H1]; try assumption. clear H2.
-  destruct IHo1; destruct IHo2; try assumption.
-    + left. eapply E_UnionError with (db := db) (Γ := Γ) (β := β) (p := p).
-      * destruct H. assumption.
-      * eapply H0.
-      * eauto.
-      * intuition.
-    + destruct H3 as [ s [ c' [ db' [ Γ' [ β' [ p' [ r H3 ] ] ] ] ] ] ].
-      left. eapply E_UnionError with (db := db) (Γ := Γ) (β := β) (p := p).
-      * destruct H. assumption.
-      * eapply H0.
-      * eauto.
-      * left. eapply operator_deterministic; eauto.
-    + intuition. subst. destruct H2 as [ s [ c' [ db' [ Γ' [ β' [ p' [ r H2 ] ] ] ] ] ] ].
-      left. eapply E_UnionError with (db := db) (Γ := Γ) (β := β) (p := p).
+    destruct H2 as [x H2]; destruct H1 as [x' H1]; try discriminate.
+    + left. eapply E_UnionError.
       * reflexivity.
-      * eauto.
-      * eauto.
-      * right. eapply operator_deterministic; eauto.
+      * eapply H4.
+      * eapply H5.
+      * intuition.
+    + assert (c ≠ config_error) by (subst; try discriminate). intuition. destruct H1.
+      left. eapply E_UnionError; eauto.
+    + assert (c ≠ config_error) by (subst; try discriminate). intuition. destruct H6.
+      left. eapply E_UnionError; eauto.
+    + assert (c ≠ config_error) by (subst; try discriminate). intuition.
+      destruct H1; destruct H6; destruct x0; destruct x; subst; try discriminate; intuition.
+      * left. eapply E_UnionError; eauto.
+      * left. eapply E_UnionError; eauto.
+      * left. eapply E_UnionError; eauto.
+      * left. eapply E_UnionError; eauto.
+      * inversion H1; subst; try discriminate.
+      * inversion H2; subst; try discriminate.
+      * left. eapply E_UnionError; eauto.
+      * inversion H1; subst; try discriminate.
+      * destruct r; destruct r0; destruct x0; destruct x.
+        -- inversion H1; subst; try discriminate.
+        -- inversion H2; subst; try discriminate.
+        -- inversion H1; subst; try discriminate.
+        -- inversion H1; subst; try discriminate.
+        -- right.  *)
 
 Admitted.
