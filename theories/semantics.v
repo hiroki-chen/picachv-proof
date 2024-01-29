@@ -148,11 +148,6 @@ Definition determine_schema (s: schema) (pl: project_list): schema :=
           end) ℓ
   end.
 
-Lemma extract_column_type_eq: ∀ s expr n (ok: n < List.length s) name,
-  expr = (simple_atomic_expression_column n) →
-  (nth s n ok :: nil) = determine_schema s (project ((expr, name) :: nil)).
-Admitted.
-
 Lemma determine_schema_length_le: ∀ s pl,
   List.length (determine_schema s (project pl)) ≤ List.length pl.
 Proof.
@@ -492,9 +487,14 @@ refine (
     | nil => fun _ => _
     | h :: t' => fun _ => _
   end eq_refl
-).
+). 
   - subst. simpl. exact (tt, nil).
-Admitted.
+  - specialize inject_id_tuple with (s := t').
+    subst. destruct h. simpl in *.
+    pose (inject_id_tuple (snd t) (snd p) (S id_start)) as t_next.
+    destruct t_next as [t_next Γ].
+    exact ((fst t), id_start, t_next, ((id_start, (fst p)) :: Γ)).
+Defined.
 
 (*
   @param s The schema of the relation.
@@ -798,16 +798,14 @@ Inductive apply_proj_in_relation s (r: relation s) (ℓ: list (simple_atomic_exp
   | E_ApplyElemErrHead: ∀ Γ p  hd tl (proj_case: ℓ = hd :: tl),
       apply_proj_elem s r hd Γ p None →
       apply_proj_in_relation s r ℓ Γ p None
-  | E_ApplyElemErrTail: ∀ Γ p hd tl res (proj_case: ℓ = hd :: tl),
-      apply_proj_elem s r hd Γ p (Some res) →
-      apply_proj_in_relation s r tl Γ p None →
+  | E_ApplyElemErrTail: ∀ hd r' Γ Γ' p p' tl (proj_case: ℓ = hd :: tl),
+      apply_proj_elem s r hd Γ p (Some (r', Γ', p')) →
+      apply_proj_in_relation s r tl Γ' p' None →
       apply_proj_in_relation s r ℓ Γ p None
-  | E_ApplyElemOk: ∀ Γ Γ' Γ'' Γfin p p' p'' pfin hd hd' tl tl' col_tmp col_proxy col
+  | E_ApplyElemOk: ∀ Γ Γ' Γ'' p p' p'' hd hd' tl tl' col
                 (proj_case: ℓ = hd :: tl),
       apply_proj_elem s r hd Γ p (Some (hd', Γ', p')) →
-      apply_proj_in_relation s r tl Γ p (Some (tl', Γ'', p'')) →
-      Γfin = merge_env Γ' Γ'' →
-      pfin = merge_env p' p'' →
+      apply_proj_in_relation s r tl Γ' p' (Some (tl', Γ'', p'')) →
       (*
         Goal:
         (determine_schema s (project (hd :: nil)) ++
@@ -820,10 +818,10 @@ Inductive apply_proj_in_relation s (r: relation s) (ℓ: list (simple_atomic_exp
         determine_schema s (project tl)) = determine_schema s (project (hd :: tl))
         -------------------------------
       *)
-      col_tmp = (relation_product _ _ (fst hd') tl') →
-      col_proxy = ((determine_schema_concat s hd tl) ♯ col_tmp) →
-      col = ((eq_sym proj_case) ♯ col_proxy) →
-      apply_proj_in_relation s r ℓ Γ p (Some (col, Γfin, pfin))
+      let col_tmp := (relation_product _ _ (fst hd') tl') in
+        let col_proxy := ((determine_schema_concat s hd tl) ♯ col_tmp) in
+          col = ((eq_sym proj_case) ♯ col_proxy) →
+          apply_proj_in_relation s r ℓ Γ p (Some (col, Γ'', p''))
 .
 
 Inductive apply_proj_in_env s (es: ℰ s) (ℓ: list (simple_atomic_expression * string)):
@@ -841,9 +839,53 @@ Inductive apply_proj_in_env s (es: ℰ s) (ℓ: list (simple_atomic_expression *
       apply_proj_in_env s es ℓ Γ p (Some ((r', a, b, nil), Γ', p'))
 .
 
-Lemma apply_proj_in_env_terminate: ∀ s es ℓ Γ p, ∃ res,
-  apply_proj_in_env s es ℓ Γ p res.
+Lemma apply_proj_elem_terminate: ∀ s r expr Γ p, ∃ res,
+  apply_proj_elem s r expr Γ p res.
 Admitted.
+
+Lemma apply_proj_in_relation_terminate: ∀ s r ℓ Γ p,
+  ∃ res, apply_proj_in_relation s r ℓ Γ p res.
+Proof.
+  intros s r.
+  refine (
+    fix proof ℓ Γ p :=
+      (*
+        Interestingly `induction n eqn: H` tactic messes up the dependent variables;
+        we instead use refine to do the induction.
+      *)
+      match ℓ as ℓ' return ℓ = ℓ' → _ with
+      | nil => fun _ => _
+      | hd :: tl => fun _ => _
+      end eq_refl
+  ).
+  - exists (Some (nil, Γ, p)). econstructor; eauto.
+  - destruct (apply_proj_elem_terminate s r hd Γ p).
+    destruct x as [ [ [r' Γ'] p' ] |] eqn: Hx1.
+    + specialize proof with (ℓ := tl) (Γ := Γ') (p := p').
+      destruct proof.
+      destruct x0 as [ [ [r'' Γ''] p''] |] eqn: Hx2.
+      * pose (col := (eq_sym eq_refl ♯
+                      (determine_schema_concat s hd tl ♯
+                        relation_product (determine_schema s (project (hd :: nil)))
+                            (determine_schema s (project tl)) (fst r') r''))).
+        exists (Some (col, Γ'', p'')).
+        specialize E_ApplyElemOk with (r := r) (ℓ := ℓ) (hd := hd) (tl := tl) (hd' := r') (tl' := r'') (Γ := Γ) (Γ' := Γ') (Γ'' := Γ'') (p := p) (p' := p') (p'' := p'') (proj_case := e).
+        intros. subst.
+        eapply H1; eauto.
+      * exists None. eapply E_ApplyElemErrTail; eauto.
+    + exists None. eapply E_ApplyElemErrHead; eauto.
+Qed.
+
+Lemma apply_proj_in_env_terminate: ∀ s es ℓ Γ p,
+  normalized (project ℓ) →
+  ∃ res, apply_proj_in_env s es ℓ Γ p res.
+Proof.
+  intros. destruct es as [ [ [ r a ] b ] c].
+  destruct (apply_proj_in_relation_terminate s r ℓ Γ p).
+  destruct x as [ [ [r' Γ'] p' ] |].
+  - exists (Some ((r', a, b, nil), Γ', p')). econstructor; eauto.
+  - exists None. econstructor; eauto.
+Qed.
 
 (*
   @param s The schema of the relation.
@@ -1075,10 +1117,6 @@ Inductive step_config: (config * operator) → config → Prop :=
 where "'⟦' c op '⟧' '⇓' '⟦' c' '⟧'" := (step_config (c, op) c').
 Hint Constructors step_config: core.
 
-Theorem operator_returns_result: ∀ db db' Γ Γ' β β' p p' o,
-  ¬ (⟦ (⟨ db Γ β p ⟩) o ⟧ ⇓ ⟦ ⟨ db' Γ' β' p' ⟩ ⟧) .
-Admitted.
-
 (* For Hongbo: can you help me prove this theorem? *)
 Theorem operator_deterministic: ∀ c o c1 c2, 
   ⟦ c o ⟧ ⇓ ⟦ c1 ⟧ →
@@ -1094,13 +1132,69 @@ Proof.
     + inversion H13. subst. discriminate.
     + inversion H13. subst. rewrite H14 in H6. inversion H6.
     + inversion H12. subst. discriminate.
-  - inversion H0; inversion H; subst; auto; try discriminate; try inversion H12; subst.
-    + destruct H8; subst.
-      * specialize IHo1 with (c2 := (config_output (relation_output s r') (⟨ db' Γ' β' p' ⟩))).
-        apply IHo1 in H5. inversion H5. assumption.
-      * specialize IHo2 with (c2 := (config_output (relation_output s r'') (⟨ db'' Γ'' β'' p'' ⟩))).
-        apply IHo2 in H7. inversion H7. assumption.
-    + 
+  - destruct c1; destruct c2.
+    + reflexivity.
+    + inversion H0; subst; try discriminate.
+    + inversion H; subst; try discriminate.
+      * inversion H0; subst; try discriminate.
+      * destruct H7; subst.
+        -- inversion H0; subst.
+           specialize IHo1 with (c1 := (config_output (relation_output s r') (⟨ db' Γ' β' p' ⟩))) (c2 := config_error).
+           apply IHo1 in H9.
+           ++ discriminate.
+           ++ assumption.
+        -- inversion H0; subst.
+           specialize IHo2 with (c1 := config_error) (c2 := (config_output (relation_output s r'') (⟨ db'' Γ'' β'' p'' ⟩))).
+           apply IHo2 in H11.
+           ++ discriminate.
+           ++ assumption.
+      * inversion H0; subst; try discriminate.
+        inversion H8. subst.
+        (* The contradiction occurs when s1 ≠ s2 where s = s1 ∧ s = s2. *)
+        specialize IHo1 with (c1 := (config_output (relation_output s1 r') (⟨ db' Γ' β' p' ⟩)))
+                             (c2 := (config_output (relation_output s r'0) (⟨ db'0 Γ'0 β'0 p'0 ⟩))).
+        specialize IHo2 with (c1 := (config_output (relation_output s2 r'') (⟨ db'' Γ'' β'' p'' ⟩)))
+                             (c2 := (config_output (relation_output s r''0) (⟨ db''0 Γ''0 β''0 p''0 ⟩))).
+        apply IHo2 in H7. inversion H7. subst.
+        apply IHo1 in H5. inversion H5. subst.
+        -- exfalso. apply H9. reflexivity.
+        -- assumption.
+        -- assumption.
+    + inversion H; subst; try discriminate.
+    + inversion H0; subst; try discriminate.
+    + inversion H; subst; try discriminate.
+    + inversion H0; subst; try discriminate.
+      * inversion H; subst; try discriminate.
+      * destruct H7; subst.
+        -- inversion H; subst; try discriminate.
+           specialize IHo1 with (c1 := (config_output (relation_output s r') (⟨ db' Γ' β' p' ⟩))) (c2 := config_error).
+           apply IHo1 in H9.
+           ++ discriminate.
+           ++ assumption.
+        -- inversion H; subst.
+           specialize IHo2 with (c1 := config_error) (c2 := (config_output (relation_output s r'') (⟨ db'' Γ'' β'' p'' ⟩))).
+           apply IHo2 in H11.
+           ++ discriminate.
+           ++ assumption.
+      * inversion H; subst; try discriminate.
+        inversion H8. subst.
+        (* The contradiction occurs when s1 ≠ s2 where s = s1 ∧ s = s2. *)
+        specialize IHo1 with (c1 := (config_output (relation_output s1 r') (⟨ db' Γ' β' p' ⟩)))
+                             (c2 := (config_output (relation_output s r'0) (⟨ db'0 Γ'0 β'0 p'0 ⟩))).
+        specialize IHo2 with (c1 := (config_output (relation_output s2 r'') (⟨ db'' Γ'' β'' p'' ⟩)))
+                             (c2 := (config_output (relation_output s r''0) (⟨ db''0 Γ''0 β''0 p''0 ⟩))).
+        apply IHo2 in H7. inversion H7. subst.
+        apply IHo1 in H5. inversion H5. subst.
+        -- exfalso. apply H9. reflexivity.
+        -- assumption.
+        -- assumption.
+    + inversion H0; subst; try discriminate.
+    + inversion H; inversion H0; subst; try discriminate.
+      * inversion H8. subst. inversion H4. subst. assumption.
+      * inversion H16. subst.
+        specialize IHo2 with (c1 := (config_output (relation_output s0 r''0) (⟨ db''0 Γ''0 β''0 p''0 ⟩)))
+                             (c2 := (config_output (relation_output s r'') (⟨ db'' Γ'' β'' p'' ⟩))).
+        (* TODO. *)
 
 Admitted.
  
@@ -1145,16 +1239,10 @@ Proof.
     + exists config_error. econstructor; try eauto.
     + exists config_error. econstructor; try eauto.
     + exists config_error. econstructor; try eauto.
-    + specialize (operator_returns_result) with
-        (db := d) (db' := d0) (Γ := c) (Γ' := c0) (β := b) (β' := b0) (p := p) (p' := p0) (o := o1).
-      intros. intuition.
-    + specialize (operator_returns_result) with
-        (db := d) (db' := d0) (Γ := c) (Γ' := c0) (β := b) (β' := b0) (p := p) (p' := p0) (o := o1).
-      intros. intuition.
+    + inversion H0; subst; try discriminate.
+    + inversion H0; subst; try discriminate.
     + exists config_error. econstructor; try eauto.
-    + specialize (operator_returns_result) with
-        (db := d) (db' := d0) (Γ := c) (Γ' := c0) (β := b) (β' := b0) (p := p) (p' := p0) (o := o2).
-      intros. intuition.
+    + inversion H1; subst; try discriminate.
     + destruct r, r0, x, x0; subst.
       * inversion H1; subst; try discriminate.
       * inversion H0; subst; try discriminate.
@@ -1214,6 +1302,7 @@ Proof.
       * destruct x.
         -- inversion H0; subst; try discriminate.
         -- destruct (apply_proj_in_env_terminate s (r, nil, nil, nil) pl c p0).
+           eapply normalize_is_normalized. symmetry. eauto.
            destruct x as [ [ [e' Γ''] p'']|].
            ++ (* Some. *)
              pose (r'' := env_get_relation _ e').

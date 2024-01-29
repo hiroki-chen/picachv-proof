@@ -88,14 +88,15 @@ Inductive label_transition_valid: ∀ s, relation s → Policy.context → Polic
     Should we start from empty environment? Or this condition is unnecessary?
  *)
 Theorem secure_query:
-  ∀ c c' s db db' Γ Γ' β β' p p' o r,
-    c = ⟨ db Γ β p ⟩ ∧ config_valid c →
-    ⟦ c o ⟧ ⇓ ⟦ config_error ⟧ ∨ 
-    (c' = config_output (relation_output s r) (⟨ db' Γ' β' p' ⟩) →
+  ∀ c db Γ β p o,
+  c = ⟨ db Γ β p ⟩ ∧ config_valid c →
+  ⟦ c o ⟧ ⇓ ⟦ config_error ⟧ ∨
+    (∃ s c' db' Γ' β' p' r, 
+        c' = config_output (relation_output s r) (⟨ db' Γ' β' p' ⟩) →
       ⟦ c o ⟧ ⇓ ⟦ c' ⟧ ∧ label_transition_valid s r Γ Γ' p' ∧ budget_bounded β').
 Proof.
   induction o; intros; destruct H.
-  (* - right.
+  - right.
     exists nil, (config_output (relation_output nil nil) c), db, Γ, β, p, nil. split.
     + specialize E_Empty with
       (c := c) (c' := config_output (relation_output nil nil) c) (db := db) (Γ := Γ) (β := β) (p := p).
@@ -153,6 +154,26 @@ Proof.
         -- inversion H2; subst; try discriminate.
         -- inversion H1; subst; try discriminate.
         -- inversion H1; subst; try discriminate.
-        -- right.  *)
+        -- right.
+          (* Now we need to discuss the equality of two schemas. *)
+          destruct (list_eq_dec attribute_eq_dec s s0).
+          ++ subst.
+            pose (merged_p := merge_env p0 p1).
+            pose (merged_Γ := merge_env c c0).
+            pose (merged_β := calculate_budget b b0).
+            exists s0, (config_output (relation_output _ (r ++ r0)) (⟨ d0 merged_Γ merged_β merged_p ⟩)),
+                   d0, merged_Γ, merged_β, merged_p, (r ++ r0).
+            intros. split.
+            ** econstructor; eauto.
+            ** split.
+              --- destruct s0 eqn: Hs0; destruct (r ++ r0) eqn: Hr.
+                +++ constructor. auto.
+                +++ constructor. auto.
+                +++ eapply valid_env.
+                  *** intuition. discriminate.
+                  *** eauto.
+                  *** constructor.
+                +++ (* Introduce the existential variable from hypothesis. *)
+            
 
 Admitted.

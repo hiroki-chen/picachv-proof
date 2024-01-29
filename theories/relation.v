@@ -824,6 +824,7 @@ Inductive relation_join_by_prv: ∀ s1 s2 join_by, relation s1 → relation s2 �
 
 Lemma relation_join_by_prv_terminate: ∀ s1 s2 join_by r1 r2 Γ1 Γ2 ε1 ε2 p1 p2, ∃ res,
   relation_join_by_prv s1 s2 join_by r1 r2 Γ1 Γ2 ε1 ε2 p1 p2 res.
+Proof.
 Admitted.
 
 (* =================== Some Test Cases ==================== *)
