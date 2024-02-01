@@ -33,6 +33,13 @@ Definition relation_np (s: schema) := fbag (Tuple.tuple_np (♭ s)).
 Definition relation (s: schema) := fbag (Tuple.tuple (♭ s)).
 Hint Unfold relation: core.
 
+(* Experimental: a columnar data store. *)
+Fixpoint dataframe (s: schema): Type :=
+  match s with
+  | nil => unit
+  | (bt, _) :: t => (fbag (type_to_coq_type bt * nat) * dataframe t)%type
+  end.
+
 (*
   [database] represents an abstract database that consists of a collection of relations. This type is defined inductively
   because schemas are different, in which case we cannot use a list (type should be the smae) to represent a database.
@@ -696,11 +703,6 @@ Definition tuple_concat_by s1 s2 join_by
     exact (Some (result, (cell_id_lhs, cell_id_rhs, comid))).
 Defined.
 
-Lemma tuple_concat_by_same_len: ∀ s1 s2 join_by res lhs rhs id_lhs id_rhs com,
-  tuple_concat_by s1 s2 join_by lhs rhs = Some (res, (id_lhs, id_rhs, com)) →
-  List.length id_lhs = List.length id_rhs.
-Admitted.
-
 Inductive join_policy: list nat → list nat → list nat → Policy.context → Policy.context →
   option Policy.context → Prop :=
   | join_policy_nil_l: ∀ l com Γ1 Γ2, join_policy nil l com Γ1 Γ2 (Some (merge_env Γ1 Γ2))
@@ -798,32 +800,75 @@ Inductive relation_join_by_prv_helper: ∀ s1 s2 join_by, Tuple.tuple (♭ s1) �
 Inductive relation_join_by_prv: ∀ s1 s2 join_by, relation s1 → relation s2 →
   Policy.context → Policy.context → budget → budget → prov_ctx → prov_ctx →
   option (relation (output_schema_join_by s1 s2 join_by) * Policy.context * budget * prov_ctx) → Prop :=
-  | E_RelationJoinSchemaNilL: ∀ s join_by r1 r2 Γ1 Γ2 ε1 ε2 p1 p2,
-      relation_join_by_prv s nil join_by r1 r2 Γ1 Γ2 ε1 ε2 p1 p2
+  | E_RelationJoinSchemaNil: ∀ s1 s2 join_by r1 r2 Γ1 Γ2 ε1 ε2 p1 p2,
+      s1 = nil ∨ s2 = nil →
+      relation_join_by_prv s1 s2 join_by r1 r2 Γ1 Γ2 ε1 ε2 p1 p2
       (Some (nil, nil, nil, nil))
-  | E_RelationJoinSchemaNilR: ∀ s join_by r1 r2 Γ1 Γ2 ε1 ε2 p1 p2,
-      relation_join_by_prv nil s join_by r1 r2 Γ1 Γ2 ε1 ε2 p1 p2
+  | E_RelationJoinNil: ∀ s1 s2 join_by r1 r2 Γ1 Γ2 ε1 ε2 p1 p2,
+      r1 = nil ∨ r2 = nil →
+      relation_join_by_prv s1 s2 join_by r1 r2 Γ1 Γ2 ε1 ε2 p1 p2
       (Some (nil, nil, nil, nil))
-  | E_RelationJoinNilL: ∀ s1 s2 join_by r Γ1 Γ2 ε1 ε2 p1 p2,
-      relation_join_by_prv s1 s2 join_by nil r Γ1 Γ2 ε1 ε2 p1 p2
-      (Some (nil, nil, nil, nil))
+  | E_RelationJoinConsErr: ∀ s1 s2 join_by r1 r2 hd tl
+                            Γ1 Γ2
+                            (* TODO: Join budget? *)
+                            ε1 ε2
+                            p1 p2, 
+      s1 ≠ nil ∧ s2 ≠ nil →
+      r1 = hd :: tl →
+      relation_join_by_prv_helper s1 s2 join_by hd r2 Γ1 Γ2 ε1 ε2 p1 p2 None ∨
+      relation_join_by_prv s1 s2 join_by tl r2 Γ1 Γ2 ε1 ε2 p1 p2 None →
+      relation_join_by_prv s1 s2 join_by r1 r2 Γ1 Γ2 ε1 ε2 p1 p2 None
   | E_RelationJoinConsOk: ∀ s1 s2 join_by r1 r2 r_hd r_cons r_out hd tl
                             Γ1 Γ2 Γ_hd Γ_cons Γ_out
                             (* TODO: Join budget? *)
                             ε1 ε2 ε_hd ε_cons ε_out
                             p1 p2 p_hd p_cons p_out,
       s1 ≠ nil ∧ s2 ≠ nil →
-      r1 = hd :: tl  →
-      relation_join_by_prv_helper s1 s2 join_by hd r2 Γ1 Γ2 ε1 ε2 p1 p2 (Some (r_hd, Γ_hd, ε_hd, p_out)) →
+      r1 = hd :: tl →
+      relation_join_by_prv_helper s1 s2 join_by hd r2 Γ1 Γ2 ε1 ε2 p1 p2 (Some (r_hd, Γ_hd, ε_hd, p_hd)) →
       relation_join_by_prv s1 s2 join_by tl r2 Γ1 Γ2 ε1 ε2 p1 p2 (Some (r_cons, Γ_cons, ε_cons, p_cons)) →
       Γ_out = merge_env Γ_hd Γ_cons →
       p_out = merge_env p_hd p_cons →
-      ε_out = calculate_budget ε1 ε2 →
+      ε_out = calculate_budget ε_hd ε_cons →
+      r_out = r_hd ++ r_cons →
       relation_join_by_prv s1 s2 join_by r1 r2 Γ1 Γ2 ε1 ε2 p1 p2 (Some (r_out, Γ_out, ε_out, p_out))
 .
 
+Lemma relation_join_by_prv_helper_terminate: ∀ s1 s2 join_by t1 t2 Γ1 Γ2 ε1 ε2 p1 p2,
+  ∃ res, relation_join_by_prv_helper s1 s2 join_by t1 t2 Γ1 Γ2 ε1 ε2 p1 p2 res.
+Proof.
+Admitted.
+
 Lemma relation_join_by_prv_terminate: ∀ s1 s2 join_by r1 r2 Γ1 Γ2 ε1 ε2 p1 p2, ∃ res,
   relation_join_by_prv s1 s2 join_by r1 r2 Γ1 Γ2 ε1 ε2 p1 p2 res.
+Proof.
+  intros. destruct s1; destruct s2.
+  - exists (Some (nil, nil, nil, nil)). constructor; intuition.
+  - exists (Some (nil, nil, nil, nil)). constructor; intuition.
+  - exists (Some (nil, nil, nil, nil)). constructor; intuition.
+  - induction r1; destruct r2.
+    + exists (Some (nil, nil, nil, nil)). apply E_RelationJoinNil. intuition.
+    + exists (Some (nil, nil, nil, nil)). apply E_RelationJoinNil. intuition.
+    + exists (Some (nil, nil, nil, nil)). apply E_RelationJoinNil. intuition.
+    + destruct (relation_join_by_prv_helper_terminate (a :: s1) (a0 :: s2) join_by a1 (t :: r2) Γ1 Γ2 ε1 ε2 p1 p2).
+      destruct IHr1.
+      destruct x; destruct x0.
+      * destruct p as[ [ [ r_hd Γ_hd ] β_hd ] p_hd ].
+        destruct p0 as[ [ [ r_cons Γ_cons ] β_cons ] p_cons ].
+        pose (merge_env Γ_hd Γ_cons) as Γ_out.
+        pose (merge_env p_hd p_cons) as p_out.
+        pose (calculate_budget β_hd β_cons) as β_out.
+        exists (Some (r_hd ++ r_cons, Γ_out, β_out, p_out)).
+        eapply E_RelationJoinConsOk; intuition; try discriminate; auto.
+      * exists None. econstructor; intuition; try discriminate; auto.
+      * exists None. econstructor; intuition; try discriminate; auto.
+      * exists None. econstructor; intuition; try discriminate; auto.
+Qed.
+
+Lemma relation_join_by_prv_deterministic: ∀ s1 s2 join_by r1 r2 Γ1 Γ2 ε1 ε2 p1 p2 res1 res2,
+  relation_join_by_prv s1 s2 join_by r1 r2 Γ1 Γ2 ε1 ε2 p1 p2 res1 →
+  relation_join_by_prv s1 s2 join_by r1 r2 Γ1 Γ2 ε1 ε2 p1 p2 res2 →
+  res1 = res2.
 Proof.
 Admitted.
 

@@ -3,6 +3,7 @@ Require Import Arith.Compare.
 Require Import Lia.
 Require Import List.
 Require Import ListSet.
+Require Import Logic.Eqdep_dec Logic.EqdepFacts.
 Require Import String.
 Require Import Unicode.Utf8.
 
@@ -148,6 +149,7 @@ Definition determine_schema (s: schema) (pl: project_list): schema :=
           end) ℓ
   end.
 
+
 Lemma determine_schema_length_le: ∀ s pl,
   List.length (determine_schema s (project pl)) ≤ List.length pl.
 Proof.
@@ -173,6 +175,12 @@ Proof.
       * simpl in *. destruct (determine_bt_from_expr s s0_1);
         destruct (determine_bt_from_expr s s0_2);
         try destruct (type_matches b0 b1); simpl in *; lia.
+Qed.
+
+Lemma determine_schema_nil: ∀ s,
+  determine_schema s (project nil) = nil.
+Proof.
+  intros. simpl. auto.
 Qed.
 
 Lemma determine_schema_concat: ∀ s a ℓ,
@@ -553,6 +561,14 @@ Inductive config: Type :=
   | config_output: relation_wrapped → config → config
 .
 
+Lemma config_output_eq_spec: ∀ r1 r2 c1 c2,
+  config_output r1 c1 = config_output r2 c2 ↔ r1 = r2 ∧ c1 = c2.
+Proof.
+  split; intros.
+  - inversion H. subst. auto.
+  - destruct H. subst. auto.
+Qed.
+
 Notation "'⟨' db Γ β p '⟩'":= (config_ok db Γ β p)
   (at level 10, db at next level, Γ at next level, β at next level, p at next level, no associativity).
 
@@ -738,12 +754,12 @@ Inductive apply_proj_elem s (r: relation s) (expr: simple_atomic_expression * st
         (* A transportation for type casting. *)
         res = (schema_const_ty_eq expr ty val name s case_expr ♯ res_tmp) →
         apply_proj_elem s r expr Γ p (Some (res, ty, Γ, p))
-  | E_ApplyUnaryFunctionColumnError: ∀ Γ p op arg n name 
+  (* | E_ApplyUnaryFunctionColumnError: ∀ Γ p op arg n name 
                           (case_expr: expr = (simple_atomic_expression_func_unary op arg, name)),
 
         arg = (simple_atomic_expression_column n) →
         n > List.length s →
-        apply_proj_elem s r expr Γ p None
+        apply_proj_elem s r expr Γ p None *)
   | E_ApplyUnaryFunctionColumnOk: ∀ Γ p op arg n (ok: n < List.length s) name tuples res_tmp res_tmp' res Γ' p'
                           (case_expr: expr = (simple_atomic_expression_func_unary op arg, name))
                           (case_arg: arg = (simple_atomic_expression_column n)),
@@ -792,18 +808,20 @@ Inductive apply_proj_in_relation s (r: relation s) (ℓ: list (simple_atomic_exp
   | E_Unnormalized: ∀ Γ p,
       ¬ (normalized (project ℓ)) →
       apply_proj_in_relation s r ℓ Γ p None
-  | E_EmptyProjectList: ∀ Γ p,
-      ℓ = nil →
+  | E_ApplyElemEmpty: ∀ Γ p,
+      ℓ = nil ∨ r = nil →
       apply_proj_in_relation s r ℓ Γ p (Some (nil, Γ, p))
-  | E_ApplyElemErrHead: ∀ Γ p  hd tl (proj_case: ℓ = hd :: tl),
+  | E_ApplyElemErrHead: ∀ Γ p hd tl (proj_case: ℓ = hd :: tl),
+      r ≠ nil →
       apply_proj_elem s r hd Γ p None →
       apply_proj_in_relation s r ℓ Γ p None
-  | E_ApplyElemErrTail: ∀ hd r' Γ Γ' p p' tl (proj_case: ℓ = hd :: tl),
-      apply_proj_elem s r hd Γ p (Some (r', Γ', p')) →
+  | E_ApplyElemErrTail: ∀ hd Γ Γ' p p' tl (proj_case: ℓ = hd :: tl),
+      r ≠ nil →
       apply_proj_in_relation s r tl Γ' p' None →
       apply_proj_in_relation s r ℓ Γ p None
   | E_ApplyElemOk: ∀ Γ Γ' Γ'' p p' p'' hd hd' tl tl' col
                 (proj_case: ℓ = hd :: tl),
+      r ≠ nil →
       apply_proj_elem s r hd Γ p (Some (hd', Γ', p')) →
       apply_proj_in_relation s r tl Γ' p' (Some (tl', Γ'', p'')) →
       (*
@@ -841,13 +859,16 @@ Inductive apply_proj_in_env s (es: ℰ s) (ℓ: list (simple_atomic_expression *
 
 Lemma apply_proj_elem_terminate: ∀ s r expr Γ p, ∃ res,
   apply_proj_elem s r expr Γ p res.
+Proof.
 Admitted.
 
 Lemma apply_proj_in_relation_terminate: ∀ s r ℓ Γ p,
   ∃ res, apply_proj_in_relation s r ℓ Γ p res.
 Proof.
   intros s r.
-  refine (
+  destruct r.
+  - intros. exists (Some (nil, Γ, p)). econstructor; eauto.
+  - refine (
     fix proof ℓ Γ p :=
       (*
         Interestingly `induction n eqn: H` tactic messes up the dependent variables;
@@ -858,22 +879,22 @@ Proof.
       | hd :: tl => fun _ => _
       end eq_refl
   ).
-  - exists (Some (nil, Γ, p)). econstructor; eauto.
-  - destruct (apply_proj_elem_terminate s r hd Γ p).
-    destruct x as [ [ [r' Γ'] p' ] |] eqn: Hx1.
-    + specialize proof with (ℓ := tl) (Γ := Γ') (p := p').
-      destruct proof.
-      destruct x0 as [ [ [r'' Γ''] p''] |] eqn: Hx2.
-      * pose (col := (eq_sym eq_refl ♯
-                      (determine_schema_concat s hd tl ♯
-                        relation_product (determine_schema s (project (hd :: nil)))
-                            (determine_schema s (project tl)) (fst r') r''))).
-        exists (Some (col, Γ'', p'')).
-        specialize E_ApplyElemOk with (r := r) (ℓ := ℓ) (hd := hd) (tl := tl) (hd' := r') (tl' := r'') (Γ := Γ) (Γ' := Γ') (Γ'' := Γ'') (p := p) (p' := p') (p'' := p'') (proj_case := e).
-        intros. subst.
-        eapply H1; eauto.
-      * exists None. eapply E_ApplyElemErrTail; eauto.
-    + exists None. eapply E_ApplyElemErrHead; eauto.
+    + exists (Some (nil, Γ, p)). econstructor; eauto.
+    + destruct (apply_proj_elem_terminate s (t :: r) hd Γ p).
+      destruct x as [ [ [r' Γ'] p' ] |] eqn: Hx1.
+      * specialize proof with (ℓ := tl) (Γ := Γ') (p := p').
+        destruct proof.
+        destruct x0 as [ [ [r'' Γ''] p''] |] eqn: Hx2.
+        -- pose (col := (eq_sym eq_refl ♯
+                        (determine_schema_concat s hd tl ♯
+                          relation_product (determine_schema s (project (hd :: nil)))
+                              (determine_schema s (project tl)) (fst r') r''))).
+          exists (Some (col, Γ'', p'')).
+          specialize E_ApplyElemOk with (r := (t :: r)) (ℓ := ℓ) (hd := hd) (tl := tl) (hd' := r') (tl' := r'') (Γ := Γ) (Γ' := Γ') (Γ'' := Γ'') (p := p) (p' := p') (p'' := p'') (proj_case := e).
+          intros. subst.
+          eapply H1; eauto. red. intros. discriminate.
+        -- exists None. eapply E_ApplyElemErrTail; eauto. red. intros. discriminate.
+      * exists None. eapply E_ApplyElemErrHead; eauto. red. intros. discriminate.
 Qed.
 
 Lemma apply_proj_in_env_terminate: ∀ s es ℓ Γ p,
@@ -983,16 +1004,17 @@ Inductive step_config: (config * operator) → config → Prop :=
       c = ⟨ db Γ β p ⟩ →
       ⟦ c o ⟧ ⇓ ⟦ c' ⟧ →
       c' = config_output (relation_output s r) c →
-      r = nil ∧ s = nil →
+      r = nil ∨ s = nil →
       ⟦ c (operator_project pl o) ⟧ ⇓ ⟦ c' ⟧
   (* If the operator returns a valid relation, we can then apply projection. *)
   | E_ProjOk: ∀ c c' c'' db db' pl pl' s'
-                Γ Γ' Γ'' β β' β'' p p' p'' r' r'' o e e' ,
+                Γ Γ' Γ'' β β' p p' p'' r' r'' o e e' ,
       c = ⟨ db Γ β p ⟩ →
       (* We first evaluate the inner operator and get the output. *)
       ⟦ c o ⟧ ⇓ ⟦ c' ⟧ →
       (* We then destruct the output. *)
       c' = config_output (relation_output s' r') (⟨ db' Γ' β' p' ⟩) →
+      s' ≠ nil ∧ r' ≠ nil →
       (* `pl'` means a normalized project list. *)
       let norm := normalize_project_list s' pl in
         norm = project pl' →
@@ -1002,7 +1024,7 @@ Inductive step_config: (config * operator) → config → Prop :=
         apply_proj_in_env s' e pl' Γ p (Some (e', Γ'', p'')) →
         (* Then after we applied the project, we extract the results from the environment `e'`. *)
         r'' = env_get_relation _ e' →
-        c'' = config_output (relation_output _ r'') (⟨ db' Γ'' β'' p'' ⟩) →
+        c'' = config_output (relation_output _ r'') (⟨ db' Γ'' β' p'' ⟩) →
         ⟦ c (operator_project pl o) ⟧ ⇓ ⟦ c'' ⟧
   (*
      If the operator returns a valid environment, we can then apply projection. Then if the
@@ -1194,8 +1216,103 @@ Proof.
       * inversion H16. subst.
         specialize IHo2 with (c1 := (config_output (relation_output s0 r''0) (⟨ db''0 Γ''0 β''0 p''0 ⟩)))
                              (c2 := (config_output (relation_output s r'') (⟨ db'' Γ'' β'' p'' ⟩))).
-        (* TODO. *)
+        specialize IHo1 with (c1 := (config_output (relation_output s0 r'0) (⟨ db'0 Γ'0 β'0 p'0 ⟩)))
+                             (c2 := (config_output (relation_output s r') (⟨ db' Γ' β' p' ⟩))).
+        intuition. inversion H3. inversion H1. subst.
+        (*
+          Now we have some weird equality over dependent types:
+                    existT P p a = existT P p b
+                    ^^^^^: ∀ [A : Type] (P : A → Type) (x : A), P x → {x : A & P x}
+        
+           The reason for that is that the index `s` appears on the types of `a`
+           and `b` cannot be generalized when typing the equality `a = b` which
+           is required for `inversion` tactic.
+           
+           `existT` is the constructor for the dependent pair type, which "hides"
+           the index and allows Coq to avoid this problem in the general case,
+           producing a statement which is slightly similar.
 
+           `inj_pair2_eq_dec` is a lemma that allows us to `inversion` equality of
+            dependent pairs given that the index is decidable.
+         *)
+
+        apply inj_pair2_eq_dec in H5, H13; subst; try reflexivity;
+        apply list_eq_dec; apply attribute_eq_dec.
+  - inversion H0; inversion H; subst; try discriminate; auto.
+    + intuition; subst.
+      * apply (IHo1 config_error) in H13. discriminate. assumption.
+      * apply (IHo2 config_error) in H15. discriminate. assumption.
+    + inversion H14. subst. clear H14.
+      apply (IHo1 (config_output (relation_output s1 r') (⟨ db' Γ' β' p' ⟩))) in H15.
+      apply (IHo2 (config_output (relation_output s2 r'') (⟨ db'' Γ'' β'' p'' ⟩))) in H17.
+      inversion H15. inversion H17. subst.
+      apply inj_pair2_eq_dec in H3, H12; subst. 
+      * eapply relation_join_by_prv_deterministic with (res2 := None) in H20.
+        inversion H20. assumption.
+      * apply list_eq_dec; apply attribute_eq_dec.
+      * apply list_eq_dec; apply attribute_eq_dec.
+      * assumption.
+      * assumption.
+    + intuition; inversion H15; subst.
+      * apply (IHo1 config_error) in H5. discriminate. assumption.
+      * apply (IHo2 config_error) in H7. discriminate. assumption.
+    + inversion H15. subst. clear H15.
+      apply (IHo1 (config_output (relation_output s1 r') (⟨ db' Γ' β' p' ⟩))) in H16.
+      apply (IHo2 (config_output (relation_output s2 r'') (⟨ db'' Γ'' β'' p'' ⟩))) in H18.
+      inversion H16. inversion H18. subst.
+      apply inj_pair2_eq_dec in H3, H12; subst. 
+      * eapply relation_join_by_prv_deterministic with (res2 := None) in H10.
+        inversion H10. assumption.
+      * apply list_eq_dec; apply attribute_eq_dec.
+      * apply list_eq_dec; apply attribute_eq_dec.
+      * assumption.
+      * assumption.
+    + apply (IHo1 (config_output (relation_output s1 r') (⟨ db' Γ' β' p' ⟩))) in H16.
+      apply (IHo2 (config_output (relation_output s2 r'') (⟨ db'' Γ'' β'' p'' ⟩))) in H18.
+      inversion H15. inversion H18. inversion H16. subst.
+      apply inj_pair2_eq_dec in H9, H19. subst.
+      eapply relation_join_by_prv_deterministic with (res2 := (Some (rout, Γout, βout, pout))) in H21.
+      * inversion H21. subst. reflexivity.
+      * assumption.
+      * apply list_eq_dec; apply attribute_eq_dec.
+      * apply list_eq_dec; apply attribute_eq_dec.
+      * assumption.
+      * assumption.
+  - inversion H0; inversion H; subst; intuition; auto; subst; try discriminate.
+    + inversion H12. subst. clear H12.
+      apply (IHo (config_output (relation_output s nil) (⟨ db0 Γ0 β0 p1 ⟩))) in H13.
+      inversion H13. subst. apply inj_pair2_eq_dec in H6. subst.
+      * inversion H18; subst. exfalso. apply H2. auto.
+      * apply list_eq_dec; apply attribute_eq_dec.
+      * assumption.
+    + inversion H12. subst. clear H12.
+      apply (IHo (config_output (relation_output nil r) (⟨ db0 Γ0 β0 p1 ⟩))) in H13.
+      inversion H13. subst. apply inj_pair2_eq_dec in H6. subst. clear H13.
+      inversion H18; subst. inversion H10. subst. clear H10.
+      inversion H11; subst. intuition.
+      * exfalso. apply H1. auto.
+      * exfalso. apply H1. auto.
+      * assumption.
+    + inversion H12. subst. clear H12.
+      inversion H18; subst. inversion H2. subst. clear H2.
+      apply (IHo (config_output (relation_output s nil) (⟨ db0 Γ0 β0 p1 ⟩))) in H13.
+      inversion H13. subst. apply inj_pair2_eq_dec in H6. subst.
+      inversion H3; subst.
+      * contradiction.
+      * exfalso. apply H2. auto.
+      * exfalso. apply H2. auto.
+      * apply list_eq_dec; apply attribute_eq_dec.
+      * assumption.
+    + inversion H12. subst. clear H12.
+      apply (IHo (config_output (relation_output nil r) (⟨ db0 Γ0 β0 p1 ⟩))) in H13.
+      inversion H13. subst. apply inj_pair2_eq_dec in H3. subst. clear H13.
+      inversion H18; subst.
+      * inversion H2. subst. clear H2.
+        inversion H3; subst.
+        -- contradiction.
+        -- inversion H4. subst. simpl in *. intuition.
+        -- (* This triggers again the `tl`'s case; how do we "induction" on it? *)
+    
 Admitted.
  
 (* This theorem ensures the "sanity" of the semantics to ensure that operators won't get stuck.
@@ -1305,9 +1422,13 @@ Proof.
            eapply normalize_is_normalized. symmetry. eauto.
            destruct x as [ [ [e' Γ''] p'']|].
            ++ (* Some. *)
-             pose (r'' := env_get_relation _ e').
-             pose (c'' := config_output (relation_output _ r'') (⟨ d0 Γ'' b p'' ⟩)).
-             exists c''. eapply E_ProjOk; eauto; try reflexivity.
+             destruct s; destruct r.
+             ** (* todo. *)
+             ** (* todo. *)
+             ** (* todo. *)
+             ** pose (r'' := env_get_relation _ e').
+                pose (c'' := config_output (relation_output _ r'') (⟨ d0 Γ'' b p'' ⟩)).
+                exists c''. eapply E_ProjOk; eauto; try reflexivity.
            ++ exists config_error. eapply E_ProjError; eauto.
         -- inversion H0; subst; try discriminate.
   - intuition. exists (config_output r c). eapply E_Already; eauto.
@@ -1347,7 +1468,7 @@ Example simple_project_list' := project (
   nil
 ).
 Example simple_project_list_res' := normalize_project_list sample_schema simple_project_list'.
-Example simple_project_list_res_correct' : simple_project_list_res' = simple_project_list_res'.
 Proof.
+Example simple_project_list_res_correct' : simple_project_list_res' = simple_project_list_res'.
   reflexivity.
 Qed.
