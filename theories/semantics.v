@@ -908,6 +908,13 @@ Proof.
   - exists None. econstructor; eauto.
 Qed.
 
+Lemma apply_proj_in_relation_deterministic: ∀ s r ℓ Γ p res1 res2,
+  apply_proj_in_relation s r ℓ Γ p res1 →
+  apply_proj_in_relation s r ℓ Γ p res2 →
+  res1 = res2.
+Proof.
+Admitted.
+
 (*
   @param s The schema of the relation.
   @param Policy.context The policy context.
@@ -1000,10 +1007,10 @@ Inductive step_config: (config * operator) → config → Prop :=
       c' = config_error →
       ⟦ c (operator_relation n) ⟧ ⇓ ⟦ c' ⟧
   (* If the operator returns an empty relation, we do nothing. *)
-  | E_ProjEmpty: ∀ c c' db Γ β p s r o pl,
+  | E_ProjEmpty: ∀ c c' db db' Γ Γ' β β' p p' s r o pl,
       c = ⟨ db Γ β p ⟩ →
-      ⟦ c o ⟧ ⇓ ⟦ c' ⟧ →
-      c' = config_output (relation_output s r) c →
+      ⟦ c o ⟧ ⇓ ⟦ c' ⟧ → 
+      c' = config_output (relation_output s r) (⟨ db' Γ' β' p' ⟩) →
       r = nil ∨ s = nil →
       ⟦ c (operator_project pl o) ⟧ ⇓ ⟦ c' ⟧
   (* If the operator returns a valid relation, we can then apply projection. *)
@@ -1016,8 +1023,7 @@ Inductive step_config: (config * operator) → config → Prop :=
       c' = config_output (relation_output s' r') (⟨ db' Γ' β' p' ⟩) →
       s' ≠ nil ∧ r' ≠ nil →
       (* `pl'` means a normalized project list. *)
-      let norm := normalize_project_list s' pl in
-        norm = project pl' →
+        normalize_project_list s' pl = project pl' →
         (* We manually construct an evaluation environment for sub-expressions. *)
         e = (r', nil, nil, nil) →
         (* We then apply projection inside the environment. *)
@@ -1037,9 +1043,9 @@ Inductive step_config: (config * operator) → config → Prop :=
       ⟦ c o ⟧ ⇓ ⟦ c' ⟧ →
       (* We then destruct the output. *)
       c' = config_output (relation_output s' r') (⟨ db' Γ' β' p' ⟩) →
+      s' ≠ nil ∧ r' ≠ nil →
       (* `pl'` means a normalized project list. *)
-      let norm := normalize_project_list s' pl in
-        norm = project pl' →
+      normalize_project_list s' pl = project pl' →
         (* We manually construct an evaluation environment for sub-expressions. *)
         e = (r', nil, nil, nil) →
         (* We then apply projection inside the environment. *)
@@ -1280,13 +1286,13 @@ Proof.
       * assumption.
   - inversion H0; inversion H; subst; intuition; auto; subst; try discriminate.
     + inversion H12. subst. clear H12.
-      apply (IHo (config_output (relation_output s nil) (⟨ db0 Γ0 β0 p1 ⟩))) in H13.
+      apply (IHo (config_output (relation_output s nil) (⟨ db' Γ' β' p' ⟩))) in H13.
       inversion H13. subst. apply inj_pair2_eq_dec in H6. subst.
       * inversion H18; subst. exfalso. apply H2. auto.
       * apply list_eq_dec; apply attribute_eq_dec.
       * assumption.
     + inversion H12. subst. clear H12.
-      apply (IHo (config_output (relation_output nil r) (⟨ db0 Γ0 β0 p1 ⟩))) in H13.
+      apply (IHo (config_output (relation_output nil r) (⟨ db' Γ' β' p' ⟩))) in H13.
       inversion H13. subst. apply inj_pair2_eq_dec in H6. subst. clear H13.
       inversion H18; subst. inversion H10. subst. clear H10.
       inversion H11; subst. intuition.
@@ -1294,25 +1300,69 @@ Proof.
       * exfalso. apply H1. auto.
       * assumption.
     + inversion H12. subst. clear H12.
-      inversion H18; subst. inversion H2. subst. clear H2.
-      apply (IHo (config_output (relation_output s nil) (⟨ db0 Γ0 β0 p1 ⟩))) in H13.
-      inversion H13. subst. apply inj_pair2_eq_dec in H6. subst.
-      inversion H3; subst.
-      * contradiction.
-      * exfalso. apply H2. auto.
+      apply (IHo (config_output (relation_output s nil) (⟨ db' Γ' β' p' ⟩))) in H13.
+      inversion H13. subst.  apply inj_pair2_eq_dec in H6. subst. clear H13.
       * exfalso. apply H2. auto.
       * apply list_eq_dec; apply attribute_eq_dec.
       * assumption.
     + inversion H12. subst. clear H12.
-      apply (IHo (config_output (relation_output nil r) (⟨ db0 Γ0 β0 p1 ⟩))) in H13.
-      inversion H13. subst. apply inj_pair2_eq_dec in H3. subst. clear H13.
-      inversion H18; subst.
-      * inversion H2. subst. clear H2.
-        inversion H3; subst.
+      apply (IHo (config_output (relation_output nil r) (⟨ db' Γ' β' p' ⟩))) in H13; try assumption.
+      inversion H13. subst. apply inj_pair2_eq_dec in H6; subst; clear H13;
+      try (apply list_eq_dec; apply attribute_eq_dec).
+      exfalso. apply H1. auto.
+    + inversion H17. subst. clear H17.
+      apply (IHo (config_output (relation_output s' r') (⟨ db' Γ' β' p' ⟩))) in H18.
+      inversion H18. subst. apply inj_pair2_eq_dec in H6. subst. clear H18.
+      * exfalso. apply H2. auto.
+      * apply list_eq_dec; apply attribute_eq_dec.
+      * assumption.
+    + inversion H17. subst. clear H17.
+      apply (IHo (config_output (relation_output s' r') (⟨ db' Γ' β' p' ⟩))) in H18.
+      inversion H18. subst. apply inj_pair2_eq_dec in H6. subst. clear H18.
+      * exfalso. apply H1. auto.
+      * apply list_eq_dec; apply attribute_eq_dec.
+      * assumption.
+    + inversion H17. subst. clear H17.
+      apply (IHo (config_output (relation_output s' r') (⟨ db' Γ' β' p' ⟩))) in H18.
+      inversion H18. subst. apply inj_pair2_eq_dec in H9. subst. clear H18.
+      * inversion H10. inversion H23. subst. inversion H14. inversion H24. subst.
+        clear H14. clear H24.
+        inversion H15; subst.
+        rewrite H8 in H21. inversion H21. subst. intuition; subst.
+        -- eapply apply_proj_in_relation_deterministic with (res1 := Some (r'1, Γ''0, p''0)) in H15.
+          ++ inversion H15. subst. reflexivity.
+          ++ assumption.
+        -- inversion H15; subst; intuition.
+          ++ discriminate.
+          ++ rewrite H8 in H21. inversion H21. subst.
+             inversion proj_case. subst. 
+             eapply apply_proj_in_relation_deterministic with (res1 := (Some (r'1, Γ''0, p''0))) in H15.
+            ** inversion H15. subst. auto.
+            ** assumption.
+      * apply list_eq_dec; apply attribute_eq_dec.
+      * assumption.
+      (* Similar proof. *)
+    + inversion H17. subst. clear H17.
+      apply (IHo (config_output (relation_output s' r') (⟨ db' Γ' β' p' ⟩))) in H18.
+      inversion H18. subst. apply inj_pair2_eq_dec in H9. subst. clear H18.
+      * inversion H24. inversion H7. subst. clear H7.
+        inversion H9. subst.
         -- contradiction.
-        -- inversion H4. subst. simpl in *. intuition.
-        -- (* This triggers again the `tl`'s case; how do we "induction" on it? *)
-    
+        -- rewrite H8 in H21. inversion H21. subst.
+           (* Seems to be stuck on the induction case. *)
+           inversion H10. inversion H18. subst. clear H18.
+           eapply apply_proj_in_relation_deterministic with (res1 := None) in H19.
+           ++ discriminate.
+           ++ assumption.
+        -- rewrite H8 in H21. inversion H21. subst.
+           inversion H10. inversion H18. subst. clear H18.
+           eapply apply_proj_in_relation_deterministic with (res1 := None) in H19.
+           ++ discriminate.
+           ++ assumption.
+      * apply list_eq_dec; apply attribute_eq_dec.
+      * assumption.
+    + apply (IHo config_error) in H5. discriminate. assumption.
+    + (* TODO. Similar proofs. *)
 Admitted.
  
 (* This theorem ensures the "sanity" of the semantics to ensure that operators won't get stuck.
@@ -1361,7 +1411,7 @@ Proof.
     + exists config_error. econstructor; try eauto.
     + inversion H1; subst; try discriminate.
     + destruct r, r0, x, x0; subst.
-      * inversion H1; subst; try discriminate.
+      * inversion H0; subst; try discriminate.
       * inversion H0; subst; try discriminate.
       * inversion H0; subst; try discriminate.
       * inversion H1; subst; try discriminate.
@@ -1420,16 +1470,19 @@ Proof.
         -- inversion H0; subst; try discriminate.
         -- destruct (apply_proj_in_env_terminate s (r, nil, nil, nil) pl c p0).
            eapply normalize_is_normalized. symmetry. eauto.
-           destruct x as [ [ [e' Γ''] p'']|].
-           ++ (* Some. *)
-             destruct s; destruct r.
-             ** (* todo. *)
-             ** (* todo. *)
-             ** (* todo. *)
-             ** pose (r'' := env_get_relation _ e').
-                pose (c'' := config_output (relation_output _ r'') (⟨ d0 Γ'' b p'' ⟩)).
-                exists c''. eapply E_ProjOk; eauto; try reflexivity.
-           ++ exists config_error. eapply E_ProjError; eauto.
+           destruct s eqn: Hs; destruct r eqn: Hr.
+           ++ exists (config_output (relation_output nil nil) (⟨ d0 c0 b0 p1 ⟩)).
+                 eapply E_ProjEmpty; eauto.
+           ++ exists (config_output (relation_output nil r) (⟨ d0 c0 b0 p1 ⟩)).
+                 eapply E_ProjEmpty; subst; eauto.
+           ++ exists (config_output (relation_output s nil) (⟨ d0 c0 b0 p1 ⟩)).
+                 eapply E_ProjEmpty; subst; eauto.
+           ++ destruct x as [ [ [e' Γ''] p'']|].
+              ** pose (r'' := env_get_relation _ e').
+                 pose (c'' := config_output (relation_output _ r'') (⟨ d0 Γ'' b0 p'' ⟩)).
+              exists c''. eapply E_ProjOk; eauto; try reflexivity.
+              split; red; intros; try discriminate.
+           ** exists config_error. eapply E_ProjError; eauto. split; intuition; discriminate.
         -- inversion H0; subst; try discriminate.
   - intuition. exists (config_output r c). eapply E_Already; eauto.
   - contradiction.
@@ -1467,8 +1520,9 @@ Example simple_project_list' := project (
   (stf_id (simple_atomic_expression_column 2), "baz"%string) ::
   nil
 ).
+
 Example simple_project_list_res' := normalize_project_list sample_schema simple_project_list'.
-Proof.
 Example simple_project_list_res_correct' : simple_project_list_res' = simple_project_list_res'.
+Proof.
   reflexivity.
 Qed.

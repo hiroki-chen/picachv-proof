@@ -173,7 +173,7 @@ Proof.
                   *** intuition. discriminate.
                   *** eauto.
                   *** constructor.
-                +++ (* Introduce the existential variable from hypothesis. *)
+                +++ (* Introduce te existential variable from hypothesis. *)
             
 
 Admitted.
