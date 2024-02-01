@@ -334,11 +334,15 @@ Definition subset_neq {A: Type} (s1 s2: set A) : Prop :=
   s1 ⊆ s2 ∧ ~(set_eq s1 s2).
 Notation "s1 '⊂' s2" := (subset_neq s1 s2) (at level 70).
 
+Lemma set_eq_implies: ∀ {A: Type} (a: A) (ℓ ℓ': set A),
+  set_eq (a :: ℓ) (a :: ℓ') → set_eq ℓ ℓ'.
+Proof.
+Admitted.
+
 Lemma set_eq_dec: ∀ (A: Type) (dec: ∀ (a1 a2: A), {a1 = a2} + {a1 ≠ a2}) (ℓ ℓ': set A),
   {set_eq ℓ ℓ'} + {~(set_eq ℓ ℓ')}.
 Proof.
-  intros.
-  induction ℓ; induction ℓ'.
+  induction ℓ; induction ℓ'; intros.
   - left. red. split; intuition.
   - destruct IHℓ'.
     + right. red. intros.
@@ -359,6 +363,14 @@ Proof.
       intros. inversion H2.
     }
     apply H2. apply H0. apply in_eq.
+  - intuition.
+    destruct (dec a a0) .
+    + subst. destruct (IHℓ ℓ').
+      * left. red. intuition.
+        simpl in *. intuition.
+        -- right. unfold set_eq in *. simpl in *. intuition.
+        -- simpl. unfold set_eq in *. simpl in *. intuition.
+      * right. intros. apply f. apply set_eq_implies in H. assumption.
 Admitted.
 
 Lemma list_eq_dec: ∀ {A: Type} (dec: ∀ (a1 a2: A), {a1 = a2} + {a1 ≠ a2}) (ℓ ℓ': list A),

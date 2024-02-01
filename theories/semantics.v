@@ -1362,7 +1362,42 @@ Proof.
       * apply list_eq_dec; apply attribute_eq_dec.
       * assumption.
     + apply (IHo config_error) in H5. discriminate. assumption.
-    + (* TODO. Similar proofs. *)
+    + (*For this case, the proof looks similar. *)
+      inversion H15. subst. clear H15.
+      apply (IHo (config_output (relation_output s nil) (⟨ db'0 Γ'0 β'0 p'0 ⟩))) in H5.
+      inversion H5. subst. apply inj_pair2_eq_dec in H6. subst. clear H5.
+      * inversion H11. subst. inversion H4. subst. clear H4. inversion H5.
+        -- contradiction.
+        -- subst. exfalso. apply H4. auto.
+        -- subst. exfalso. apply H4. auto.
+      * apply inj_pair2_eq_dec in H6. subst. clear H5.
+        apply list_eq_dec; apply attribute_eq_dec.
+        apply list_eq_dec; apply attribute_eq_dec.
+      * assumption.
+    + inversion H15. subst. clear H15.
+      apply (IHo (config_output (relation_output nil r) (⟨ db'0 Γ'0 β'0 p'0 ⟩))) in H5.
+      inversion H5. subst. apply inj_pair2_eq_dec in H6. subst. clear H5.
+      * inversion H11. subst. inversion H4. subst. clear H4. inversion H5.
+        -- contradiction.
+        -- subst. exfalso. apply H1. auto.
+        -- exfalso. apply H1. auto.
+      * apply inj_pair2_eq_dec in H6. subst. clear H5.
+        apply list_eq_dec; apply attribute_eq_dec.
+        apply list_eq_dec; apply attribute_eq_dec.
+      * assumption.
+    + inversion H15. subst. clear H15.
+      apply (IHo (config_output (relation_output s' r') (⟨ db' Γ' β' p' ⟩))) in H16.
+      inversion H16. subst. apply inj_pair2_eq_dec in H9. subst. 
+      rewrite H8 in H19. inversion H19. subst. clear H19.
+      * inversion H11. inversion H21. inversion H7. inversion H20. subst.
+        clear H7. clear H20.
+        apply apply_proj_in_relation_deterministic with (res1 := None) in H22.
+        -- discriminate.
+        -- assumption.
+      * apply list_eq_dec; apply attribute_eq_dec.
+      * assumption.
+    + apply (IHo config_error) in H11. discriminate. assumption.
+  - (* TODO: Proof for `select`. *)
 Admitted.
  
 (* This theorem ensures the "sanity" of the semantics to ensure that operators won't get stuck.
