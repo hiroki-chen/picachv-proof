@@ -1,0 +1,58 @@
+#! /usr/bin/env python
+
+import argparse
+import os
+import coloredlogs
+import logging
+import subprocess
+
+coloredlogs.install()
+
+
+def check(allow_admitted: bool) -> None:
+    dir = os.path.join(os.curdir, "theories")
+
+    # Change the current working directory to the given path.
+    os.chdir(dir)
+
+    errs = []
+    for file in os.listdir():
+        if file.endswith(".v"):
+            logging.info("Checking file: " + file)
+            with open(os.path.join(os.getcwd(), file)) as f:
+                data = [data.strip() for data in f.readlines()]
+
+                if "Admitted." in data:
+                    errs.append(file)
+    if errs:
+        if allow_admitted:
+            logging.warning(
+                "Admitted proofs found in files: "
+                + ", ".join(errs)
+                + ", since you allow admitted proofs, this may result in incorrect proofs.",
+            )
+        else:
+            logging.error("Admitted proofs are not allowed: " + ", ".join(errs))
+            exit(1)
+
+    if not os.path.exists("Makefile"):
+        subprocess.run("coq_makefile", "-f", "_CoqProject", "-o", "Makefile")
+
+    res = subprocess.run("make", stderr=subprocess.PIPE, stdout=subprocess.PIPE)
+
+    if res.returncode != 0:
+        logging.error("Proof check failed.")
+        logging.error(res.stderr)
+    else:
+        logging.info("Proof check succeeded.")
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--allow_admitted", help="Allow admitted proofs.", action="store_true"
+    )
+
+    args = parser.parse_args()
+
+    check(args.allow_admitted)
