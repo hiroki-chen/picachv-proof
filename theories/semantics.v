@@ -747,13 +747,13 @@ Inductive apply_proj_elem s (r: relation s) (expr: simple_atomic_expression * st
 
         apply_proj_elem s r expr Γ p None
     (* If we are doing projection of constants, we directly construct a column without any modification. *)
-  | E_ApplyConst: ∀ Γ p ty val name res_tmp res
+  | E_ApplyConst: ∀ Γ p ty val name res
                  (case_expr: expr = (simple_atomic_expression_const ty val, name)),
 
-        res_tmp = (tuple_of_length_n ((ty, name) :: nil) (List.length r) ((val, 0), tt)) →
-        (* A transportation for type casting. *)
-        res = (schema_const_ty_eq expr ty val name s case_expr ♯ res_tmp) →
-        apply_proj_elem s r expr Γ p (Some (res, ty, Γ, p))
+        let res_tmp := (tuple_of_length_n ((ty, name) :: nil) (List.length r) ((val, 0), tt)) in
+          (* A transportation for type casting. *)
+          res = (schema_const_ty_eq expr ty val name s case_expr ♯ res_tmp) →
+          apply_proj_elem s r expr Γ p (Some (res, ty, Γ, p))
   (* | E_ApplyUnaryFunctionColumnError: ∀ Γ p op arg n name 
                           (case_expr: expr = (simple_atomic_expression_func_unary op arg, name)),
 
@@ -815,8 +815,9 @@ Inductive apply_proj_in_relation s (r: relation s) (ℓ: list (simple_atomic_exp
       r ≠ nil →
       apply_proj_elem s r hd Γ p None →
       apply_proj_in_relation s r ℓ Γ p None
-  | E_ApplyElemErrTail: ∀ hd Γ Γ' p p' tl (proj_case: ℓ = hd :: tl),
+  | E_ApplyElemErrTail: ∀ hd hd' Γ Γ' p p' tl (proj_case: ℓ = hd :: tl),
       r ≠ nil →
+      apply_proj_elem s r hd Γ p (Some (hd', Γ', p')) →
       apply_proj_in_relation s r tl Γ' p' None →
       apply_proj_in_relation s r ℓ Γ p None
   | E_ApplyElemOk: ∀ Γ Γ' Γ'' p p' p'' hd hd' tl tl' col
@@ -860,6 +861,23 @@ Inductive apply_proj_in_env s (es: ℰ s) (ℓ: list (simple_atomic_expression *
 Lemma apply_proj_elem_terminate: ∀ s r expr Γ p, ∃ res,
   apply_proj_elem s r expr Γ p res.
 Proof.
+  intros s r expr.
+  refine (
+    (fix proof expr :=
+    match expr as expr' return expr = expr' → _ with
+    | (simple_atomic_expression_const ty val, name) => _
+    | (simple_atomic_expression_column n, name) => _
+    | _ => _
+    end eq_refl) expr
+  ); intros.
+  - pose (res' := (tuple_of_length_n ((ty, name) :: nil) (List.length r) ((val, 0), tt))).
+    pose (res := schema_const_ty_eq expr ty val name s H ♯ res').
+    subst. exists (Some (res, ty, Γ, p)).
+
+    eapply E_ApplyConst with (val := val) (name := name) (case_expr := eq_refl); eauto.
+  - destruct (lt_dec n (List.length s)) eqn: Hn.
+    + 
+
 Admitted.
 
 Lemma apply_proj_in_relation_terminate: ∀ s r ℓ Γ p,
@@ -908,12 +926,71 @@ Proof.
   - exists None. econstructor; eauto.
 Qed.
 
+Lemma apply_proj_elem_deterministic: ∀ s r expr Γ p res1 res2,
+  apply_proj_elem s r expr Γ p res1 →
+  apply_proj_elem s r expr Γ p res2 →
+  res1 = res2.
+Proof.
+Admitted.
+
 Lemma apply_proj_in_relation_deterministic: ∀ s r ℓ Γ p res1 res2,
+  normalized (project ℓ) →
   apply_proj_in_relation s r ℓ Γ p res1 →
   apply_proj_in_relation s r ℓ Γ p res2 →
   res1 = res2.
 Proof.
-Admitted.
+  induction ℓ; intros; inversion H0; subst; try contradiction; try discriminate.
+  - inversion H1; subst; try contradiction; try discriminate; auto.
+  - subst. intuition.
+    + discriminate.
+    + subst. inversion H1; subst; try contradiction. intuition.
+  - inversion H1; intuition; subst; try discriminate.
+    inversion proj_case. subst.
+    inversion H3. subst. simpl in H. destruct H. contradiction.
+  - inversion proj_case. subst.
+    inversion H1; subst; intuition; try discriminate; try contradiction.
+    inversion proj_case0. subst.
+    eapply apply_proj_elem_deterministic with (res1 := (Some (hd', Γ', p'))) in H6; try assumption.
+    inversion H6; subst.
+    specialize IHℓ with (Γ := Γ'0) (p := p'0).
+    assert (None = (Some (tl', Γ'', p''))).
+    {
+      apply IHℓ. apply normalized_cons in H. destruct H. assumption. assumption. assumption.
+    }
+    discriminate.
+  - inversion proj_case. subst.
+    inversion H1; subst; intuition; try discriminate; try contradiction.
+    inversion proj_case0. subst.
+    eapply apply_proj_elem_deterministic with (res1 := (Some (hd', Γ', p'))) in H6; try assumption.
+    inversion H6; subst.
+    inversion proj_case0. subst.
+    eapply apply_proj_elem_deterministic with (res1 := (Some (hd', Γ', p'))) in H6; try assumption.
+    inversion H6; subst.  
+    + specialize IHℓ with (Γ := Γ'0) (p := p'0).
+      assert (None = (Some (tl', Γ'', p''))).
+      {
+        apply IHℓ. apply normalized_cons in H. destruct H. assumption. assumption. assumption.
+      }
+      discriminate.
+    + inversion proj_case0. subst.
+      eapply apply_proj_elem_deterministic with (res1 := (Some (hd', Γ', p'))) in H6; try assumption.
+      inversion H6; subst.
+      specialize IHℓ with (Γ := Γ'0) (p := p'0).
+      assert ((Some (tl'0, Γ''0, p''0)) = (Some (tl', Γ'', p''))).
+      {
+        apply IHℓ. apply normalized_cons in H. destruct H. assumption. assumption. assumption.
+      }
+      inversion H8. subst.
+      (* 
+          We prove that there is only one proof of x=x, i.e eq_refl x. This holds if the equality upon the set of x is decidable. A corollary of this theorem is the equality of the right projections of two equal dependent pairs.
+
+          In HoTT, propositional equality does not necessarily means "judgmental equality" since the former
+          just implies that there is a path from a to b, but the latter means that the points should be
+          the same. All we can do (if A is not decidable) is show that there is a homotopy between these
+          two paths.
+       *)
+      repeat f_equal. apply Eqdep.EqdepTheory.UIP.
+Qed.
 
 (*
   @param s The schema of the relation.
@@ -956,7 +1033,18 @@ Inductive eval_expr_in_relation:
 Lemma eval_expr_in_relation_terminate: ∀ s Γ β p f r, ∃ res,
   eval_expr_in_relation s Γ β p f r res.
 Proof.
-Admitted.
+  intros.
+  induction r.
+  - exists (Some (nil, Γ, β, p)). econstructor; eauto.
+  - destruct IHr. destruct x.
+    + (* Some *)
+      destruct p0 as [ [ [tl Γ'] β'] p' ].
+      destruct (formula_denote (♭ s) f a) eqn: Hdenote.
+      * exists (Some (a :: tl, Γ', β', p')). econstructor; eauto.
+      * exists (Some (tl, Γ', β', p')). econstructor; eauto.
+    + (* None *)
+      inversion H.
+Qed.
 
 (* 
   `step_config` is an inductive type representing the transition rules for configurations. 
@@ -1332,12 +1420,14 @@ Proof.
         -- eapply apply_proj_in_relation_deterministic with (res1 := Some (r'1, Γ''0, p''0)) in H15.
           ++ inversion H15. subst. reflexivity.
           ++ assumption.
+          ++ assumption.
         -- inversion H15; subst; intuition.
           ++ discriminate.
           ++ rewrite H8 in H21. inversion H21. subst.
              inversion proj_case. subst. 
              eapply apply_proj_in_relation_deterministic with (res1 := (Some (r'1, Γ''0, p''0))) in H15.
             ** inversion H15. subst. auto.
+            ** assumption.
             ** assumption.
       * apply list_eq_dec; apply attribute_eq_dec.
       * assumption.
@@ -1354,10 +1444,12 @@ Proof.
            eapply apply_proj_in_relation_deterministic with (res1 := None) in H19.
            ++ discriminate.
            ++ assumption.
-        -- rewrite H8 in H21. inversion H21. subst.
-           inversion H10. inversion H18. subst. clear H18.
-           eapply apply_proj_in_relation_deterministic with (res1 := None) in H19.
+           ++ assumption.
+        -- rewrite H8 in H21. inversion H21; subst.
+           inversion H10. inversion H19. subst. clear H19.
+           eapply apply_proj_in_relation_deterministic with (res1 := None) in H20.
            ++ discriminate.
+           ++ assumption.
            ++ assumption.
       * apply list_eq_dec; apply attribute_eq_dec.
       * assumption.
@@ -1393,6 +1485,7 @@ Proof.
         clear H7. clear H20.
         apply apply_proj_in_relation_deterministic with (res1 := None) in H22.
         -- discriminate.
+        -- assumption.
         -- assumption.
       * apply list_eq_dec; apply attribute_eq_dec.
       * assumption.

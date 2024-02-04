@@ -5,6 +5,7 @@ import os
 import coloredlogs
 import logging
 import subprocess
+import time
 
 coloredlogs.install()
 
@@ -48,6 +49,13 @@ def check(allow_admitted: bool) -> None:
 
 
 if __name__ == "__main__":
+    # Check if Coq is installed.
+    res = subprocess.call(["which", "coqc"])
+    if res != 0:
+        logging.error("Coq is not installed.")
+        exit(1)
+    logging.info("COQC found.")
+
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--allow_admitted", help="Allow admitted proofs.", action="store_true"
@@ -55,4 +63,6 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
+    t = time.time()
     check(args.allow_admitted)
+    logging.info("Time taken: " + str(time.time() - t) + "s.")
