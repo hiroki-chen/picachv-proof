@@ -788,10 +788,8 @@ Inductive apply_proj_elem s (r: relation s) (expr: simple_atomic_expression * st
         apply_unary_function_in_relation _ (type_matches ♯ arg') op Γ' p' (Some (res_tmp, Γ'', p'')) →
         res = (eq_sym (unary_function_preserves_type' expr s op arg name case_expr) ♯ (eq_sym type_matches ♯ res_tmp)) →
         apply_proj_elem s r expr Γ p (Some (res, ty2, Γ'', p''))
-  | E_ApplyUnaryFunctionOtherErr1: ∀ Γ p op arg ty n name
-                            (case_expr: expr = (simple_atomic_expression_func_unary op arg, name))
-                            (* We can prove this later. *)
-                            (type_matches: determine_schema s (project (<< (arg); (name) >> :: nil)) = (ty :: nil)),
+  | E_ApplyUnaryFunctionOtherErr1: ∀ Γ p op arg n name
+                            (case_expr: expr = (simple_atomic_expression_func_unary op arg, name)),
         arg ≠ (simple_atomic_expression_column n) →
         (* We first recursively evaluate the argument. *)
         apply_proj_elem s r (arg, name) Γ p None →
@@ -820,7 +818,9 @@ Inductive apply_proj_elem s (r: relation s) (expr: simple_atomic_expression * st
         apply_proj_elem s r (arg, name) Γ p (Some (arg', ty2, Γ', p')) →
         (fst ty1) ≠ ty2 →
         apply_proj_elem s r expr Γ p None
-    (* TODO: Add other cases. *)
+  | E_Nonimplemented: ∀ Γ p op arg1 arg2 name
+                     (case_expr: expr = (simple_atomic_expression_func_binary op arg1 arg2, name)),
+      apply_proj_elem s r expr Γ p None
   .
 
 (*
@@ -905,20 +905,29 @@ Lemma apply_proj_elem_terminate: ∀ s r expr Γ p, ∃ res,
 Proof.
   intros s r expr.
   refine (
-    (fix proof expr :=
-    match expr as expr' return expr = expr' → _ with
-    | (simple_atomic_expression_const ty val, name) => _
-    | (simple_atomic_expression_column n, name) => _
-    | _ => _
-    end eq_refl) expr
-  ); intros.
-  - pose (res' := (tuple_of_length_n ((ty, name) :: nil) (List.length r) ((val, 0), tt))).
-    pose (res := schema_const_ty_eq expr ty val name s H ♯ res').
+    match expr with
+    | (exp, name) =>
+        (*
+          The trick is to split the tuple into just its left part to pass the termination checker.
+
+          This is because reducing *only* the left part of the tuple will not convince Coq that
+          the function will terminate; but we do not use the right part, so we just throw it away
+          and do not use it as a principle argument of recursion.
+        *)
+        (fix proof e :=
+          match e as e' return e = e' → _ with 
+            | simple_atomic_expression_const ty val => _
+            | simple_atomic_expression_column n => _
+            | _ => _
+          end eq_refl) exp
+    end); intros.
+  - pose (res := (schema_const_ty_eq (simple_atomic_expression_const ty val, name) ty val name s eq_refl ♯
+      tuple_of_length_n (<< (ty); (name) >> :: nil) (Datatypes.length r) (val, 0, tt))).
     subst. exists (Some (res, ty, Γ, p)).
 
     eapply E_ApplyConst with (val := val) (name := name) (case_expr := eq_refl); eauto.
   - exists None. eapply E_ApplyColumn; eauto.
-  - specialize proof with (expr := (s0, y0)) (Γ := Γ) (p := p).
+  - specialize proof with (e := s0) (Γ := Γ) (p := p).
     destruct proof.
     destruct x.
     + (* Some *)
@@ -931,20 +940,20 @@ Proof.
          destruct p0 as [ [ r'' Γ'' ] p''].
          destruct (basic_type_eq_dec ty bt).
          ++ simpl in *. specialize E_ApplyUnaryFunctionOtherOk with
-                (expr := (simple_atomic_expression_func_unary u (simple_atomic_expression_const bt t), y0))
+                (expr := (simple_atomic_expression_func_unary u (simple_atomic_expression_const bt t), name))
                 (case_expr := eq_refl)
-                (ty1 := (bt, y0))
+                (ty1 := (bt, name))
                 (ty2 := ty)
                 (n := 0)
                 (res_tmp := r'').
             intros.
-            exists (Some (((eq_sym (unary_function_preserves_type' (simple_atomic_expression_func_unary u (simple_atomic_expression_const bt t), y0) s u (simple_atomic_expression_const bt t) y0 eq_refl) ♯ (eq_sym eq_refl ♯ r''))), ty, Γ'', p'')).
+            exists (Some (((eq_sym (unary_function_preserves_type' (simple_atomic_expression_func_unary u (simple_atomic_expression_const bt t), name) s u (simple_atomic_expression_const bt t) name eq_refl) ♯ (eq_sym eq_refl ♯ r''))), ty, Γ'', p'')).
             eapply H2; eauto.
             ** red. intros. discriminate.
             ** simpl in *. auto.
 
         ++ (* Type mismatch! *)
-          exists None. eapply E_ApplyUnaryFunctionOtherTypeMismatch with (ty1 := (bt, y0)) (n := 0); eauto.
+          exists None. eapply E_ApplyUnaryFunctionOtherTypeMismatch with (ty1 := (bt, name)) (n := 0); eauto.
           red. intros. discriminate.
       -- (* None *)
           exists None. eapply E_ApplyUnaryFunctionOtherErr2 with (n := 0); eauto.
@@ -955,13 +964,13 @@ Proof.
             destruct (apply_unary_function_in_relation_terminate _ tuple u Γ p).
             destruct x as [ [ [res_tmp Γ_tmp ] p_tmp ] | ].
             ++ (* Some *)
-               pose ((nth_type_eq s n ok (simple_atomic_expression_column n) y0 eq_refl) ♯ res_tmp) as res_tmp'.
-               pose (eq_sym (unary_function_preserves_type' (simple_atomic_expression_func_unary u (simple_atomic_expression_column n), y0) s u (simple_atomic_expression_column n) y0 eq_refl) ♯ res_tmp') as res.
+               pose ((nth_type_eq s n ok (simple_atomic_expression_column n) name eq_refl) ♯ res_tmp) as res_tmp'.
+               pose (eq_sym (unary_function_preserves_type' (simple_atomic_expression_func_unary u (simple_atomic_expression_column n), name) s u (simple_atomic_expression_column n) name eq_refl) ♯ res_tmp') as res.
                exists (Some (res, (fst (nth s n ok)), Γ_tmp, p_tmp)).
                eapply E_ApplyUnaryFunctionColumnOk with (tuples := tuple) (n := n) (arg := simple_atomic_expression_column n)(ok := ok) (res_tmp := res_tmp) (res_tmp' := res_tmp') (case_arg := eq_refl) (case_expr := eq_refl); eauto.
             ++ exists None. eapply E_ApplyUnaryFunctionColumnError2 with (n := n); eauto.
           -- exists None. eapply E_ApplyUnaryFunctionColumnError with (n := n); eauto. lia.
-      * simpl in r'. clear H0.
+      * 
       (* Let us again use dependent pattern matching. *)
         refine (
           match determine_bt_from_expr s s0 as t return t = determine_bt_from_expr s s0 -> _ with
@@ -969,18 +978,93 @@ Proof.
             | Some ty => _
           end eq_refl
         ); intros.
-        -- rewrite <- H0 in r'.
+        -- assert (<< ty ; name >> :: nil = determine_schema s (
+              project (<< (simple_atomic_expression_func_unary u 
+                (simple_atomic_expression_func_unary u0 s0)); (name) >> :: nil))).
+          {
+            simpl. rewrite <- H1. reflexivity.
+          }
           (* Now this tactic type-checks. *)
-          destruct (apply_unary_function_in_relation_terminate _ r' u Γ' p').
+          destruct (apply_unary_function_in_relation_terminate _ (eq_sym H2 ♯ r') u Γ' p').
           destruct x as [ [ [res_tmp Γ_tmp ] p_tmp ] | ].
-          ++
-          (* exists (Some (((eq_sym (unary_function_preserves_type' (simple_atomic_expression_func_unary u (simple_atomic_expression_const bt t), y0) s u (simple_atomic_expression_const bt t) y0 eq_refl) ♯ (eq_sym eq_refl ♯ r''))), ty, Γ'', p'')). add type matches... *)
-          Check unary_function_preserves_type'.
-          exists (Some ((eq_sym (unary_function_preserves_type' (simple_atomic_expression_func_unary u (simple_atomic_expression_func_unary u0 s0), y0) s u (simple_atomic_expression_func_unary u0 s0) y0 eq_refl) ♯ (eq_sym eq_refl ♯ res_tmp)), ty, Γ_tmp, p_tmp)).
-
-           
-
-Admitted.
+          ++ (* Transport the type to make Coq happy. *)
+            destruct (basic_type_eq_dec ty ty0).
+            (* Π (A: U) Π (a b: A) (a = b) → P (a) -> P(b) *)
+            ** exists (Some ((eq_sym (unary_function_preserves_type'
+                  (simple_atomic_expression_func_unary u (simple_atomic_expression_func_unary u0 s0), name) s u
+                    (simple_atomic_expression_func_unary u0 s0) name eq_refl) ♯ (H2 ♯ res_tmp)),
+                      ty, Γ_tmp, p_tmp)).
+             eapply E_ApplyUnaryFunctionOtherOk with (n := 0) (case_expr := eq_refl); eauto.
+              --- red. intros. discriminate.
+              --- subst. auto.
+              --- auto.
+              --- rewrite eq_sym_involutive. auto.
+           ** exists None. eapply E_ApplyUnaryFunctionOtherTypeMismatch; eauto. instantiate (1 := 0).
+              red. intros. discriminate.
+          ++ exists None. eapply E_ApplyUnaryFunctionOtherErr2 with (n := 0); eauto.
+              red. intros. discriminate.
+        -- exists None. eapply E_ApplyUnaryFunctionOtherNoSchema with (n := 0); eauto.
+           red. intros. discriminate.
+      * refine (
+          match determine_bt_from_expr s s0_1 as ty1', determine_bt_from_expr s s0_2 as ty2'
+            return determine_bt_from_expr s s0_1 = ty1' → determine_bt_from_expr s s0_2 = ty2' → _
+          with
+          | Some ty1, Some ty2 =>
+            match type_matches ty1 ty2 as bt return type_matches ty1 ty2 = bt → _ with
+            | true => _
+            | false => _
+            end eq_refl
+          | _, _ => _
+          end eq_refl eq_refl
+        ); intros.
+        -- assert (determine_schema s (project ((simple_atomic_expression_func_binary b s0_1 s0_2, name) :: nil)) = << ty1 ; name >> :: nil).
+        {
+          simpl. rewrite H2. rewrite H3. rewrite H1. reflexivity.
+        }
+        destruct (apply_unary_function_in_relation_terminate _ (H4 ♯ r') u Γ' p').
+        destruct x as [ [ [res_tmp Γ_tmp ] p_tmp ] | ].
+          ++ destruct (basic_type_eq_dec ty ty1).
+            ** exists (Some ((eq_sym (unary_function_preserves_type'
+                  (simple_atomic_expression_func_unary u (simple_atomic_expression_func_binary b s0_1 s0_2), name) s u
+                    ((simple_atomic_expression_func_binary b s0_1 s0_2)) name eq_refl) ♯ (eq_sym H4 ♯ res_tmp)),
+                      ty, Γ_tmp, p_tmp)).
+               eapply E_ApplyUnaryFunctionOtherOk with (n := 0) (case_expr := eq_refl); eauto.
+               --- red. intros. discriminate.
+               --- subst. auto.
+            ** exists None. eapply E_ApplyUnaryFunctionOtherTypeMismatch; eauto. instantiate (1 := 0).
+               red. intros. discriminate.
+         ++ exists None. eapply E_ApplyUnaryFunctionOtherErr2 with (n := 0); eauto.
+              red. intros. discriminate.
+        -- exists None. eapply E_ApplyUnaryFunctionOtherNoSchema; eauto. 
+           simpl. rewrite H2. rewrite H3. rewrite H1. reflexivity. instantiate (1 := 0).
+           red. intros. discriminate.
+        -- exists None. eapply E_ApplyUnaryFunctionOtherNoSchema; eauto. 
+           simpl. rewrite H2. rewrite H1. reflexivity. instantiate (1 := 0).
+           red. intros. discriminate.
+        -- exists None. eapply E_ApplyUnaryFunctionOtherNoSchema; eauto. 
+           simpl. rewrite H1. reflexivity. instantiate (1 := 0).
+           red. intros. discriminate.
+    + (* None *)
+      destruct s0.
+      * exists None. eapply E_ApplyUnaryFunctionOtherErr1; eauto. simpl.
+        instantiate (1 := 0). red. intros. discriminate.
+      * (* `apply_proj_elem` has nothing to do with f(c); we just need to dicuss this case alone. *)
+        destruct (lt_dec n (List.length s)) as [ok | not_ok].
+        -- pose (tuple := extract_column s r n ok).
+           destruct (apply_unary_function_in_relation_terminate _ tuple u Γ p).
+           destruct x as [ [ [res_tmp Γ_tmp ] p_tmp ] | ].
+           ++ pose ((nth_type_eq s n ok (simple_atomic_expression_column n) name eq_refl) ♯ res_tmp) as res_tmp'.
+               pose (eq_sym (unary_function_preserves_type' (simple_atomic_expression_func_unary u (simple_atomic_expression_column n), name) s u (simple_atomic_expression_column n) name eq_refl) ♯ res_tmp') as res.
+               exists (Some (res, (fst (nth s n ok)), Γ_tmp, p_tmp)).
+               eapply E_ApplyUnaryFunctionColumnOk with (tuples := tuple) (n := n) (arg := simple_atomic_expression_column n)(ok := ok) (res_tmp := res_tmp) (res_tmp' := res_tmp') (case_arg := eq_refl) (case_expr := eq_refl); eauto.
+            ++ exists None. eapply E_ApplyUnaryFunctionColumnError2 with (n := n); eauto.
+        -- exists None. eapply E_ApplyUnaryFunctionColumnError with (n := n); eauto. lia.
+      * exists None. eapply E_ApplyUnaryFunctionOtherErr1; eauto. simpl.
+        instantiate (1 := 0). red. intros. discriminate.
+      * exists None. eapply E_ApplyUnaryFunctionOtherErr1; eauto. simpl.
+        instantiate (1 := 0). red. intros. discriminate.
+  - exists None. apply E_Nonimplemented with (op := b) (arg1 := s0) (arg2 := s1) (name := name); eauto.
+Qed.
 
 Lemma apply_proj_in_relation_terminate: ∀ s r ℓ Γ p,
   ∃ res, apply_proj_in_relation s r ℓ Γ p res.

@@ -43,7 +43,7 @@ def check(allow_admitted: bool) -> None:
 
     if res.returncode != 0:
         logging.error("Proof check failed.")
-        logging.error(res.stderr)
+        logging.error("\n" + res.stderr.decode("utf-8"))
     else:
         logging.info("Proof check succeeded.")
 
