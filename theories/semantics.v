@@ -912,7 +912,7 @@ Proof.
 
           This is because reducing *only* the left part of the tuple will not convince Coq that
           the function will terminate; but we do not use the right part, so we just throw it away
-          and do not use it as a principle argument of recursion.
+          and do not use it as a principle argument of recursion. 
         *)
         (fix proof e :=
           match e as e' return e = e' → _ with 
@@ -947,7 +947,10 @@ Proof.
                 (n := 0)
                 (res_tmp := r'').
             intros.
-            exists (Some (((eq_sym (unary_function_preserves_type' (simple_atomic_expression_func_unary u (simple_atomic_expression_const bt t), name) s u (simple_atomic_expression_const bt t) name eq_refl) ♯ (eq_sym eq_refl ♯ r''))), ty, Γ'', p'')).
+            exists (Some (((eq_sym (unary_function_preserves_type' 
+              (simple_atomic_expression_func_unary u (simple_atomic_expression_const bt t), name) s u
+                (simple_atomic_expression_const bt t) name eq_refl) ♯ (eq_sym eq_refl ♯ r''))),
+                  ty, Γ'', p'')).
             eapply H2; eauto.
             ** red. intros. discriminate.
             ** simpl in *. auto.
@@ -1130,9 +1133,11 @@ Proof.
   - subst. intuition.
     + discriminate.
     + subst. inversion H1; subst; try contradiction. intuition.
-  - inversion H1; intuition; subst; try discriminate.
-    inversion proj_case. subst.
-    inversion H3. subst. simpl in H. destruct H. contradiction.
+  - inversion H1; subst; try contradiction; try discriminate; auto.
+    intuition. discriminate.
+    inversion proj_case. subst. inversion proj_case0. subst.
+    eapply apply_proj_elem_deterministic with (res1 := None) in H5; try assumption.
+    discriminate.
   - inversion proj_case. subst.
     inversion H1; subst; intuition; try discriminate; try contradiction.
     inversion proj_case0. subst.
@@ -1168,13 +1173,20 @@ Proof.
       }
       inversion H8. subst.
       (* 
-          We prove that there is only one proof of x=x, i.e eq_refl x. This holds if the equality upon the set of x is decidable. A corollary of this theorem is the equality of the right projections of two equal dependent pairs.
+          We need to leverage Streicher'K theorem in the intensional MLTT version so that we
+          can derive the fact that all equality proofs are essentially identical, i.e.,
 
-          In HoTT, propositional equality does not necessarily means "judgmental equality" since the former
-          just implies that there is a path from a to b, but the latter means that the points should be
-          the same. All we can do (if A is not decidable) is show that there is a homotopy between these
-          two paths.
-       *)
+          ∀ (A: U) ∀ (a b: A) (p q: a = b) → p = q
+
+          This holds only if equality is decidable for type A, so that A degrades into a set.
+          For non-sets that manifest complex high-order groupoid structures, adding K as an
+          axiom will break univalance axiom in HoTT.
+
+          Thus there is a paper discussing pattern matching without K in IFCP'14.
+
+          Cockx, Jesper, Dominique Devriese, and Frank Piessens. "Pattern matching without K."
+          In Proceedings of the 19th ACM SIGPLAN international conference on Functional programming. 2014.
+      *)
       repeat f_equal. apply Eqdep.EqdepTheory.UIP.
 Qed.
 
