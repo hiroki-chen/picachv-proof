@@ -133,6 +133,12 @@ Proof.
   - simpl.  specialize (H a). rewrite H. apply IHl.
 Qed.
 
+Fixpoint bounded_list {A: Type} (l: list A) (idx: list nat): Prop :=
+  match idx with
+  | nil => True
+  | h :: t => h < List.length l ∧ bounded_list l t
+  end.
+
 Definition nth {A: Type} (l: list A) (n: nat): n < List.length l → A.
 refine (
   (fix nth l n :=
@@ -145,6 +151,15 @@ refine (
   - intros. subst. simpl in H1. lia.
   - intros. exact h.
   - intros. subst. apply nth with t n'. simpl in H1. lia.
+Defined.
+
+Definition ntypes {A: Type} (l: list A) (idx: list nat): bounded_list l idx → list A.
+  induction idx; intros.
+  - exact nil.
+  - simpl in *. destruct H.
+    pose (cur := nth l a H).
+    pose (rest := IHidx H0).
+    exact (cur :: rest).
 Defined.
 
 Fixpoint set_nth {A: Type} (l: list A) (n: nat) (a: A): list A :=
@@ -207,6 +222,12 @@ Fixpoint unique_env {A: Type} (l: ctx A): Prop :=
       False
     else
       unique_env t
+  end.
+
+Fixpoint foldl {A B: Type} (f: A → B → A) (a: A) (l: list B): A :=
+  match l with
+  | nil => a
+  | b :: l' => foldl f (f a b) l'
   end.
 
 Fixpoint dedup {A: Type} (l: ctx A) :=

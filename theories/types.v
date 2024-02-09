@@ -89,6 +89,14 @@ Definition type_to_coq_type (t: basic_type): Set :=
   | StringType => string
   end.
 
+Definition value_eq (t1 t2: basic_type) (v1: type_to_coq_type t1) (v2: type_to_coq_type t2) : bool :=
+  match t1, t2 return type_to_coq_type t1 → type_to_coq_type t2 → bool with
+  | IntegerType, IntegerType => Nat.eqb
+  | BoolType, BoolType => Bool.eqb
+  | StringType, StringType => String.eqb
+  | _, _ => λ _ _, false
+  end v1 v2.
+
 (* A helper instance that allows us to perform ordering, equivalence check on types
    that are wrapped by a another layer called `type_to_coq_type`.
 
@@ -144,6 +152,11 @@ Inductive unary_func :=
 
 Inductive binary_func :=
   | binary_function: ∀ty, (type_to_coq_type ty → type_to_coq_type ty → type_to_coq_type ty) → binary_func
+.
+
+Inductive agg_func :=
+  | aggregate_function: ∀ ty1 ty2,
+      (type_to_coq_type ty1 → type_to_coq_type ty2 → type_to_coq_type ty1) → agg_func
 .
 
 Definition get_unary_type (f: unary_func): basic_type :=

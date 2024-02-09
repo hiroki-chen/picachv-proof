@@ -45,6 +45,7 @@ Inductive project_list: Set :=
 Hint Constructors project_list: core.
 
 (*
+
   This function checks whether an expression is properly normalized. For an expression `expr`
   to be normalized, it must satisfy the following conditions:
   * If it is a function application, then either:
@@ -148,7 +149,6 @@ Definition determine_schema (s: schema) (pl: project_list): schema :=
                       end
           end) ℓ
   end.
-
 
 Lemma determine_schema_length_le: ∀ s pl,
   List.length (determine_schema s (project pl)) ≤ List.length pl.
@@ -458,31 +458,31 @@ Proof.
   intros. subst. apply unary_function_preserves_type.
 Qed.
 
+(* `groupby` list is just a list of indices of the original data frame that should be chosen as keys. *)
 Definition groupby_list := (list nat)%type.
-Definition agg_list s := (list (∀ bt, agg_expression s bt))%type.
+Definition agg_list := (list simple_agg_expression)%type.
 
-(* Do we really need `list nat` to represent the lists? *)
-Definition ℰ s := (relation s * list nat * groupby_list * list (Tuple.tuple (♭ s)))%type.
+(* This represents a range of groups within the original data frame. *)
+Definition group := list nat.
+(*
+  A groupby_proxy can be visualized as a pair:
+  
+  +-----------------+-----------------+
+  |   groupby keys  |   data          |
+  +-----------------+-----------------+
+  | Tuple.tuple s   |  data 0         |
+  |                 |  data 1         |
+  |                 |  data 2         |
+  |                 |  data 3         |
+  |                 |  ...            |
+  +-----------------+-----------------+
 
-Definition env_get_relation s (e: ℰ s): relation s :=
-  match e with
-    | (r, _, _, _) => r
-  end.
+  Where:
+  - Tuple.tuple s is the tuple of s, which represents the grouped columns.
+  - group_range represents the range of each group.
+*)
+Definition groupby_proxy s := (Tuple.tuple (♭ s) * group)%type.
 
-Definition env_get_selected s (e: ℰ s): list nat :=
-  match e with
-    | (_, selected, _, _) => selected
-  end.
-
-Definition env_get_groupby s (e: ℰ s): groupby_list :=
-  match e with
-    | (_, _, groupby, _) => groupby
-  end.
-
-Definition env_get_tuples s (e: ℰ s): list (Tuple.tuple (♭ s)) :=
-  match e with
-    | (_, _, _, tuples) => tuples
-  end.
 
 Inductive relation_wrapped: Type :=
   | relation_output: ∀ s, relation s → relation_wrapped
@@ -592,7 +592,7 @@ Inductive operator: Type :=
   | operator_join: operator → operator → operator
   | operator_project: project_list → operator → operator
   | operator_select: ∀ s, formula (♭ s) → operator → operator
-  | operator_grouby_having: ∀ s, groupby_list → agg_list s → formula s → operator → operator
+  | operator_groupby_having: ∀ s, groupby_list → agg_list → formula s → operator → operator
 .
 
 (*
@@ -880,21 +880,6 @@ Inductive apply_proj_in_relation s (r: relation s) (ℓ: list (simple_atomic_exp
           apply_proj_in_relation s r ℓ Γ p (Some (col, Γ'', p''))
 .
 
-Inductive apply_proj_in_env s (es: ℰ s) (ℓ: list (simple_atomic_expression * string)):
-  Policy.context → prov_ctx →
-    option (ℰ (determine_schema s (project ℓ)) * Policy.context * prov_ctx) → Prop :=
-  | E_ApplyInEnvSliceerr: ∀ Γ p r a b c,
-      normalized (project ℓ) →
-      es = (r, a, b, c) →
-      apply_proj_in_relation s r ℓ Γ p None →
-      apply_proj_in_env s es ℓ Γ p None
-  | E_ApplyInEnvSliceOk: ∀ Γ p Γ' p' r r' a b c,
-      normalized (project ℓ) →
-      es = (r, a, b, c) →
-      apply_proj_in_relation s r ℓ Γ p (Some (r', Γ', p')) →
-      apply_proj_in_env s es ℓ Γ p (Some ((r', a, b, nil), Γ', p'))
-.
-
 Lemma apply_unary_function_in_relation_terminate: ∀ s r op Γ p,
   ∃ res, apply_unary_function_in_relation s r op Γ p res.
 Proof.
@@ -1104,17 +1089,6 @@ Proof.
       * exists None. eapply E_ApplyElemErrHead; eauto. red. intros. discriminate.
 Qed.
 
-Lemma apply_proj_in_env_terminate: ∀ s es ℓ Γ p,
-  normalized (project ℓ) →
-  ∃ res, apply_proj_in_env s es ℓ Γ p res.
-Proof.
-  intros. destruct es as [ [ [ r a ] b ] c].
-  destruct (apply_proj_in_relation_terminate s r ℓ Γ p).
-  destruct x as [ [ [r' Γ'] p' ] |].
-  - exists (Some ((r', a, b, nil), Γ', p')). econstructor; eauto.
-  - exists None. econstructor; eauto.
-Qed.
-
 Lemma apply_proj_elem_deterministic: ∀ s r expr Γ p res1 res2,
   apply_proj_elem s r expr Γ p res1 →
   apply_proj_elem s r expr Γ p res2 →
@@ -1244,6 +1218,86 @@ Proof.
       inversion H.
 Qed.
 
+(* This first creates for each tuple a `groupby_proxy` which can later be `gathered` for our convenience. *)
+Definition get_group_proxy_helper s (r: relation s) (gb_keys: groupby_list) (bounded: bounded_list s gb_keys):
+  list (groupby_proxy (ntypes s gb_keys bounded)) :=
+  let gb_keys_extracted := (extract_columns s r gb_keys bounded) in
+    (fix create_group_proxy keys n :=
+      match keys with
+      | nil => nil
+      | hd :: tl => (hd, (n :: nil)) :: (create_group_proxy tl (S n))
+      end
+    ) gb_keys_extracted 0.
+
+(* This function does the actual job by "gathering" all groups together. *)
+(* TODO: Perhaps we also need to take provenance into consideration? *)
+Definition get_group_proxy s (r: relation s) (gb_keys: groupby_list) (bounded: bounded_list s gb_keys):
+  list (groupby_proxy (ntypes s gb_keys bounded)).
+  pose (intermediate_gb_proxy := get_group_proxy_helper s r gb_keys bounded).
+  induction intermediate_gb_proxy.
+  - exact nil.
+  - rename IHintermediate_gb_proxy into rest.
+    (*
+       For each of the element `a` in the intermediate result, we need to check if this can be "found"
+       in this rest. If yes, we need to merge it into the rest and then return the merged one. If not,
+       we need to remain as is.
+     *)
+     pose (gather := fix gather (elem: groupby_proxy (ntypes s gb_keys bounded))
+                      (proxy: list (groupby_proxy (ntypes s gb_keys bounded))) :=
+       match proxy with
+       | nil => elem :: nil
+       | hd :: tl => 
+          let (key , indices) := hd in
+          let (key', indices') := elem in
+          if (Tuple.tuple_value_eqb _ key key') then
+            (key, indices ++ indices') :: (gather elem tl)
+          else
+            hd :: (gather elem tl)
+       end
+     ).
+
+     exact (gather a rest).
+Defined.
+
+(*
+  @param s The type of the elements in the resulting relation.
+  @param s_gb The type of the elements in the groupby_proxy list; the `groupby` keys because they are dependent types.
+  @param Policy.context The policy context.
+  @param budget The budget for the operation.
+  @param prov_ctx The provenance context.
+  @param list (groupby_proxy s_gb) The list of groupby_proxy elements.
+  @param agg_list The list of aggregation operations to be applied.
+  @param relation s The initial relation.
+  @param option (relation s * Policy.context * budget * prov_ctx) The expected result of the operation.
+  @returns Prop A proposition that is true if the operation is correctly applied, false otherwise.
+
+  The `apply_fold_on_groups` inductive type represents the application of a list of aggregation operations on a list of `groupby_proxy` elements. The operation is performed in the context of a given policy context and provenance context,
+  and it may consume a certain amount of budget. If the operation is successful, the function returns `Some` with a tuple
+  containing the resulting relation, the updated policy context, the remaining budget, and the updated provenance context.
+*)
+Inductive apply_fold_on_groups:
+  ∀ s s_gb, Policy.context → budget → prov_ctx → list (groupby_proxy s_gb) → agg_list → relation s →
+    option (relation s * Policy.context * budget * prov_ctx) → Prop :=
+.
+
+Inductive eval_aggregate:
+  ∀ s, Policy.context → budget → prov_ctx → groupby_list → agg_list → relation s →
+    option (relation s * Policy.context * budget * prov_ctx) → Prop :=
+  | E_EvalAggregateNotBounded: ∀ s Γ β p gb_list agg r,
+      ¬ bounded_list s gb_list →
+      eval_aggregate s Γ β p gb_list agg r None
+  | E_EvalAggregateError: ∀ s Γ β p gb_list (bounded: bounded_list s gb_list)
+                       gb_proxy agg_list r,
+      get_group_proxy s r gb_list bounded = gb_proxy →
+      apply_fold_on_groups s _ Γ β p gb_proxy agg_list r None →
+      eval_aggregate s Γ β p gb_list agg_list r None
+  | E_EvalAggregateOk: ∀ s Γ Γ' β β' p p' gb_list (bounded: bounded_list s gb_list)
+                    gb_proxy agg_list r r',
+      get_group_proxy s r gb_list bounded = gb_proxy →
+      apply_fold_on_groups s _ Γ β p gb_proxy agg_list r (Some (r', Γ', β', p')) →
+      eval_aggregate s Γ β p gb_list agg_list r (Some (r', Γ', β', p'))
+.
+
 (* 
   `step_config` is an inductive type representing the transition rules for configurations. 
   It defines how a configuration changes from one state to another by the query.
@@ -1301,7 +1355,7 @@ Inductive step_config: (config * operator) → config → Prop :=
       ⟦ c (operator_project pl o) ⟧ ⇓ ⟦ c' ⟧
   (* If the operator returns a valid relation, we can then apply projection. *)
   | E_ProjOk: ∀ c c' c'' db db' pl pl' s'
-                Γ Γ' Γ'' β β' p p' p'' r' r'' o e e' ,
+                Γ Γ' Γ'' β β' p p' p'' r' r'' o,
       c = ⟨ db Γ β p ⟩ →
       (* We first evaluate the inner operator and get the output. *)
       ⟦ c o ⟧ ⇓ ⟦ c' ⟧ →
@@ -1310,12 +1364,8 @@ Inductive step_config: (config * operator) → config → Prop :=
       s' ≠ nil ∧ r' ≠ nil →
       (* `pl'` means a normalized project list. *)
         normalize_project_list s' pl = project pl' →
-        (* We manually construct an evaluation environment for sub-expressions. *)
-        e = (r', nil, nil, nil) →
         (* We then apply projection inside the environment. *)
-        apply_proj_in_env s' e pl' Γ p (Some (e', Γ'', p'')) →
-        (* Then after we applied the project, we extract the results from the environment `e'`. *)
-        r'' = env_get_relation _ e' →
+        apply_proj_in_relation _ r' pl' Γ p (Some (r'', Γ'', p'')) →
         c'' = config_output (relation_output _ r'') (⟨ db' Γ'' β' p'' ⟩) →
         ⟦ c (operator_project pl o) ⟧ ⇓ ⟦ c'' ⟧
   (*
@@ -1323,7 +1373,7 @@ Inductive step_config: (config * operator) → config → Prop :=
      projection fails, we return `config_error`.
   *)
   | E_ProjError: ∀ c c' db db' pl pl' s'
-                Γ Γ' β β' p p' r' o e,
+                Γ Γ' β β' p p' r' o,
       c = ⟨ db Γ β p ⟩ →
       (* We first evaluate the inner operator and get the output. *)
       ⟦ c o ⟧ ⇓ ⟦ c' ⟧ →
@@ -1332,10 +1382,8 @@ Inductive step_config: (config * operator) → config → Prop :=
       s' ≠ nil ∧ r' ≠ nil →
       (* `pl'` means a normalized project list. *)
       normalize_project_list s' pl = project pl' →
-        (* We manually construct an evaluation environment for sub-expressions. *)
-        e = (r', nil, nil, nil) →
         (* We then apply projection inside the environment. *)
-        apply_proj_in_env s' e pl' Γ p None →
+        apply_proj_in_relation _ r' pl' Γ p None →
         ⟦ c (operator_project pl o) ⟧ ⇓ ⟦ config_error ⟧
       (*
      If the operator returns a valid environment, we can then apply projection. Then if the
@@ -1428,6 +1476,31 @@ Inductive step_config: (config * operator) → config → Prop :=
         ⟦ c (operator_join o1 o2) ⟧ ⇓
         (* TODO: Should join. *)
         ⟦ config_output r (⟨ db'' Γout βout pout ⟩) ⟧
+  | E_AggEmpty: ∀ c c' db Γ β p o s r gl al f,
+      c = ⟨ db Γ β p ⟩ →
+      ⟦ c o ⟧ ⇓ ⟦ c' ⟧ →
+      c' = config_output (relation_output s r) c' →
+      s = nil ∨ r = nil →
+      ⟦ c (operator_groupby_having (♭ s) gl al f o) ⟧ ⇓ ⟦ c' ⟧
+  | E_AggError: ∀ c db Γ β p o s gl al f,
+      c = ⟨ db Γ β p ⟩ →
+      ⟦ c o ⟧ ⇓ ⟦ config_error ⟧ →
+      ⟦ c (operator_groupby_having (♭ s) gl al f o) ⟧ ⇓ ⟦ config_error ⟧
+  | E_AggError2: ∀ s c c' db db' Γ Γ' β β' p p' o r gl al f,
+      c = ⟨ db Γ β p ⟩ →
+      ⟦ c o ⟧ ⇓ ⟦ c' ⟧ →
+      c' = config_output (relation_output s r) (⟨ db' Γ' β' p' ⟩) →
+      s ≠ nil ∧ r ≠ nil →
+      eval_aggregate s Γ' β' p' gl al r None →
+      ⟦ c (operator_groupby_having (♭ s) gl al f o) ⟧ ⇓ ⟦ config_error ⟧
+  | E_AggOk: ∀ c c' c'' db db' Γ Γ' β β' p p' s r r' o gl al f,
+      c = ⟨ db Γ β p ⟩ →
+      ⟦ c o ⟧ ⇓ ⟦ c' ⟧ →
+      c' = config_output (relation_output s r) (⟨ db' Γ' β' p' ⟩) →
+      s ≠ nil ∧ r ≠ nil →
+      eval_aggregate s Γ' β' p' gl al r (Some (r', Γ', β', p')) →
+      c'' = config_output (relation_output s r') (⟨ db' Γ' β' p' ⟩) →
+      ⟦ c (operator_groupby_having (♭ s) gl al f o) ⟧ ⇓ ⟦ c'' ⟧
 where "'⟦' c op '⟧' '⇓' '⟦' c' '⟧'" := (step_config (c, op) c').
 Hint Constructors step_config: core.
 
@@ -1574,14 +1647,13 @@ Proof.
     + inversion H12. subst. clear H12.
       apply (IHo (config_output (relation_output s nil) (⟨ db' Γ' β' p' ⟩))) in H13.
       inversion H13. subst. apply inj_pair2_eq_dec in H6. subst.
-      * inversion H18; subst. exfalso. apply H2. auto.
+      * inversion H18; subst. exfalso. apply H2. auto. exfalso. apply H2. auto.
       * apply list_eq_dec; apply attribute_eq_dec.
       * assumption.
     + inversion H12. subst. clear H12.
       apply (IHo (config_output (relation_output nil r) (⟨ db' Γ' β' p' ⟩))) in H13.
       inversion H13. subst. apply inj_pair2_eq_dec in H6. subst. clear H13.
-      inversion H18; subst. inversion H10. subst. clear H10.
-      inversion H11; subst. intuition.
+      inversion H18; subst. intuition.
       * exfalso. apply H1. auto.
       * exfalso. apply H1. auto.
       * assumption.
@@ -1596,21 +1668,20 @@ Proof.
       inversion H13. subst. apply inj_pair2_eq_dec in H6; subst; clear H13;
       try (apply list_eq_dec; apply attribute_eq_dec).
       exfalso. apply H1. auto.
-    + inversion H17. subst. clear H17.
-      apply (IHo (config_output (relation_output s' r') (⟨ db' Γ' β' p' ⟩))) in H18.
-      inversion H18. subst. apply inj_pair2_eq_dec in H6. subst. clear H18.
+    + inversion H15. subst. clear H15.
+      apply (IHo (config_output (relation_output s nil) (⟨ db'0 Γ'0 β'0 p'0 ⟩))) in H5; try assumption.
+      inversion H5. subst. apply inj_pair2_eq_dec in H6. subst. clear H5.
       * exfalso. apply H2. auto.
       * apply list_eq_dec; apply attribute_eq_dec.
-      * assumption.
-    + inversion H17. subst. clear H17.
-      apply (IHo (config_output (relation_output s' r') (⟨ db' Γ' β' p' ⟩))) in H18.
-      inversion H18. subst. apply inj_pair2_eq_dec in H6. subst. clear H18.
+    + inversion H15. subst. clear H15.
+      apply (IHo (config_output (relation_output nil r) (⟨ db'0 Γ'0 β'0 p'0 ⟩))) in H5.
+      inversion H5. subst. apply inj_pair2_eq_dec in H6. subst. clear H5.
       * exfalso. apply H1. auto.
       * apply list_eq_dec; apply attribute_eq_dec.
       * assumption.
-    + inversion H17. subst. clear H17.
-      apply (IHo (config_output (relation_output s' r') (⟨ db' Γ' β' p' ⟩))) in H18.
-      inversion H18. subst. apply inj_pair2_eq_dec in H9. subst. clear H18.
+    + inversion H15. subst. clear H15.
+      apply (IHo (config_output (relation_output s' r') (⟨ db' Γ' β' p' ⟩))) in H16.
+      inversion H16. subst. apply inj_pair2_eq_dec in H9. subst. clear H16.
       * inversion H10. inversion H23. subst. inversion H14. inversion H24. subst.
         clear H14. clear H24.
         inversion H15; subst.
@@ -1830,7 +1901,7 @@ Proof.
   - intuition. exists (config_output r c). eapply E_Already; eauto.
   - contradiction.
   - intuition.
-  (* TODO: operator_grouby_having *)
+  (* TODO: operator_groupby_having *)
 Admitted.
 
 Example simple_project_list := project ((simple_atomic_expression_column 0, "foo"%string) :: nil).

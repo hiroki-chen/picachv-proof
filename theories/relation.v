@@ -135,6 +135,10 @@ refine (
   exact (cons cur rest). 
 Defined.
 
+Fixpoint extract_columns s (r: relation s) (l: list nat):
+  ∀ (bounded: bounded_list s l), relation (ntypes s l bounded).
+Admitted.
+
 (*
   [cartesian_product_helper] is a recursive function that takes two schemas [s1] and [s2], a tuple [t] of type [Tuple.tuple (♭ s1)], and a relation [r] of type [relation s2]. It returns a relation of type [relation (s1 ++ s2)].
 

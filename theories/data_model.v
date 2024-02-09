@@ -902,6 +902,13 @@ Fixpoint tuple_value_eq (ty: tuple_type): ∀ (lhs rhs: tuple ty), Prop :=
       (fst (fst lhs)) == (fst (fst rhs)) ∧ tuple_value_eq tl (snd lhs) (snd rhs)
   end.
 
+Fixpoint tuple_value_eqb (ty: tuple_type): ∀ (lhs rhs: tuple ty), bool :=
+  match ty return (∀ (lhs rhs: tuple ty), bool) with
+    | nil => fun _ _ => true
+    | _ :: tl => fun lhs rhs => 
+      andb (value_eq _ _ (fst (fst lhs)) (fst (fst rhs))) (tuple_value_eqb tl (snd lhs) (snd rhs))
+  end.
+
 Fixpoint tuple_total_eq (ty: tuple_type): ∀ (lhs rhs: tuple ty), Prop :=
   match ty return (∀ (lhs rhs: tuple ty), Prop) with
     | nil => fun _ _ => True

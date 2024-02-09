@@ -56,7 +56,7 @@ Inductive simple_atomic_expression: Set :=
   .
 
 Definition stf_id := simple_atomic_expression_func_unary Identity.
-
+Definition simple_agg_expression := (AggOp * nat)%type.
 Inductive predicate (ty: Tuple.tuple_type) (bt: basic_type): Type :=
   | predicate_true: predicate ty bt
   | predicate_false: predicate ty bt
