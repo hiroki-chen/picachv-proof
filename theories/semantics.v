@@ -460,7 +460,8 @@ Qed.
 
 (* `groupby` list is just a list of indices of the original data frame that should be chosen as keys. *)
 Definition groupby_list := (list nat)%type.
-Definition agg_list := (list simple_agg_expression)%type.
+(* simple_agg_expression := (AggOp * agg_func * nat) *)
+Definition agg_list := (list (simple_agg_expression * string))%type.
 
 (* This represents a range of groups within the original data frame. *)
 Definition group := list nat.
@@ -483,6 +484,23 @@ Definition group := list nat.
 *)
 Definition groupby_proxy s := (Tuple.tuple (♭ s) * group)%type.
 
+Fixpoint determine_agg_schema (al: agg_list): schema.
+  refine (
+    match al with
+      | nil => nil
+      | (cur, name) :: tl => _
+    end
+  ).
+  destruct cur as [ [ _ agg_f] _ ].
+  pose (rest := determine_agg_schema tl).
+  destruct agg_f.
+  exact ((ty1, name) :: rest).
+Defined.
+
+Example determine_agg_schema_correct: determine_agg_schema
+  ((((Count, (aggregate_function IntegerType IntegerType (fun x y => x + y)), 0)), "foo"%string) :: (((Count, (aggregate_function IntegerType IntegerType (fun x y => x + y)), 0)), "foo"%string) :: nil) =
+  (IntegerType, "foo"%string) :: (IntegerType, "foo"%string) :: nil.
+Proof. reflexivity. Qed.
 
 Inductive relation_wrapped: Type :=
   | relation_output: ∀ s, relation s → relation_wrapped
@@ -1276,26 +1294,26 @@ Defined.
   containing the resulting relation, the updated policy context, the remaining budget, and the updated provenance context.
 *)
 Inductive apply_fold_on_groups:
-  ∀ s s_gb, Policy.context → budget → prov_ctx → list (groupby_proxy s_gb) → agg_list → relation s →
-    option (relation s * Policy.context * budget * prov_ctx) → Prop :=
+  ∀ s s_gb agg, Policy.context → budget → prov_ctx → list (groupby_proxy s_gb)  → relation s →
+    option (relation (s ++ determine_agg_schema agg) * Policy.context * budget * prov_ctx) → Prop :=
 .
 
 Inductive eval_aggregate:
-  ∀ s, Policy.context → budget → prov_ctx → groupby_list → agg_list → relation s →
-    option (relation s * Policy.context * budget * prov_ctx) → Prop :=
+  ∀ s agg, Policy.context → budget → prov_ctx → groupby_list  → relation s →
+    option (relation (s ++ determine_agg_schema agg) * Policy.context * budget * prov_ctx) → Prop :=
   | E_EvalAggregateNotBounded: ∀ s Γ β p gb_list agg r,
       ¬ bounded_list s gb_list →
-      eval_aggregate s Γ β p gb_list agg r None
+      eval_aggregate s agg Γ β p gb_list r None
   | E_EvalAggregateError: ∀ s Γ β p gb_list (bounded: bounded_list s gb_list)
-                       gb_proxy agg_list r,
+                       gb_proxy agg r,
       get_group_proxy s r gb_list bounded = gb_proxy →
-      apply_fold_on_groups s _ Γ β p gb_proxy agg_list r None →
-      eval_aggregate s Γ β p gb_list agg_list r None
+      apply_fold_on_groups s _ agg Γ β p gb_proxy r None →
+      eval_aggregate s agg Γ β p gb_list r None
   | E_EvalAggregateOk: ∀ s Γ Γ' β β' p p' gb_list (bounded: bounded_list s gb_list)
-                    gb_proxy agg_list r r',
+                    gb_proxy agg r r',
       get_group_proxy s r gb_list bounded = gb_proxy →
-      apply_fold_on_groups s _ Γ β p gb_proxy agg_list r (Some (r', Γ', β', p')) →
-      eval_aggregate s Γ β p gb_list agg_list r (Some (r', Γ', β', p'))
+      apply_fold_on_groups s _ agg Γ β p gb_proxy r (Some (r', Γ', β', p')) →
+      eval_aggregate s agg Γ β p gb_list r (Some (r', Γ', β', p'))
 .
 
 (* 
@@ -1491,15 +1509,15 @@ Inductive step_config: (config * operator) → config → Prop :=
       ⟦ c o ⟧ ⇓ ⟦ c' ⟧ →
       c' = config_output (relation_output s r) (⟨ db' Γ' β' p' ⟩) →
       s ≠ nil ∧ r ≠ nil →
-      eval_aggregate s Γ' β' p' gl al r None →
+      eval_aggregate s al Γ' β' p' gl r None →
       ⟦ c (operator_groupby_having (♭ s) gl al f o) ⟧ ⇓ ⟦ config_error ⟧
-  | E_AggOk: ∀ c c' c'' db db' Γ Γ' β β' p p' s r r' o gl al f,
+  | E_AggOk: ∀ c c' c'' db db' Γ Γ' β β' p p' s al r r' o gl f,
       c = ⟨ db Γ β p ⟩ →
       ⟦ c o ⟧ ⇓ ⟦ c' ⟧ →
       c' = config_output (relation_output s r) (⟨ db' Γ' β' p' ⟩) →
       s ≠ nil ∧ r ≠ nil →
-      eval_aggregate s Γ' β' p' gl al r (Some (r', Γ', β', p')) →
-      c'' = config_output (relation_output s r') (⟨ db' Γ' β' p' ⟩) →
+      eval_aggregate s al Γ' β' p' gl r (Some (r', Γ', β', p')) →
+      c'' = config_output (relation_output _ r') (⟨ db' Γ' β' p' ⟩) →
       ⟦ c (operator_groupby_having (♭ s) gl al f o) ⟧ ⇓ ⟦ c'' ⟧
 where "'⟦' c op '⟧' '⇓' '⟦' c' '⟧'" := (step_config (c, op) c').
 Hint Constructors step_config: core.

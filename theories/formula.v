@@ -37,7 +37,7 @@ Inductive simple_atomic_expression: Set :=
   (*
     Without loss of generality, we assume functions only take either:
     1. One argument, or
-    2. Two arguments.
+    2. Two arguments (I am not sure if we really need this).
 
     This is because we can always transform a function with more than two arguments
     into a function with two arguments by *currying*.
@@ -45,9 +45,8 @@ Inductive simple_atomic_expression: Set :=
     For example, we can transform `f(a, b, c)` into `f'(a, f''(b, c))`, although we
     do not actually do this in the code; we assume someone else has done this for us.
 
-    The reason why we do not curry binary functions is because we do not want to check
-    if `op` is consistent with the number of arguments; this would incur a lot of undue
-    complexity.
+    There is, however, a problem with this approach: we need to know the type of the
+    arguments and the return type.
   *)
   | simple_atomic_expression_func_unary:
       UnOp → simple_atomic_expression → simple_atomic_expression
@@ -56,7 +55,7 @@ Inductive simple_atomic_expression: Set :=
   .
 
 Definition stf_id := simple_atomic_expression_func_unary Identity.
-Definition simple_agg_expression := (AggOp * nat)%type.
+Definition simple_agg_expression := (AggOp * agg_func * nat)%type.
 Inductive predicate (ty: Tuple.tuple_type) (bt: basic_type): Type :=
   | predicate_true: predicate ty bt
   | predicate_false: predicate ty bt

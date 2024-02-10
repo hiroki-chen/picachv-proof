@@ -9,22 +9,37 @@ import time
 
 coloredlogs.install()
 
+def collect_admitted_defs(data: list[str]) -> list[str]:
+    admitted = []
+    keywords = ["Definition", "Theorem", "Lemma", "Corollary", "Proposition", "Fact", "Fixpoint", "Instance"]
 
-def check(allow_admitted: bool) -> None:
+    for i in range(len(data)):
+        if data[i].strip().startswith("Admitted."):
+            # Find the definition name.
+            for j in range(i, -1, -1):
+                # Find the index of the keyword.
+                if any(keyword in data[j] for keyword in keywords):
+                    admitted.append("Line " + str(j) + ": " + data[j].strip())
+                    break
+    return admitted
+
+
+def check(allow_admitted: bool, verbose: bool) -> None:
     dir = os.path.join(os.curdir, "theories")
 
     # Change the current working directory to the given path.
     os.chdir(dir)
 
-    errs = []
+    errs = {}
     for file in os.listdir():
         if file.endswith(".v"):
             logging.info("Checking file: " + file)
             with open(os.path.join(os.getcwd(), file)) as f:
                 data = [data.strip() for data in f.readlines()]
 
-                if "Admitted." in data:
-                    errs.append(file)
+                items = collect_admitted_defs(data)
+                if items:
+                    errs[file] = items
     if errs:
         if allow_admitted:
             logging.warning(
@@ -32,8 +47,14 @@ def check(allow_admitted: bool) -> None:
                 + ", ".join(errs)
                 + ", since you allow admitted proofs, this may result in incorrect proofs.",
             )
+            if verbose:
+                for file, items in errs.items():
+                    logging.warning(file + ": Admitted definitions:\n\t" + "\n\t".join(items))
         else:
             logging.error("Admitted proofs are not allowed: " + ", ".join(errs))
+            if verbose:
+                for file, items in errs.items():
+                    logging.error(file + ": Admitted definitions:\n\t" + "\n\t".join(items))
             exit(1)
 
     if not os.path.exists("Makefile"):
@@ -60,9 +81,12 @@ if __name__ == "__main__":
     parser.add_argument(
         "--allow_admitted", help="Allow admitted proofs.", action="store_true"
     )
+    parser.add_argument(
+        "-v", "--verbose", help="Print verbose output.", action="store_true"
+    )
 
     args = parser.parse_args()
 
     t = time.time()
-    check(args.allow_admitted)
+    check(args.allow_admitted, args.verbose)
     logging.info("Time taken: " + str(time.time() - t) + "s.")
