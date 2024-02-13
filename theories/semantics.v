@@ -7,6 +7,7 @@ Require Import Logic.Eqdep_dec Logic.EqdepFacts.
 Require Import String.
 Require Import Unicode.Utf8.
 
+Require Import config.
 Require Import data_model.
 Require Import finite_bags.
 Require Import formula.
@@ -458,32 +459,6 @@ Proof.
   intros. subst. apply unary_function_preserves_type.
 Qed.
 
-(* `groupby` list is just a list of indices of the original data frame that should be chosen as keys. *)
-Definition groupby_list := (list nat)%type.
-(* simple_agg_expression := (AggOp * agg_func * nat) *)
-Definition agg_list := (list (simple_agg_expression * string))%type.
-
-(* This represents a range of groups within the original data frame. *)
-Definition group := list nat.
-(*
-  A groupby_proxy can be visualized as a pair:
-  
-  +-----------------+-----------------+
-  |   groupby keys  |   data          |
-  +-----------------+-----------------+
-  | Tuple.tuple s   |  data 0         |
-  |                 |  data 1         |
-  |                 |  data 2         |
-  |                 |  data 3         |
-  |                 |  ...            |
-  +-----------------+-----------------+
-
-  Where:
-  - Tuple.tuple s is the tuple of s, which represents the grouped columns.
-  - group_range represents the range of each group.
-*)
-Definition groupby_proxy s := (Tuple.tuple (♭ s) * group)%type.
-
 Fixpoint determine_agg_schema (al: agg_list): schema.
   refine (
     match al with
@@ -491,116 +466,13 @@ Fixpoint determine_agg_schema (al: agg_list): schema.
       | (cur, name) :: tl => _
     end
   ).
-  destruct cur as [ [ _ agg_f] _ ].
-  pose (rest := determine_agg_schema tl).
-  destruct agg_f.
-  exact ((ty1, name) :: rest).
-Defined.
+Admitted.
 
 Example determine_agg_schema_correct: determine_agg_schema
   ((((Count, (aggregate_function IntegerType IntegerType (fun x y => x + y)), 0)), "foo"%string) :: (((Count, (aggregate_function IntegerType IntegerType (fun x y => x + y)), 0)), "foo"%string) :: nil) =
   (IntegerType, "foo"%string) :: (IntegerType, "foo"%string) :: nil.
 Proof. reflexivity. Qed.
 
-Inductive relation_wrapped: Type :=
-  | relation_output: ∀ s, relation s → relation_wrapped
-.
-
-Fixpoint inject_id_tuple s (t: (Tuple.tuple_np (♭ s))) (p: Policy.policy_store (♭ s)) (id_start: nat)
-  : (Tuple.tuple (♭ s) * Policy.context).
-refine (
-  match s as s' return s = s' → (Tuple.tuple (♭ s) * Policy.context) with
-    | nil => fun _ => _
-    | h :: t' => fun _ => _
-  end eq_refl
-). 
-  - subst. simpl. exact (tt, nil).
-  - specialize inject_id_tuple with (s := t').
-    subst. destruct h. simpl in *.
-    pose (inject_id_tuple (snd t) (snd p) (S id_start)) as t_next.
-    destruct t_next as [t_next Γ].
-    exact ((fst t), id_start, t_next, ((id_start, (fst p)) :: Γ)).
-Defined.
-
-(*
-  @param s The schema of the relation.
-  @param r A list of tuples and their associated policy stores. Each tuple corresponds to a row in the relation.
-  @param id_start The starting identifier for the injection of identifiers into the relation.
-  @return A tuple containing the relation with injected identifiers and the policy context.
-
-  The `inject_id_helper` function injects identifiers into a relation. The relation is represented as a list of
-  tuples `r`, where each tuple corresponds to a row in the relation and is associated with a policy store. The
-  identifiers are injected starting with the identifier `id_start`. The function returns a tuple containing the
-  relation with injected identifiers and the policy context.
-*)
-Fixpoint inject_id_helper s (r: list (Tuple.tuple_np (♭ s) * Policy.policy_store (♭ s))) (id_start: nat)
-  : (relation s * Policy.context) :=
-  match r with
-    | nil => (nil, nil)
-    | (h, p) :: t =>
-        let (r, Γ) := inject_id_tuple _ h p (S id_start) in
-        match inject_id_helper s t (id_start + List.length s) with
-        | (r', Γ') => (r :: r', Γ ++ Γ')
-        end
-  end.
-
-Fixpoint database_get_contexts (db: database) (idx: nat)
-  : option (relation_wrapped * Policy.context * prov_ctx) :=
-  match db with
-    | database_empty => None
-    | database_relation s r db' =>
-        match eq_nat_dec idx O with
-          | left _ =>
-                match inject_id_helper s r 10 with
-                | (r', Γ') => 
-                  let p := empty_prov_from_pctx Γ' in
-                  Some (relation_output s r', Γ', p)
-                end
-          | right _ => database_get_contexts db' (idx - 1)
-        end
-  end.
-
-(*
-  `config` is an inductive type that defines a configuration for the query evaluation.
-  It is either:
-  * `config_error` => An error has occurred.
-  * `config_ok` => The query evaluation is ok. It consists of:
-    - `db` => The database.
-    - `Γ` => The policy environment.
-    - `β` => The privacy budget.
-    - `p` => The provenance context.
-  * `config_output` => The query evaluation is ok and the result is ready to be output. It consists of:
-    - `s` => The schema of the output relation.
-    - `c` => The output configuration.
-*)
-Inductive config: Type :=
-  | config_error: config
-  | config_ok: database → Policy.context → budget → prov_ctx -> config
-  | config_output: relation_wrapped → config → config
-.
-
-Lemma config_output_eq_spec: ∀ r1 r2 c1 c2,
-  config_output r1 c1 = config_output r2 c2 ↔ r1 = r2 ∧ c1 = c2.
-Proof.
-  split; intros.
-  - inversion H. subst. auto.
-  - destruct H. subst. auto.
-Qed.
-
-Notation "'⟨' db Γ β p '⟩'":= (config_ok db Γ β p)
-  (at level 10, db at next level, Γ at next level, β at next level, p at next level, no associativity).
-
-Definition valid_contexts (Γ: Policy.context) (p: prov_ctx): Prop :=
-  let l1 := List.map fst Γ in
-  let l2 := List.map fst p in
-  sublist _ l1 l2 ∧ sublist _ l2 l1.
-
-Fixpoint config_valid c: Prop :=
-  match c with
-  | config_error => False
-  | config_ok db Γ β p => valid_contexts Γ p
-  | config_output _ c' => config_valid c'
-  end.
 
 Inductive operator: Type :=
   | operator_empty: operator

@@ -33,6 +33,10 @@ Definition relation_np (s: schema) := fbag (Tuple.tuple_np (♭ s)).
 Definition relation (s: schema) := fbag (Tuple.tuple (♭ s)).
 Hint Unfold relation: core.
 
+Inductive relation_wrapped: Type :=
+  | relation_output: ∀ s, relation s → relation_wrapped
+.
+
 (* Experimental: a columnar data store. *)
 Fixpoint dataframe (s: schema): Type :=
   match s with
@@ -875,6 +879,58 @@ Lemma relation_join_by_prv_deterministic: ∀ s1 s2 join_by r1 r2 Γ1 Γ2 ε1 ε
   res1 = res2.
 Proof.
 Admitted.
+
+Fixpoint inject_id_tuple s (t: (Tuple.tuple_np (♭ s))) (p: Policy.policy_store (♭ s)) (id_start: nat)
+  : (Tuple.tuple (♭ s) * Policy.context).
+refine (
+  match s as s' return s = s' → (Tuple.tuple (♭ s) * Policy.context) with
+    | nil => fun _ => _
+    | h :: t' => fun _ => _
+  end eq_refl
+). 
+  - subst. simpl. exact (tt, nil).
+  - specialize inject_id_tuple with (s := t').
+    subst. destruct h. simpl in *.
+    pose (inject_id_tuple (snd t) (snd p) (S id_start)) as t_next.
+    destruct t_next as [t_next Γ].
+    exact ((fst t), id_start, t_next, ((id_start, (fst p)) :: Γ)).
+Defined.
+
+(*
+  @param s The schema of the relation.
+  @param r A list of tuples and their associated policy stores. Each tuple corresponds to a row in the relation.
+  @param id_start The starting identifier for the injection of identifiers into the relation.
+  @return A tuple containing the relation with injected identifiers and the policy context.
+
+  The `inject_id_helper` function injects identifiers into a relation. The relation is represented as a list of
+  tuples `r`, where each tuple corresponds to a row in the relation and is associated with a policy store. The
+  identifiers are injected starting with the identifier `id_start`. The function returns a tuple containing the
+  relation with injected identifiers and the policy context.
+*)
+Fixpoint inject_id_helper s (r: list (Tuple.tuple_np (♭ s) * Policy.policy_store (♭ s))) (id_start: nat)
+  : (relation s * Policy.context) :=
+  match r with
+    | nil => (nil, nil)
+    | (h, p) :: t =>
+        let (r, Γ) := inject_id_tuple _ h p (S id_start) in
+        match inject_id_helper s t (id_start + List.length s) with
+        | (r', Γ') => (r :: r', Γ ++ Γ')
+        end
+  end.
+
+Fixpoint database_get_contexts (db: database) (idx: nat)
+  : option (relation_wrapped * Policy.context * prov_ctx) :=
+  match db with
+    | database_empty => None
+    | database_relation s r db' =>
+        if Nat.eqb idx O then
+                match inject_id_helper s r 10 with
+                | (r', Γ') => 
+                  let p := empty_prov_from_pctx Γ' in
+                  Some (relation_output s r', Γ', p)
+                end
+        else database_get_contexts db' (idx - 1)
+  end.
 
 (* =================== Some Test Cases ==================== *)
 Section Test.

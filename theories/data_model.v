@@ -973,6 +973,7 @@ Proof.
   - simpl in *. lia.
 Defined.
 
+
 Definition nth_nocheck: ∀ (ty: tuple_type) (n: nat), option Cell.cell.
 refine
 (fix nth' (ty: tuple_type) (n: nat): option Cell.cell :=

@@ -42,6 +42,7 @@ Inductive UnOp: Type :=
   | Strlen
   | Lower
   | Upper
+  | Not
 .
 
 Inductive TransOp: Type :=
@@ -147,27 +148,21 @@ Inductive func: Set :=
 Definition func_list: Set := list func%type.
 
 Inductive unary_func :=
-  | unary_function: ∀ ty, (type_to_coq_type ty → type_to_coq_type ty) → unary_func
+  (* UnOp is the "sort" signature of the function because function itself is opaque. *)
+  | unary_function: UnOp → ∀ ty, (type_to_coq_type ty → type_to_coq_type ty) → unary_func
 .
 
 Inductive binary_func :=
-  | binary_function: ∀ty, (type_to_coq_type ty → type_to_coq_type ty → type_to_coq_type ty) → binary_func
+  (* BinOp is the "sort" signature of the function because function itself is opaque. *)
+  | binary_function: BinOp → ∀ ty,
+      (type_to_coq_type ty → type_to_coq_type ty → type_to_coq_type ty) → binary_func
 .
 
 Inductive agg_func :=
-  | aggregate_function: ∀ ty1 ty2,
+  (* AggOp is the "sort" signature of the function because function itself is opaque. *)
+  | aggregate_function: AggOp → ∀ ty1 ty2,
       (type_to_coq_type ty1 → type_to_coq_type ty2 → type_to_coq_type ty1) → agg_func
 .
-
-Definition get_unary_type (f: unary_func): basic_type :=
-  match f with
-  | unary_function ty _ => ty
-  end.
-
-Definition get_binary_type (f: binary_func): basic_type :=
-  match f with
-  | binary_function ty _ => ty
-  end.
 
 (*
   A distinction is made between the database schema, which specifies the structure

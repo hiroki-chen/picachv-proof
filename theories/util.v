@@ -153,6 +153,13 @@ refine (
   - intros. subst. apply nth with t n'. simpl in H1. lia.
 Defined.
 
+Fixpoint nth_default {A: Type} (d: A) (n: nat) (l: list A): A :=
+  match n, l with
+    | O, x :: _ => x
+    | S n', _ :: l' => nth_default d n' l'
+    | _, _ => d
+  end.
+
 Definition ntypes {A: Type} (l: list A) (idx: list nat): bounded_list l idx → list A.
   induction idx; intros.
   - exact nil.

@@ -1,9 +1,233 @@
+Require Import Arith.Compare_dec.
+Require Import Lia.
 Require Import List.
+Require Import String.
 Require Import Unicode.Utf8.
 
+Require Import config.
 Require Import data_model.
+Require Import lattice.
 Require Import ordering.
+Require Import prov.
+Require Import relation.
 Require Import types.
+Require Import util.
+
+Inductive expression: Type :=
+  (* x *)
+  | expression_var: string → expression
+  (* v *)
+  | expression_const: ∀ bt, type_to_coq_type bt → expression
+  (* a *)
+  | expression_column: ∀ (n: nat), expression
+  (* λ x. e *)
+  | expression_abs: string → expression → expression
+  (* e1 e2 *)
+  | expression_app: expression → expression → expression
+  (* ∘ e *)
+  | expression_unary: unary_func → expression → expression
+  (* e1 ⊗ e2 *)
+  | expression_binary: binary_func → expression → expression → expression
+  (* fold *)
+  | expression_agg: agg_func → expression → expression
+.
+
+(*
+  The following is the lexed version of the expression.
+  The reason why we need this is because we need to parse the expression from a string.
+
+  A lexed lambda calculus expression is a lambda calculus expression with all the variables
+  replaced by their indices in the original string. For example, the expression `λ x. x` will
+  be lexed to `λ 0`. This is de Bruijn index.
+
+  One reason for this is that we can eliminate the need for alpha conversion and substitution
+  by using de Bruijn indices. So that looking up a variable is just a matter of looking up the
+  index in the environment.
+*)
+Inductive expression_lexed: Type :=
+  (* x *)
+  | expression_lexed_var: nat → expression_lexed
+  (* v *)
+  | expression_lexed_const: ∀ bt, type_to_coq_type bt → expression_lexed
+  (* a *)
+  | expression_lexed_column: ∀ (n: nat), expression_lexed
+  (* λ x. e *)
+  | expression_lexed_abs: expression_lexed → expression_lexed
+  (* e1 e2 *)
+  | expression_lexed_app: expression_lexed → expression_lexed → expression_lexed
+  (* ∘ e *)
+  | expression_lexed_unary: unary_func → expression_lexed → expression_lexed
+  (* e1 ⊗ e2 *)
+  | expression_lexed_binary: binary_func → expression_lexed → expression_lexed → expression_lexed
+  (* fold *)
+  | expression_lexed_agg: agg_func → expression_lexed → expression_lexed
+.
+
+(* `groupby` list is just a list of indices of the original data frame that should be chosen as keys. *)
+Definition groupby_list := (list nat)%type.
+(* simple_agg_expression := (AggOp * agg_func * nat) *)
+Definition agg_list := (list (expression * string))%type.
+
+(* This represents a range of groups within the original data frame. *)
+Definition group := (list nat)%type.
+(*
+  A groupby_proxy can be visualized as a pair:
+  
+  +-----------------+-----------------+
+  |   groupby keys  |   data          |
+  +-----------------+-----------------+
+  | Tuple.tuple s   |  data 0         |
+  |                 |  data 1         |
+  |                 |  data 2         |
+  |                 |  data 3         |
+  |                 |  ...            |
+  +-----------------+-----------------+
+
+  Where:
+  - Tuple.tuple s is the tuple of s, which represents the grouped columns.
+  - group_range represents the range of each group.
+*)
+Definition groupby_proxy s := (Tuple.tuple (♭ s) * group)%type.
+
+Inductive EResult: Type :=
+  | EResultError: EResult
+  | EResultFunction: expression_lexed → list EResult → EResult
+  | EResultValue: ∀ bt, type_to_coq_type bt → EResult
+  | EResultRelation: relation_wrapped → EResult
+.
+
+Definition symbol_lookup_table := (list EResult)%type.
+
+(*
+  The evaluation environment Γ for the lambda calculus is a list of:
+  - The current configuration.
+  - The current active relation.
+  - The symbol lookup table.
+*)
+Definition eval_env := (config * relation_wrapped * symbol_lookup_table)%type.
+
+Fixpoint index (x: string) (env: list string): nat :=
+  match env with
+    | h :: t => if string_dec h x then 0 else 1 + index x t
+    | _ => 0
+  end.
+
+Fixpoint lex (e: expression) (env: list string): expression_lexed :=
+  match e with
+  | expression_var x => expression_lexed_var (index x env)
+  | expression_const bt v => expression_lexed_const bt v
+  | expression_column n => expression_lexed_column n
+  | expression_abs x e => expression_lexed_abs (lex e (x :: env))
+  | expression_app e1 e2 => expression_lexed_app (lex e1 env) (lex e2 env)
+  | expression_unary f e => expression_lexed_unary f (lex e env)
+  | expression_binary f e1 e2 => expression_lexed_binary f (lex e1 env) (lex e2 env)
+  | expression_agg f e => expression_lexed_agg f (lex e env)
+  end.
+
+Inductive eval_unary_expression_in_relation: ∀ (s: schema) (r: relation s),
+  unary_func → eval_env → (eval_env * EResult) → Prop :=
+.
+
+(*
+  This function evaluates a unary expression with a given function.
+*)
+Inductive eval_unary_expression: unary_func → eval_env → EResult → (eval_env * EResult) → Prop :=
+  | EvalUnaryNonEvaluable: ∀ f env v body f_e,
+    v = EResultError ∨ v = EResultFunction body f_e →
+    eval_unary_expression f env v (env, EResultError)
+  | EvalUnaryValueTypeMismatch: ∀ f op env bt bt' v v' lambda,
+    v = EResultValue bt v' →
+    f = unary_function op bt' lambda →
+    bt' ≠ bt →
+    eval_unary_expression f env v (env, EResultError)
+  | EvalUnaryValue: ∀ f op env bt bt' v v' lambda,
+    v = EResultValue bt v' →
+    f = unary_function op bt' lambda →
+      ∀ (eq: bt = bt'),
+        eval_unary_expression f env v (env, EResultValue bt' (lambda (eq ♯ v')))
+  | EvalUnaryRelation: ∀ f env env' v s r,
+    v = relation_output s r →
+    eval_unary_expression_in_relation s r f env env' →
+    eval_unary_expression f env (EResultRelation v) env'
+.
+
+Inductive eval: nat → expression_lexed → eval_env → (eval_env * EResult) → Prop :=
+  (* The evaluation hangs and we have to force termination. *)
+  | EvalNoStep: ∀ e env step, step = O → eval step e env (env, EResultError)
+  (* Evaluating a variable value is simple: we just lookup it. *)
+  | EvalVar: ∀ step step' n e env c r lookup db Γ β p,
+      c = ⟨ db Γ β p ⟩ →
+      step = S step' →
+      e = expression_lexed_var n →
+      eval step e (c, r, lookup) (env, nth_default EResultError n lookup)
+  (* Evaluating a constant value is simple: we just return it. *)
+  | EvalConst: ∀ step step' bt v e env c r lookup db Γ β p,
+      c = ⟨ db Γ β p ⟩ →
+      step = S step' →
+      e = expression_lexed_const bt v →
+      eval step e (c, r, lookup) (env, EResultValue bt v)
+  | EvalColumn: ∀ step step' n e env c s r r' lookup db Γ β p,
+      c = ⟨ db Γ β p ⟩ →
+      step = S step' →
+      e = expression_lexed_column n →
+      r = relation_output s r' →
+      ∀ ok: n < List.length s,
+        eval step e (c, r, lookup) (env, EResultRelation (relation_output _ (extract_column s r' n ok)))
+  | EvalColumnFail: ∀ step step' n e env c s r r' lookup db Γ β p,
+      c = ⟨ db Γ β p ⟩ →
+      step = S step' →
+      e = expression_lexed_column n →
+      r = relation_output s r' →
+      ¬ (n < List.length s) →
+      eval step e (c, r, lookup) (env, EResultError)
+  | EvalAbs: ∀ step step' e' e env c r lookup db Γ β p,
+      c = ⟨ db Γ β p ⟩ →
+      step = S step' →
+      e = expression_lexed_abs e' →
+      eval step e (c, r, lookup) (env, EResultFunction e' lookup)
+  | EvalApp: ∀ step step' e1 e2 e ev env env' v c r lookup lookup' body f_env res db Γ β p,
+      c = ⟨ db Γ β p ⟩ →
+      step = S step' →
+      e = expression_lexed_app e1 e2 →
+      (* We first evaluate the function and obtain the updated environment and result. *)
+      eval step' e1 (c, r, lookup) (env, EResultFunction body f_env) →
+      (* We then evaluate the argument. *)
+      eval step' e2 (c, r, lookup) (env', v) →
+      v ≠ EResultError →
+      env' = (ev, lookup') →
+      (* Then we add the argument to the environment. *)
+      eval step' body (ev, v :: f_env) res →
+      eval step e (c, r, lookup) res
+  | EvalAppFail: ∀ step step' e e1 e2 env env' f body f_env v c r lookup db Γ β p,
+      c = ⟨ db Γ β p ⟩ →
+      step = S step' →
+      e = expression_lexed_app e1 e2 →
+      eval step' e1 (c, r, lookup) (env, f) →
+      eval step' e2 (c, r, lookup) (env', v) →
+      v = EResultError ∨ f ≠ EResultFunction body f_env →
+      eval step e (c, r, lookup) (env, EResultError)
+  | EvalUnary: ∀ step step' e f e' env v res c r lookup db Γ β p,
+      c = ⟨ db Γ β p ⟩ →
+      step = S step' →
+      e = expression_lexed_unary f e' →
+      eval step' e' (c, r, lookup) (env, v) →
+      eval_unary_expression f env v res →
+      eval step e (c, r, lookup) res
+.
+
+Inductive eval_expr:
+  config → relation_wrapped → expression → (eval_env * EResult) → Prop :=
+  | EvalExpr: ∀ c r e env,
+    eval 100 (lex e nil) (c, r, nil) env → eval_expr c r e env
+.
+
+(*
+  This module needs some refactor because evaluating formula w.l.o.g. can be made as STLC.
+  The environment for evaluation contains the policy, privacy parameter as well as the provenance context.
+
+  There are two places where we need to evaluate the formula:
+  1. For projections, we need to evaluate the formula to perform some transform on the data. 
+*)
 
 Inductive atomic_expression (ty: Tuple.tuple_type) : basic_type → Set :=
   (* v *)
@@ -11,7 +235,7 @@ Inductive atomic_expression (ty: Tuple.tuple_type) : basic_type → Set :=
       ∀ bt (c: type_to_coq_type bt), atomic_expression ty bt
   (* a *)
   | atomic_expression_column:
-      ∀ n (extract: n < length ty), atomic_expression ty (Tuple.nth_np ty n extract)
+      ∀ n (extract: n < List.length ty), atomic_expression ty (Tuple.nth_np ty n extract)
   (* f(list e) *)
   | atomic_expression_func:
       ∀ bt (c: type_to_coq_type bt),
@@ -221,7 +445,7 @@ Example example_formula': formula Tuple.example_tuple_ty :=
       )
     ).
 
-Example can_index: 0 < length Tuple.example_tuple_ty.
+Example can_index: 0 < List.length Tuple.example_tuple_ty.
 Proof.
   simpl. lia.
 Qed.
