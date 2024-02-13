@@ -33,7 +33,7 @@ Inductive LogOp: Type := And | Or.
 (* Comparison operators. *)
 Inductive ComOp: Type := Gt | Lt | Ge | Le | Eq | Neq.
 (* Some example binary arithmetic operators. *)
-Inductive BinOp: Type := Add | Sub | Mul | Div | Mod | Concat.
+Inductive BinArithOp: Type := Add | Sub | Mul | Div | Mod | Concat.
 (* Some example unary arithmetic operators. *)
 Inductive UnOp: Type :=
   | Identity
@@ -43,6 +43,12 @@ Inductive UnOp: Type :=
   | Lower
   | Upper
   | Not
+.
+
+Inductive BinOp: Type :=
+  | Logical: LogOp → BinOp
+  | Comparison: ComOp → BinOp
+  | Arithmetic: BinArithOp → BinOp
 .
 
 Inductive TransOp: Type :=
@@ -203,6 +209,9 @@ Lemma binop_dec: ∀ (op1 op2: BinOp), {op1 = op2} + {op1 ≠ op2}.
 Proof.
   intros.
   destruct op1, op2; try (right; discriminate); try (left; congruence).
+  - destruct l, l0; try (right; discriminate); try (left; congruence).
+  - destruct c, c0; try (right; discriminate); try (left; congruence).
+  - destruct b, b0; try (right; discriminate); try (left; congruence).
 Qed.
 
 Lemma transop_dec: ∀ (op1 op2: TransOp), {op1 = op2} + {op1 ≠ op2}.

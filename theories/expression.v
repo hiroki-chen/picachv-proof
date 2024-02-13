@@ -1,0 +1,360 @@
+Require Import Arith.Compare_dec.
+Require Import Lia.
+Require Import List.
+Require Import String.
+Require Import Unicode.Utf8.
+
+Require Import config.
+Require Import data_model.
+Require Import lattice.
+Require Import ordering.
+Require Import prov.
+Require Import relation.
+Require Import types.
+Require Import util.
+
+Lemma tuple_single_eq: ∀ s ty, s = ty :: nil →
+  Tuple.tuple (♭ s) = (prod (prod (type_to_coq_type (fst ty)) nat) unit).
+Proof.
+  intros. subst. simpl. auto.
+  destruct ty.
+  simpl.
+  reflexivity.
+Qed.
+
+Inductive expr_type: Type :=
+  | expr_type_basic: basic_type → expr_type
+  | expr_type_func: expr_type → expr_type → expr_type
+.
+
+Fixpoint expr_type_eqb (τ1 τ2: expr_type): bool :=
+  match τ1, τ2 with
+    | expr_type_basic bt1, expr_type_basic bt2 => type_matches bt1 bt2
+    | expr_type_func τ1a τ1b, expr_type_func τ2a τ2b =>
+      andb (expr_type_eqb τ1a τ2a) (expr_type_eqb τ1b τ2b)
+    | _, _ => false
+  end.
+
+Inductive expression: Type :=
+  (* x *)
+  | expression_var: string → expression
+  (* v *)
+  | expression_const: ∀ bt, type_to_coq_type bt → expression
+  (* a *)
+  | expression_column: ∀ (n: nat), expression
+  (* λ (x: τ). e *)
+  | expression_abs: string → expr_type → expression → expression
+  (* e1 e2 *)
+  | expression_app: expression → expression → expression
+  (* ∘ e *)
+  | expression_unary: unary_func → expression → expression
+  (* e1 ⊗ e2 *)
+  | expression_binary: binary_func → expression → expression → expression
+  (* fold *)
+  | expression_agg: agg_func → expression → expression
+.
+
+(*
+  The following is the lexed version of the expression.
+  The reason why we need this is because we need to parse the expression from a string.
+
+  A lexed lambda calculus expression is a lambda calculus expression with all the variables
+  replaced by their indices in the original string. For example, the expression `λ x. x` will
+  be lexed to `λ 0`. This is de Bruijn index.
+
+  One reason for this is that we can eliminate the need for alpha conversion and substitution
+  by using de Bruijn indices. So that looking up a variable is just a matter of looking up the
+  index in the environment.
+*)
+Inductive expression_lexed: Type :=
+  (* x *)
+  | expression_lexed_var: nat → expression_lexed
+  (* v *)
+  | expression_lexed_const: ∀ bt, type_to_coq_type bt → expression_lexed
+  (* a *)
+  | expression_lexed_column: ∀ (n: nat), expression_lexed
+  (* λ x. e *)
+  | expression_lexed_abs: expr_type → expression_lexed → expression_lexed
+  (* e1 e2 *)
+  | expression_lexed_app: expression_lexed → expression_lexed → expression_lexed
+  (* ∘ e *)
+  | expression_lexed_unary: unary_func → expression_lexed → expression_lexed
+  (* e1 ⊗ e2 *)
+  | expression_lexed_binary: binary_func → expression_lexed → expression_lexed → expression_lexed
+  (* fold *)
+  | expression_lexed_agg: agg_func → expression_lexed → expression_lexed
+.
+
+Inductive EResult: Type :=
+  | EResultError: EResult
+  | EResultFunction: expr_type → expression_lexed → list EResult → EResult
+  | EResultValue: ∀ bt, type_to_coq_type bt → EResult
+  | EResultRelation: relation_wrapped → EResult
+.
+
+(* `groupby` list is just a list of indices of the original data frame that should be chosen as keys. *)
+Definition groupby_list := (list nat)%type.
+(* simple_agg_expression := (AggOp * agg_func * nat) *)
+Definition agg_list := (list (expression * string))%type.
+(* This represents a range of groups within the original data frame. *)
+Definition group := (list nat)%type.
+
+(*
+  A groupby_proxy can be visualized as a pair:
+  
+  +-----------------+-----------------+
+  |   groupby keys  |   data          |
+  +-----------------+-----------------+
+  | Tuple.tuple s   |  data 0         |
+  |                 |  data 1         |
+  |                 |  data 2         |
+  |                 |  data 3         |
+  |                 |  ...            |
+  +-----------------+-----------------+
+
+  Where:
+  - Tuple.tuple s is the tuple of s, which represents the grouped columns.
+  - group_range represents the range of each group.
+*)
+Definition groupby_proxy s := (Tuple.tuple (♭ s) * group)%type.
+
+Definition symbol_lookup_table := (list EResult)%type.
+
+(*
+  The evaluation environment Γ for the lambda calculus is a list of:
+  - The current configuration.
+  - The current active relation.
+  - The symbol lookup table.
+*)
+Definition eval_env := (config * relation_wrapped * symbol_lookup_table)%type.
+
+Fixpoint index (x: string) (env: list string): nat :=
+  match env with
+    | h :: t => if string_dec h x then 0 else 1 + index x t
+    | _ => 0
+  end.
+
+Fixpoint lex (e: expression) (env: list string): expression_lexed :=
+  match e with
+  | expression_var x => expression_lexed_var (index x env)
+  | expression_const bt v => expression_lexed_const bt v
+  | expression_column n => expression_lexed_column n
+  | expression_abs x τ e => expression_lexed_abs τ (lex e (x :: env))
+  | expression_app e1 e2 => expression_lexed_app (lex e1 env) (lex e2 env)
+  | expression_unary f e => expression_lexed_unary f (lex e env)
+  | expression_binary f e1 e2 => expression_lexed_binary f (lex e1 env) (lex e2 env)
+  | expression_agg f e => expression_lexed_agg f (lex e env)
+  end.
+
+Definition get_new_policy cur op: Policy.policy :=
+  match cur with
+  | ∎ => cur
+  | ℓ ⇝ p =>
+    match Policy.can_declassify_dec ℓ op with
+    | left _ => p
+    | right _ => cur
+    end
+  end.
+
+Inductive eval_unary_expression_in_cell: ∀ bt,
+  unary_func → (type_to_coq_type bt * nat) → eval_env →
+    (eval_env * EResult) → Prop :=
+  | E_UnaryLabelNotFound: ∀ bt f (arg: type_to_coq_type bt) id c r lookup db Γ β p,
+      c = ⟨ db Γ β p ⟩ →
+      label_lookup Γ id = None ∨
+      label_lookup p id = None →
+      eval_unary_expression_in_cell bt f (arg, id) (c, r, lookup) ((c, r, lookup), EResultError)
+  | E_UnaryTypeError: ∀ bt bt' f op lambda (arg: type_to_coq_type bt) id c r lookup,
+      f = unary_function op bt' lambda →
+      bt ≠ bt' →
+      eval_unary_expression_in_cell bt f (arg, id) (c, r, lookup) ((c, r, lookup), EResultError)
+  | E_UnaryPolicyError: ∀ bt bt' f op lambda (arg: type_to_coq_type bt) id db c r lookup Γ β p p_cur,
+      c = ⟨ db Γ β p ⟩ →
+      label_lookup Γ id = Some p_cur →
+      f = unary_function op bt' lambda →
+      bt = bt' →
+      let p_f := ∘ (Policy.policy_transform ((unary_trans_op op) :: nil)) in
+        ¬ (p_cur ⪯ p_f) →
+        eval_unary_expression_in_cell bt f (arg, id) (c, r, lookup) ((c, r, lookup), EResultError)
+  | E_UnaryPolicyOk: ∀ bt bt' f op lambda (arg: type_to_coq_type bt) id c r lookup
+                       db Γ Γ' β β' p p' p_cur prov_cur,
+      c = ⟨ db Γ β p ⟩ →
+      label_lookup Γ id = Some p_cur →
+      label_lookup p id = Some prov_cur →
+      f = unary_function op bt' lambda →
+      ∀ (eq: bt = bt'), let p_f := (Policy.policy_transform ((unary_trans_op op) :: nil)) in
+        p_cur ⪯ (∘ p_f) →
+          let p_new := get_new_policy p_cur p_f in
+            let prov_new := prov_list (prov_trans_unary op) ((id, prov_cur) :: nil) in
+              Γ' = update_label Γ id p_new →
+              p' = update_label p id prov_new →
+              eval_unary_expression_in_cell bt f (arg, id) (c, r, lookup)
+                ((⟨ db Γ' β' p' ⟩, r, lookup), EResultValue bt' (lambda (eq ♯ arg)))
+.
+
+Inductive eval_unary_expression_in_relation: unary_func → eval_env → (eval_env * EResult) → Prop :=
+  | E_EmptyRelation: ∀ f env c rr s r lookup,
+      env = (c, rr, lookup) →
+      rr = relation_output s r →
+      r = nil →
+      eval_unary_expression_in_relation f env (env, EResultRelation (relation_output s r))
+  | E_ApplySchemaError: ∀ f env c rr s r lookup,
+      env = (c, rr, lookup) →
+      rr = relation_output s r →
+      List.length s ≠ 1 →
+      eval_unary_expression_in_relation f env (env, EResultError)
+  | E_ApplyInCellHeadError: ∀ ty ty' v f env env' res c rr s (s_case: s = ty :: nil) r arg id tl lookup,
+      env = (c, rr, lookup) →
+      rr = relation_output s r →
+      ((tuple_single_eq s ty s_case) ♯ r) = [[ (arg, id) ]] :: tl →
+      eval_unary_expression_in_cell (fst ty) f (arg, id) env (env', res) →
+      res ≠ EResultValue ty' v →
+      eval_unary_expression_in_relation f env (env', EResultError)
+  | E_ApplyInCellConsError: ∀ ty f env env' c rr s (s_case: s = ty :: nil) r arg id tl tl' res lookup,
+      env = (c, rr, lookup) →
+      rr = relation_output s r →
+      ((tuple_single_eq s ty s_case) ♯ r) = [[ (arg, id) ]] :: tl →
+      eval_unary_expression_in_relation
+          f
+          (c, relation_output s ((eq_sym (tuple_single_eq s ty s_case) ♯ tl)), lookup)
+          (env', res) →
+      res ≠ EResultRelation tl' →
+      eval_unary_expression_in_relation f env (env', EResultError)
+  | E_ApplyOk: ∀ ty f env env' env'' c rr s (s_case: s = ty :: nil) r arg id v tl tl' s' r' lookup,
+      env = (c, rr, lookup) →
+      rr = relation_output s r →
+      ((tuple_single_eq s ty s_case) ♯ r) = [[ (arg, id) ]] :: tl →
+      eval_unary_expression_in_cell (fst ty) f (arg, id) env (env', EResultValue (fst ty) v) →
+      eval_unary_expression_in_relation
+          f
+          ((fst (fst env')), relation_output s ((eq_sym (tuple_single_eq s ty s_case) ♯ tl)), (snd env'))
+          (env'', EResultRelation tl') →
+      tl' = relation_output s' r' →
+        ∀ (schema_eq: s' = s),
+          let result := ([[ (v, id) ]] :: ((tuple_single_eq s ty s_case) ♯ (schema_eq ♯ r'))) in
+            eval_unary_expression_in_relation f env
+              (env'', EResultRelation (relation_output s (eq_sym (tuple_single_eq s ty s_case) ♯ result)))
+.
+
+(*
+  This function evaluates a unary expression with a given function.
+*)
+Inductive eval_unary_expression: unary_func → eval_env → EResult → (eval_env * EResult) → Prop :=
+  (* We only allow the argument to a unary function to be either a relation and a constant. *)
+  | EvalUnaryNonEvaluable: ∀ τ f env v body f_e,
+    v = EResultError ∨ v = EResultFunction τ body f_e →
+    eval_unary_expression f env v (env, EResultError)
+  | EvalUnaryValueTypeMismatch: ∀ f op env bt bt' v v' lambda,
+    v = EResultValue bt v' →
+    f = unary_function op bt' lambda →
+    bt' ≠ bt →
+    eval_unary_expression f env v (env, EResultError)
+  | EvalUnaryValue: ∀ f op env bt bt' v v' lambda,
+    v = EResultValue bt v' →
+    f = unary_function op bt' lambda →
+      ∀ (eq: bt = bt'),
+        eval_unary_expression f env v (env, EResultValue bt' (lambda (eq ♯ v')))
+  | EvalUnaryRelation: ∀ f env env' v s r c rr lookup,
+    v = relation_output s r →
+    env = (c, rr, lookup) →
+    eval_unary_expression_in_relation f (c, v, lookup) env' →
+    eval_unary_expression f env (EResultRelation v) env'
+.
+
+Inductive eval: nat → expression_lexed → eval_env → (eval_env * EResult) → Prop :=
+  (* The evaluation hangs and we have to force termination. *)
+  | EvalNoStep: ∀ e env step, step = O → eval step e env (env, EResultError)
+  (* Evaluating a variable value is simple: we just lookup it. *)
+  | EvalVar: ∀ step step' n e env c r lookup db Γ β p,
+      c = ⟨ db Γ β p ⟩ →
+      step = S step' →
+      e = expression_lexed_var n →
+      eval step e (c, r, lookup) (env, nth_default EResultError n lookup)
+  (* Evaluating a constant value is simple: we just return it. *)
+  | EvalConst: ∀ step step' bt v e env c r lookup db Γ β p,
+      c = ⟨ db Γ β p ⟩ →
+      step = S step' →
+      e = expression_lexed_const bt v →
+      eval step e (c, r, lookup) (env, EResultValue bt v)
+  | EvalColumn: ∀ step step' n e env c s r r' lookup db Γ β p,
+      c = ⟨ db Γ β p ⟩ →
+      step = S step' →
+      e = expression_lexed_column n →
+      r = relation_output s r' →
+      ∀ ok: n < List.length s,
+        eval step e (c, r, lookup) (env, EResultRelation (relation_output _ (extract_column s r' n ok)))
+  | EvalColumnFail: ∀ step step' n e env c s r r' lookup db Γ β p,
+      c = ⟨ db Γ β p ⟩ →
+      step = S step' →
+      e = expression_lexed_column n →
+      r = relation_output s r' →
+      ¬ (n < List.length s) →
+      eval step e (c, r, lookup) (env, EResultError)
+  | EvalAbs: ∀ step step' τ e' e env c r lookup db Γ β p,
+      c = ⟨ db Γ β p ⟩ →
+      step = S step' →
+      e = expression_lexed_abs τ e' →
+      eval step e (c, r, lookup) (env, EResultFunction τ e' lookup)
+  | EvalApp: ∀ step step' e1 e2 e ev env env' v c r lookup lookup' τ body f_env res db Γ β p,
+      c = ⟨ db Γ β p ⟩ →
+      step = S step' →
+      e = expression_lexed_app e1 e2 →
+      (* We first evaluate the function and obtain the updated environment and result. *)
+      eval step' e1 (c, r, lookup) (env, EResultFunction τ body f_env) →
+      (* We then evaluate the argument. *)
+      eval step' e2 (c, r, lookup) (env', v) →
+      v ≠ EResultError →
+      env' = (ev, lookup') →
+      (* Then we add the argument to the environment. *)
+      eval step' body (ev, v :: f_env) res →
+      eval step e (c, r, lookup) res
+  | EvalAppFail: ∀ step step' e e1 e2 env env' f τ body f_env v c r lookup db Γ β p,
+      c = ⟨ db Γ β p ⟩ →
+      step = S step' →
+      e = expression_lexed_app e1 e2 →
+      eval step' e1 (c, r, lookup) (env, f) →
+      eval step' e2 (c, r, lookup) (env', v) →
+      v = EResultError ∨ f ≠ EResultFunction τ body f_env →
+      eval step e (c, r, lookup) (env, EResultError)
+  | EvalUnary: ∀ step step' e f e' env v res c r lookup db Γ β p,
+      c = ⟨ db Γ β p ⟩ →
+      step = S step' →
+      e = expression_lexed_unary f e' →
+      eval step' e' (c, r, lookup) (env, v) →
+      eval_unary_expression f env v res →
+      eval step e (c, r, lookup) res
+  | EvalAgg: ∀ step step' e agg body res c r lookup db Γ β p,
+      c = ⟨ db Γ β p ⟩ →
+      step = S step' →
+      e = expression_lexed_agg agg body →
+      eval step e (c, r, lookup) res
+.
+
+Inductive eval_expr:
+  config → relation_wrapped → expression → (eval_env * EResult) → Prop :=
+  | EvalExpr: ∀ c r e env,
+    eval 100 (lex e nil) (c, r, nil) env → eval_expr c r e env
+.
+
+Section Facts.
+
+Import Bool.
+
+Lemma expr_type_eqb_refl: ∀ τ, expr_type_eqb τ τ = true.
+Proof.
+  induction τ; simpl; try easy.
+  - destruct b; simpl; reflexivity.
+  - rewrite IHτ1, IHτ2. reflexivity.
+Qed.
+
+Lemma expr_type_eqb_eq_iff: ∀ τ1 τ2, expr_type_eqb τ1 τ2 = true ↔ τ1 = τ2.
+Proof.
+  induction τ1; intro τ2; destruct τ2; simpl; split; try easy; intros.
+  - apply type_matches_eq in H. rewrite H. reflexivity.
+  - inversion H. destruct b0; simpl; reflexivity.
+  - apply andb_true_iff in H. destruct H.
+    apply IHτ1_1 in H. apply IHτ1_2 in H0. subst. reflexivity.
+  - inversion H. subst. apply andb_true_iff. split; apply expr_type_eqb_refl.
+Qed.
+
+End Facts.

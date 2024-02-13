@@ -153,6 +153,13 @@ refine (
   - intros. subst. apply nth with t n'. simpl in H1. lia.
 Defined.
 
+Fixpoint nth_option {A: Type} (l: list A) (n: nat): option A :=
+  match l, n with
+  | nil, _ => None
+  | h :: t, 0 => Some h
+  | h :: t, S n' => nth_option t n'
+  end.
+
 Fixpoint nth_default {A: Type} (d: A) (n: nat) (l: list A): A :=
   match n, l with
     | O, x :: _ => x

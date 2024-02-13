@@ -1,6 +1,7 @@
 Require Import List.
 Require Import Unicode.Utf8.
 
+Require Import config.
 Require Import data_model.
 Require Import lattice.
 Require Import prov.
