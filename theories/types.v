@@ -67,6 +67,16 @@ Inductive basic_type: Set :=
   | BoolType
   | StringType.
 
+(*
+  For brevity, we assume that the noise generator for ensuring privacy is an "oracle" in a sense that
+  for any given budget it always generates a noise value. Verifying differential privacy is a separate
+  concern and is not addressed here.
+ *)
+Inductive noise_gen: Type :=
+  (* The constructor which takes a certain value of budget and the raw value.  *)
+  | noise: ∀ (A: Type), budget → A → A → noise_gen
+.
+
 Lemma basic_type_eq_dec: ∀ (t1 t2: basic_type), {t1 = t2} + {t1 ≠ t2}.
 Proof.
   intros.

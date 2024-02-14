@@ -135,6 +135,58 @@ Fixpoint determine_schema (s: schema) (pl: list (expression * string)): option s
 
 (*
   @param s The schema of the relation.
+  @param group_by The list of column indices to group by.
+  @param agg The list of aggregation expressions, represented in the form of lambda calculus.
+  @returns schema The schema resulting from the aggregation operation.
+
+  This function computes the schema for the aggregation operation that consists of two components:
+
+  - The `group_by` keys which are just a list of column indices.
+    These indices determine the columns that will be used to group the data in the relation.
+  - The `agg` aggregation expressions which are represented in the form of lambda calculus.
+    These expressions determine how the data in each group should be aggregated.
+
+  The resulting schema describes the structure of the data after the aggregation operation has been applied.
+
+  # Examples
+
+  ```
+  (* We are now given a schema *)
+  let s = [(IntegerType, "a"), (IntegerType, "b"), (IntegerType, "c")];
+  let group_by = [0, 1];
+  agg = [((λ x: x, "count"(x)) (col 2)), "count(c)"), ((λ x: x, "sum"(x)) (col 2), "sum(c)"))];
+
+  (* The resulting schema will be *)
+  determine_schema_agg s group_by agg =
+    [(IntegerType, "a"), (IntegerType, "b"), (IntegerType, "count(c)"), (IntegerType, "sum(c)")];
+  ```
+*)
+Definition determine_schema_agg (s: schema) (agg: agg_list) (gb: groupby_list):
+  bounded_list s gb → option schema :=
+  fun bounded =>
+    let determine_from_agg :=
+      (fix f agg :=
+        match agg with
+        | nil => Some nil
+        | (x, name) :: ℓ' =>
+          match determine_bt_from_expr s (lex x nil) with
+          | Some bt =>
+            match f ℓ' with
+            | Some sch => Some ((bt, name) :: sch)
+            | None => None
+            end
+          | None => None
+          end
+        end) in
+    match determine_from_agg agg with
+    | Some agg_schema =>
+        let gb_schema := ntypes s gb bounded in
+          Some (gb_schema ++ agg_schema)
+    | None => None
+    end.
+
+(*
+  @param s The schema of the relation.
   @return project_list The expanded project list.
 
   This function will expand `SELECT *` into its full project list.
@@ -155,17 +207,16 @@ Definition project_list_preprocess (s: schema) (pl: project_list): project_list 
 
 (* This first creates for each tuple a `groupby_proxy` which can later be `gathered` for our convenience. *)
 Definition get_group_proxy_helper s (r: relation s) (gb_keys: groupby_list) (bounded: bounded_list s gb_keys):
-  list (groupby_proxy (ntypes s gb_keys bounded)) :=
+  list groupby :=
   let gb_keys_extracted := (extract_columns s r gb_keys bounded) in
     (fix create_group_proxy keys n :=
       match keys with
       | nil => nil
-      | hd :: tl => (hd, (n :: nil)) :: (create_group_proxy tl (S n))
+      | hd :: tl => groupby_proxy _ hd (n :: nil) :: (create_group_proxy tl (S n))
       end
     ) gb_keys_extracted 0.
 
-Definition get_group_proxy s (r: relation s) (gb_keys: groupby_list) (bounded: bounded_list s gb_keys):
-  list (groupby_proxy (ntypes s gb_keys bounded)).
+Definition get_group_proxy s (r: relation s) (gb_keys: groupby_list) (bounded: bounded_list s gb_keys): list groupby.
   pose (intermediate_gb_proxy := get_group_proxy_helper s r gb_keys bounded).
   induction intermediate_gb_proxy.
   - exact nil.
@@ -175,17 +226,21 @@ Definition get_group_proxy s (r: relation s) (gb_keys: groupby_list) (bounded: b
        in this rest. If yes, we need to merge it into the rest and then return the merged one. If not,
        we need to remain as is.
      *)
-     pose (gather := fix gather (elem: groupby_proxy (ntypes s gb_keys bounded))
-                      (proxy: list (groupby_proxy (ntypes s gb_keys bounded))) :=
+     pose (gather := fix gather (elem: groupby) (proxy: list groupby) :=
        match proxy with
        | nil => elem :: nil
-       | hd :: tl => 
-          let (key , indices) := hd in
-          let (key', indices') := elem in
-          if (Tuple.tuple_value_eqb _ key key') then
-            (key, indices ++ indices') :: (gather elem tl)
-          else
-            hd :: (gather elem tl)
+       | hd :: tl =>
+          match hd, elem with
+          | groupby_proxy s key indices, groupby_proxy s' key' indices' =>
+            match list_eq_dec basic_type_eq_dec s s' with
+            | left eq => 
+              if (Tuple.tuple_value_eqb _ key' (eq ♯ key)) then
+                (groupby_proxy s key (indices ++ indices'):: gather elem tl)
+              else
+                hd :: (gather elem tl)
+            | right _ => nil
+            end
+          end
        end
      ).
 
@@ -232,8 +287,8 @@ Inductive eval_expr_in_relation (s: schema) (r: relation s):
   Policy.context → budget → prov_ctx → expression →
     option (EResult * Policy.context * budget * prov_ctx) → Prop :=
   | E_Eval: ∀ db db' Γ Γ' β β' p p' e env res,
-      eval_expr (⟨ db Γ β p ⟩) (relation_output s r) e (env, res) →
-      (fst (fst env)) = (⟨ db' Γ' β' p' ⟩) →
+      eval_expr (⟨ db Γ β p ⟩) (relation_output s r) None e (env, res) →
+      (fst (fst (fst env))) = (⟨ db' Γ' β' p' ⟩) →
       eval_expr_in_relation s r Γ β p e (Some (res, Γ, β, p))
 .
 
@@ -296,6 +351,8 @@ Inductive apply_proj_in_relation (s: schema) (r: relation s) (ℓ: list (express
   consume a certain amount of budget. If the evaluation is successful, the function returns `Some` with a
   tuple containing the resulting relation, the updated policy context, the remaining budget, and the up-
   dated provenance context. The predicate is checked against each tuple in the relation.
+
+  ** This must not involve `having` which is handled elsewhere.
 *)
 Inductive eval_predicate_in_relation (s: schema) (r: relation s):
   Policy.context → budget → prov_ctx → expression →
@@ -305,45 +362,47 @@ Inductive eval_predicate_in_relation (s: schema) (r: relation s):
       eval_predicate_in_relation s r Γ β p e (Some (nil, Γ, β, p))
   | E_EvalExprConsTrue: ∀ db db' Γ Γ' Γ'' β β' β'' p p' p'' e env hd tl tl',
       r = hd :: tl →
-      eval_expr (⟨ db Γ β p ⟩) (relation_output s (hd :: nil)) e (env, EResultValue BoolType true) →
-      fst (fst env) = ⟨ db' Γ' β' p' ⟩ →
+      eval_expr (⟨ db Γ β p ⟩) (relation_output s (hd :: nil)) None e (env, EResultValue BoolType true) →
+      fst (fst (fst env)) = ⟨ db' Γ' β' p' ⟩ →
       eval_predicate_in_relation s tl Γ' β' p' e (Some (tl', Γ'', β'', p'')) →
       eval_predicate_in_relation s r Γ β p e (Some (hd :: tl', Γ'', β'', p''))
   | E_EvalExprConsFalse: ∀ db db' Γ Γ' Γ'' β β' β'' p p' p'' e env hd tl tl',
       r = hd :: tl →
-      eval_expr (⟨ db Γ β p ⟩) (relation_output s (hd :: nil)) e (env, EResultValue BoolType false) →
-      fst (fst env) = ⟨ db' Γ' β' p' ⟩ →
+      eval_expr (⟨ db Γ β p ⟩) (relation_output s (hd :: nil)) None e (env, EResultValue BoolType false) →
+      fst (fst (fst env)) = ⟨ db' Γ' β' p' ⟩ →
       eval_predicate_in_relation s tl Γ' β' p' e (Some (tl', Γ'', β'', p'')) →
       eval_predicate_in_relation s r Γ β p e (Some (tl', Γ'', β'', p''))
   | E_EvalError: ∀ db res v Γ β p e env hd tl,
       r = hd :: tl →
-      eval_expr (⟨ db Γ β p ⟩) (relation_output s (hd :: nil)) e (env, res) →
+      eval_expr (⟨ db Γ β p ⟩) (relation_output s (hd :: nil)) None e (env, res) →
       res ≠ EResultValue BoolType v →
       eval_predicate_in_relation s r Γ β p e None
   | E_EvalError2: ∀ db Γ Γ' β β' p p' e env v hd tl,
       r = hd :: tl →
-      eval_expr (⟨ db Γ β p ⟩) (relation_output s (hd :: nil)) e (env, EResultValue BoolType v) →
+      eval_expr (⟨ db Γ β p ⟩) (relation_output s (hd :: nil)) None e (env, EResultValue BoolType v) →
       eval_predicate_in_relation s tl Γ' β' p' e None →
       eval_predicate_in_relation s r Γ β p e None
 .
 
+(*
+  The `apply_fold_on_groups` inductive type represents the application of a list of aggregation operations on a list of
+  `groupby_proxy` elements.
+*)
+Inductive apply_fold_on_groups:
+  ∀ s s_agg, Policy.context → budget → prov_ctx → list groupby → agg_list → relation s →
+    option (relation s_agg * Policy.context * budget * prov_ctx) → Prop :=
+.
+
 (* We should invoke `eval_expr` to get the result. *)
 Inductive eval_aggregate:
-  ∀ s s_agg, agg_list → groupby_list → Policy.context → budget → prov_ctx → relation s →
-    option (relation (s ++ s_agg) * Policy.context * budget * prov_ctx) → Prop :=
-  | E_EvalAggregateNotBounded: ∀ s s_agg Γ β p gb_list agg r,
-      ¬ bounded_list s gb_list →
-      eval_aggregate s s_agg agg gb_list Γ β p r None
-  (* | E_EvalAggregateError: ∀ s s_agg Γ β p gb_list (bounded: bounded_list s gb_list)
-                       gb_proxy agg r,
-      get_group_proxy s r gb_list bounded = gb_proxy →
-      apply_fold_on_groups s _ agg Γ β p gb_proxy r None →
-      eval_aggregate s s_agg agg Γ β p gb_list r None
-  | E_EvalAggregateOk: ∀ s s_agg Γ Γ' β β' p p' gb_list (bounded: bounded_list s gb_list)
-                    gb_proxy agg r r',
-      get_group_proxy s r gb_list bounded = gb_proxy →
-      apply_fold_on_groups s _ agg Γ β p gb_proxy r (Some (r', Γ', β', p')) →
-      eval_aggregate s s_agg agg Γ β p gb_list r (Some (r', Γ', β', p')) *)
+  ∀ s s_agg gb, bounded_list s gb → agg_list → expression → Policy.context → budget → prov_ctx → relation s →
+    option (relation s_agg * Policy.context * budget * prov_ctx) → Prop :=
+  | E_EvalAggregate: ∀ s s_agg Γ β p gb (bounded: bounded_list s gb)
+                       gb_proxy agg f r res,
+      get_group_proxy s r gb bounded = gb_proxy →
+      (* TODO: Filter `gb proxy` using the `group_by` filter. *)
+      apply_fold_on_groups s s_agg Γ β p gb_proxy agg r res →
+      eval_aggregate s s_agg gb bounded agg f Γ β p r res
 .
 
 (* 
@@ -541,32 +600,50 @@ Inductive step_config: (config * operator) → config → Prop :=
         ⟦ c (operator_join o1 o2) ⟧ ⇓
         (* TODO: Should join. *)
         ⟦ config_output r (⟨ db'' Γout βout pout ⟩) ⟧
-  | E_AggEmpty: ∀ c c' db Γ β p o s r gl al f,
+  | E_AggEmpty: ∀ c c' db Γ β p o s r gb agg f,
       c = ⟨ db Γ β p ⟩ →
       ⟦ c o ⟧ ⇓ ⟦ c' ⟧ →
       c' = config_output (relation_output s r) c' →
       s = nil ∨ r = nil →
-      ⟦ c (operator_groupby_having gl al f o) ⟧ ⇓ ⟦ c' ⟧
-  | E_AggError: ∀ c db Γ β p o gl al f,
+      ⟦ c (operator_groupby_having gb agg f o) ⟧ ⇓ ⟦ c' ⟧
+  | E_AggError: ∀ c db Γ β p o gb agg f,
       c = ⟨ db Γ β p ⟩ →
       ⟦ c o ⟧ ⇓ ⟦ config_error ⟧ →
-      ⟦ c (operator_groupby_having gl al f o) ⟧ ⇓ ⟦ config_error ⟧
-  (* | E_AggError2: ∀ s c c' db db' Γ Γ' β β' p p' o r gl al f,
+      ⟦ c (operator_groupby_having gb agg f o) ⟧ ⇓ ⟦ config_error ⟧
+  | E_AggNotBounded: ∀ s c c' db db' Γ Γ' β β' p p' o r gb agg f,
       c = ⟨ db Γ β p ⟩ →
       ⟦ c o ⟧ ⇓ ⟦ c' ⟧ →
       c' = config_output (relation_output s r) (⟨ db' Γ' β' p' ⟩) →
       s ≠ nil ∧ r ≠ nil →
-      s_agg = determine_schema s al →
-      eval_aggregate s s_agg al gl Γ' β' p' r None →
-      ⟦ c (operator_groupby_having gl al f o) ⟧ ⇓ ⟦ config_error ⟧
-  | E_AggOk: ∀ c c' c'' db db' Γ Γ' β β' p p' s al r r' o gl f,
+      ¬ bounded_list s gb →
+      ⟦ c (operator_groupby_having gb agg f o) ⟧ ⇓ ⟦ config_error ⟧
+  | E_AggSchemaError: ∀ c c' db db' Γ Γ' β β' p p' s r gb agg o f,
       c = ⟨ db Γ β p ⟩ →
       ⟦ c o ⟧ ⇓ ⟦ c' ⟧ →
       c' = config_output (relation_output s r) (⟨ db' Γ' β' p' ⟩) →
       s ≠ nil ∧ r ≠ nil →
-      eval_aggregate s al Γ' β' p' gl r (Some (r', Γ', β', p')) →
-      c'' = config_output (relation_output _ r') (⟨ db' Γ' β' p' ⟩) →
-      ⟦ c (operator_groupby_having gl al f o) ⟧ ⇓ ⟦ c'' ⟧ *)
+      ∀ (bounded: bounded_list s gb),
+        None = determine_schema_agg s agg gb bounded →
+        ⟦ c (operator_groupby_having gb agg f o) ⟧ ⇓ ⟦ config_error ⟧
+  | E_AggFail: ∀ c c' db db' Γ Γ' β β' p p' s s_agg r gb agg o f,
+      c = ⟨ db Γ β p ⟩ →
+      ⟦ c o ⟧ ⇓ ⟦ c' ⟧ →
+      c' = config_output (relation_output s r) (⟨ db' Γ' β' p' ⟩) →
+      s ≠ nil ∧ r ≠ nil →
+      ∀ (bounded: bounded_list s gb),
+        Some s_agg = determine_schema_agg s agg gb bounded →
+        eval_aggregate s s_agg gb bounded agg f Γ' β' p' r None →
+        ⟦ c (operator_groupby_having gb agg f o) ⟧ ⇓ ⟦ config_error ⟧
+  | E_AggOk: ∀ c c' c'' db db' Γ Γ' Γ'' β β' β'' p p' p'' s s_agg r r' gb agg o f,
+      c = ⟨ db Γ β p ⟩ →
+      ⟦ c o ⟧ ⇓ ⟦ c' ⟧ →
+      c' = config_output (relation_output s r) (⟨ db' Γ' β' p' ⟩) →
+      s ≠ nil ∧ r ≠ nil →
+      ∀ (bounded: bounded_list s gb),
+        Some s_agg = determine_schema_agg s agg gb bounded →
+        eval_aggregate s s_agg gb bounded agg f Γ' β' p' r (Some (r', Γ'', β'', p'')) →
+        c'' = config_output (relation_output s_agg r') (⟨ db' Γ'' β'' p'' ⟩) →
+        ⟦ c (operator_groupby_having gb agg f o) ⟧ ⇓ ⟦ c'' ⟧
 where "'⟦' c op '⟧' '⇓' '⟦' c' '⟧'" := (step_config (c, op) c').
 Hint Constructors step_config: core.
 
