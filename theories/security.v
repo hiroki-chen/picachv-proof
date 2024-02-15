@@ -93,14 +93,14 @@ Theorem secure_query:
   c = ⟨ db Γ β p ⟩ ∧ config_valid c →
   ⟦ c o ⟧ ⇓ ⟦ config_error ⟧ ∨
     (∃ s c' db' Γ' β' p' r, 
-        c' = config_output (relation_output s r) (⟨ db' Γ' β' p' ⟩) →
+        c' = config_output (RelationWrapped s r) (⟨ db' Γ' β' p' ⟩) →
       ⟦ c o ⟧ ⇓ ⟦ c' ⟧ ∧ label_transition_valid s r Γ Γ' p' ∧ budget_bounded β').
 Proof.
   induction o; intros; destruct H.
   - right.
-    exists nil, (config_output (relation_output nil nil) c), db, Γ, β, p, nil. split.
+    exists nil, (config_output (RelationWrapped nil nil) c), db, Γ, β, p, nil. split.
     + specialize E_Empty with
-      (c := c) (c' := config_output (relation_output nil nil) c) (db := db) (Γ := Γ) (β := β) (p := p).
+      (c := c) (c' := config_output (RelationWrapped nil nil) c) (db := db) (Γ := Γ) (β := β) (p := p).
       intros. intuition. subst. apply H2.
     + constructor.
       * constructor.
@@ -162,7 +162,7 @@ Proof.
             pose (merged_p := merge_env p0 p1).
             pose (merged_Γ := merge_env c c0).
             pose (merged_β := calculate_budget b b0).
-            exists s0, (config_output (relation_output _ (r ++ r0)) (⟨ d0 merged_Γ merged_β merged_p ⟩)),
+            exists s0, (config_output (RelationWrapped _ (r ++ r0)) (⟨ d0 merged_Γ merged_β merged_p ⟩)),
                    d0, merged_Γ, merged_β, merged_p, (r ++ r0).
             intros. split.
             ** econstructor; eauto.

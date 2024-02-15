@@ -1,4 +1,5 @@
 (* TODO: Make cells identifiable with some id. *)
+Require Import Ascii.
 Require Import Arith.
 Require Import Bool.
 Require Import Decidable.
@@ -10,6 +11,44 @@ Require Import String.
 Require Import Unicode.Utf8.
 
 Require Import ordering.
+
+Definition digit_to_string (n: nat): string :=
+  match n with
+    | 0 => "0" | 1 => "1" | 2 => "2" | 3 => "3" | 4 => "4"
+    | 5 => "5" | 6 => "6" | 7 => "7" | 8 => "8" | _ => "9"
+  end.
+
+(* This function is not "syntactically" terminating. We prove this later using `Program Fixpoint`. *)
+Program Fixpoint nat_to_string (n: nat) {measure n}: string :=
+  (match (n <? 10)%nat as x return (n <? 10)%nat = x → string with
+     | true => fun _ => digit_to_string n
+     | false => fun pf =>
+                  let m := Nat.div n 10 in
+                    append (nat_to_string m) (digit_to_string (n - 10 * m))
+   end eq_refl).
+Next Obligation.
+  apply (Nat.div_lt n 10%nat).
+  destruct n. unfold Nat.ltb in *. simpl in *.
+  discriminate. auto with arith.
+  auto with arith.
+Defined.
+
+Definition nat_of_string (s: string) : nat :=
+  let fix aux acc s :=
+      match s with
+      | String "0" rst => aux (10 * acc) rst
+      | String "1" rst => aux (1 + 10 * acc) rst
+      | String "2" rst => aux (2 + 10 * acc) rst
+      | String "3" rst => aux (3 + 10 * acc) rst
+      | String "4" rst => aux (4 + 10 * acc) rst
+      | String "5" rst => aux (5 + 10 * acc) rst
+      | String "6" rst => aux (6 + 10 * acc) rst
+      | String "7" rst => aux (7 + 10 * acc) rst
+      | String "8" rst => aux (8 + 10 * acc) rst
+      | String "9" rst => aux (9 + 10 * acc) rst
+      | _ => acc
+      end
+  in aux 0 s.
 
 (*
   By its design, privacy budget should be real numbers, but this would introduce undue
@@ -65,7 +104,8 @@ Inductive NoiseOp: Type :=
 Inductive basic_type: Set :=
   | IntegerType
   | BoolType
-  | StringType.
+  | StringType
+  .
 
 (*
   For brevity, we assume that the noise generator for ensuring privacy is an "oracle" in a sense that
@@ -106,6 +146,22 @@ Definition type_to_coq_type (t: basic_type): Set :=
   | StringType => string
   end.
 
+(* Try to cast between types. *)
+Definition try_cast (t1 t2: basic_type): type_to_coq_type t1 → option (type_to_coq_type t2) :=
+  match t1 as t1', t2 as t2'
+    return t1 = t1' → t2 = t2' → type_to_coq_type t1' → option (type_to_coq_type t2') with
+  | IntegerType, IntegerType => fun _ _ x => Some x
+  | IntegerType, StringType => fun _ _ x => Some (nat_to_string x)
+  | IntegerType, BoolType => fun _ _ x => if (x =? 0)%nat then Some false else Some true
+  | BoolType, BoolType => fun _ _ x => Some x
+  | BoolType, IntegerType => fun _ _ x => if x then Some 1 else Some 0
+  | BoolType, StringType => fun _ _ x => if x then (Some "true"%string) else (Some "false"%string)
+  | StringType, StringType => fun _ _ x => Some x
+  | StringType, IntegerType => fun _ _ x => Some (nat_of_string x)
+  (* Meaningless. *)
+  | StringType, BoolType => fun _ _ _ => None
+  end eq_refl eq_refl.
+
 Definition value_eq (t1 t2: basic_type) (v1: type_to_coq_type t1) (v2: type_to_coq_type t2) : bool :=
   match t1, t2 return type_to_coq_type t1 → type_to_coq_type t2 → bool with
   | IntegerType, IntegerType => Nat.eqb
@@ -133,17 +189,21 @@ Global Instance can_order (t: basic_type): Ordered (type_to_coq_type t).
   ).
 Defined.
 
-(* Attributes are themselves string representation of the name. *)
-Definition Attribute := (basic_type * string)%type.
-Definition Symbol := string.
-Definition Aggregate := string.
+(*
+  Attributes consist of a type and their unique identifiers.
+
+  We avoid using strings as identifiers because they are:
+  1. Not generic enough.
+  2. May be duplicate (in the sense of string equality) and we want to avoid that.
+*)
+Definition Attribute := (basic_type * nat)%type.
 
 Lemma attribute_eq_dec: ∀ (a1 a2: Attribute), {a1 = a2} + {a1 ≠ a2}.
 Proof.
   intros.
   destruct a1, a2.
   destruct (basic_type_eq_dec b b0).
-  - destruct (string_dec s s0).
+  - destruct (eq_dec n n0).
     + left. subst. auto.
     + right. unfold not. intros. inversion H. auto.
   - right. unfold not. intros. inversion H. auto.

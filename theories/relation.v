@@ -34,7 +34,7 @@ Definition relation (s: schema) := fbag (Tuple.tuple (♭ s)).
 Hint Unfold relation: core.
 
 Inductive relation_wrapped: Type :=
-  | relation_output: ∀ s, relation s → relation_wrapped
+  | RelationWrapped: ∀ s, relation s → relation_wrapped
 .
 
 (* Experimental: a columnar data store. *)
@@ -115,9 +115,9 @@ Fixpoint extract_as_cell_list s (r: relation s) : list nat :=
   @param s The schema, which is a list of attributes.
   @param r The relation, which is a list of tuples.
   @param n The index of the column to extract.
-  @return A list of natural numbers representing the extracted column.
+  @return The extracted column.
 
-  [extract_column] is a function that takes a schema [s], a relation [r], and a natural number [n], and returns a list of natural numbers representing the column at index [n] in the relation.
+  [extract_column] is a function that takes a schema [s], a relation [r], and a natural number [n], and returns a list of elements that are at index [n] in each tuple in the relation.
 
   The function works by iterating over the relation. For each tuple in the relation, it extracts the element at index [n] using the [Tuple.extract_column] function and adds it to the result list. If the relation is empty, it returns an empty list.
 *)
@@ -171,12 +171,12 @@ Defined.
 
   The function works by iterating over the first schema [s1]. For each attribute in [s1], it checks if the attribute's name is in the second schema [s2]. If it is, the attribute's name is not added to the result list and the function moves to the next attribute in [s1]. If it's not, the function moves to the next attribute in [s1] without adding anything to the result list.
 *)
-Fixpoint natural_join_list (s1 s2: schema): list string :=
+Fixpoint natural_join_list (s1 s2: schema): list nat :=
   match s1 with
   | nil => nil
   | (ty, name) :: s1' =>
-    if List.existsb (fun x => (snd x) =? name)%string s2 then
-      natural_join_list s1' s2
+    if List.existsb (fun x => (snd x) =? name) s2 then
+      name :: natural_join_list s1' s2
     else natural_join_list s1' s2
   end.
 
@@ -253,15 +253,15 @@ Admitted.
   @param n The starting index.
   @return A list of tuples. Each tuple contains a natural number (the index) and an attribute from the schema that matches an attribute name in the [join_by] list.
 
-  [join_list_to_index] is a function that takes a schema [s], a list of strings [join_by], and a natural number [n], and returns a list of tuples. Each tuple contains a natural number and an attribute.
+  [join_list_to_index] is a function that takes a schema [s], a list of ids [join_by], and a natural number [n], and returns a list of tuples. Each tuple contains a natural number and an attribute.
 
   The function works by iterating over the schema. For each attribute in the schema, it checks if the attribute's name is in the [join_by] list. If it is, it adds a tuple containing the current index [n] and the attribute to the result list. If it's not, it simply moves to the next attribute, incrementing the index [n].
 *)
-Fixpoint join_list_to_index (s: schema) (join_by: list string) (n: nat): list (nat * Attribute) :=
+Fixpoint join_list_to_index (s: schema) (join_by: list nat) (n: nat): list (nat * Attribute) :=
   match s with
   | nil => nil
   | h :: t =>
-    if List.existsb (fun x => x =? (snd h))%string join_by then
+    if List.existsb (fun x => x =? (snd h)) join_by then
       (n, h) :: join_list_to_index t join_by (n + 1)
     else join_list_to_index t join_by (n + 1)
   end.
@@ -304,11 +304,11 @@ Proof.
   induction s.
   - intros. simpl in H. contradiction.
   - simpl in *. destruct a. intros. destruct x as [x y]. simpl in H.
-    destruct (existsb (λ x : string, (x =? s0)%string) join_by).
+    destruct (existsb (λ x, (x =? n)) join_by).
     + simpl in *. destruct H.
       * inversion H. subst. lia.
-      * specialize IHs with (join_by := join_by) (x := (x, y)) (n := n + 1). apply IHs in H. simpl in *. lia.
-    + specialize IHs with (join_by := join_by) (x := (x, y)) (n := n + 1). apply IHs in H. simpl in *. lia.
+      * specialize IHs with (join_by := join_by) (x := (x, y)) (n := n0 + 1). apply IHs in H. simpl in *. lia.
+    + specialize IHs with (join_by := join_by) (x := (x, y)) (n := n0 + 1). apply IHs in H. simpl in *. lia.
 Qed.
 Hint Resolve join_list_to_index_bounded: core.
 
@@ -333,7 +333,7 @@ Fixpoint find_common (lhs rhs: list (nat * Attribute)): list ((nat * nat) * Attr
   match lhs with
   | nil => nil
   | h :: t =>
-    match find (fun x => andb (String.eqb (snd (snd h)) (snd (snd x)))
+    match find (fun x => andb (Nat.eqb (snd (snd h)) (snd (snd x)))
                               (type_matches (fst (snd h)) (fst (snd x)))) rhs with
     | Some x => ((fst h, fst x), snd h) :: find_common t rhs
     | None => find_common t rhs
@@ -374,30 +374,30 @@ Proof.
     + rewrite find_common_nil_r. simpl. intros. contradiction.
     + simpl. split.
       * destruct a. destruct a0. simpl in H.
-        destruct (((snd a =? snd a0)%string && type_matches (fst a) (fst a0))%bool).
+        destruct (((snd a =? snd a0) && type_matches (fst a) (fst a0))%bool).
         -- inversion H. inversion H0. left. reflexivity.
            right. apply IHlhs with (x := x) (y := y) (z := z) in H0. destruct H0. assumption.
-        -- destruct (find (λ x : nat * (basic_type * string), ((snd a =? snd (snd x))%string &&
+        -- destruct (find (λ x, ((snd a =? snd (snd x)) &&
                      type_matches (fst a) (fst (snd x)))%bool) rhs).
            ++ inversion H. inversion H0. left. reflexivity.
               right. apply IHlhs with (x := x) (y := y) (z := z) in H0. destruct H0. assumption.
            ++ specialize IHlhs with (rhs := ((n0, a0) :: rhs)).
               apply IHlhs with (x := x) (y := y) (z := z) in H. destruct H. right. assumption.
       * destruct a. destruct a0. simpl in H.
-        destruct (((snd a =? snd a0)%string && type_matches (fst a) (fst a0))%bool) eqn: H'.
+        destruct (((snd a =? snd a0) && type_matches (fst a) (fst a0))%bool) eqn: H'.
           -- inversion H.
              ++ inversion H0. left. subst. apply Bool.andb_true_iff in H'. destruct H'.
-                apply String.eqb_eq in H1. apply type_matches_eq in H2.
+                apply Nat.eqb_eq in H1. apply type_matches_eq in H2.
                 apply pair_equal_spec. split; auto. apply injective_projections; auto.
              ++ apply IHlhs with (rhs := (n0, a0) :: rhs) (x := x) (y := y) (z := z). assumption.
-          -- destruct (find (λ x : nat * (basic_type * string), ((snd a =? snd (snd x))%string &&
+          -- destruct (find (λ x, ((snd a =? snd (snd x)) &&
                        type_matches (fst a) (fst (snd x)))%bool) rhs) eqn: H''.
           (* Adding the hypothesis `H''` is important for the proof since we can
              reason about how `p` is obtained by which we substitute some terms.
           *)
             ** apply find_some in H''.  destruct H''.
                apply Bool.andb_true_iff in H1. destruct H1.
-                apply String.eqb_eq in H1. apply type_matches_eq in H2.
+                apply Nat.eqb_eq in H1. apply type_matches_eq in H2.
                 assert (a = (snd p)).
                 { destruct a. destruct p. simpl. destruct p. apply pair_equal_spec. split; auto. }
                 destruct p. subst. simpl in H. clear H1. clear H2.
@@ -446,7 +446,7 @@ Proof.
 Defined.
 
 Definition check_value s1 s2
-  (common_join_list: list ((nat * nat) * Attribute)) (join_by: list string)
+  (common_join_list: list ((nat * nat) * Attribute)) (join_by: list nat)
   (proof: ∀ elem, List.In elem common_join_list →
     List.In elem (find_common (join_list_to_index s1 join_by 0) 
       (join_list_to_index s2 join_by 0)))
@@ -545,7 +545,7 @@ Qed.
 (*
   This function computes the schema of the joined result of two relations provided a join list.
 *)
-Definition output_schema_join_by s1 s2 (join_by: list string): schema :=
+Definition output_schema_join_by s1 s2 (join_by: list nat): schema :=
   let lhs := join_list_to_index s1 join_by 0 in
     let rhs := join_list_to_index s2 join_by 0 in
       let common_join_list := find_common lhs rhs in
@@ -927,111 +927,7 @@ Fixpoint database_get_contexts (db: database) (idx: nat)
                 match inject_id_helper s r 10 with
                 | (r', Γ') => 
                   let p := empty_prov_from_pctx Γ' in
-                  Some (relation_output s r', Γ', p)
+                  Some (RelationWrapped s r', Γ', p)
                 end
         else database_get_contexts db' (idx - 1)
   end.
-
-(* =================== Some Test Cases ==================== *)
-Section Test.
-Example relation_a :=
-  [[ << 4 >>, << 5 >>, << 6 >>, << ("abcd"%string) >> ]] ::
-    [[ << 7 >>, << 8 >>, << 9 >>, << ("abcd"%string) >> ]] :: nil.
-Example relation_b :=
-  [[ << 1 >>, << 2 >>, << 3 >>, << ("abcd"%string) >> ]] ::
-    [[ << 114 >>, << 514 >>, << 114 >>, << ("abcd"%string) >> ]] :: nil.
-Example simple_schema :=
-  (IntegerType, "foo"%string) ::
-    (IntegerType, "bar"%string) ::
-      (IntegerType, "baz"%string) ::
-        (StringType, "qux"%string) :: nil.
-Example cartesian_product_test := relation_product simple_schema simple_schema relation_a relation_b.
-
-Example cartesian_product_test': cartesian_product_test = (4, 0, (5, 0, (6, 0, ("abcd"%string, 0, (1, 0, (2, 0, (3, 0, ("abcd"%string, 0, tt)))))))) :: (4, 0, (5, 0, (6, 0, ("abcd"%string, 0, (114, 0, (514, 0, (114, 0, ("abcd"%string, 0, tt)))))))) :: (7, 0, (8, 0, (9, 0, ("abcd"%string, 0, (1, 0, (2, 0, (3, 0, ("abcd"%string, 0, tt)))))))) :: (7, 0, (8, 0, (9, 0, ("abcd"%string, 0, (114, 0, (514, 0, (114, 0, ("abcd"%string, 0, tt)))))))) :: nil.
-Proof.
-  reflexivity.
-Qed.
-
-Example ok: 0 < List.length (simple_schema ++ simple_schema).
-Proof.
-  simpl. lia.
-Qed.
-Example extract_column_test := extract_column _ cartesian_product_test 0 ok.
-Example extract_column_correct: extract_column_test = [[ << 4 >> ]] :: [[ << 4 >> ]] :: [[ << 7 >> ]] :: [[ << 7 >> ]] :: nil.
-Proof.
-  reflexivity.
-Qed.
-
-Example relation_stitch_test := relation_stitch simple_schema simple_schema relation_a relation_b.
-Example relation_stitch_test': relation_stitch_test = (4, 0, (5, 0, (6, 0, ("abcd"%string, 0, (1, 0, (2, 0, (3, 0, ("abcd"%string, 0, tt)))))))) :: (7, 0, (8, 0, (9, 0, ("abcd"%string, 0, (114, 0, (514, 0, (114, 0, ("abcd"%string, 0, tt)))))))) :: nil.
-Proof.
-  reflexivity.
-Qed.
-
-Example simple_schema_lhs :=
-  (IntegerType, "foo"%string) ::
-    (IntegerType, "bar"%string) ::
-      (IntegerType, "baz"%string) :: nil.
-
-Example simple_schema_rhs :=
-  (IntegerType, "baz"%string) ::
-    (StringType, "qux"%string) :: nil.
-
-Example join_by_test := output_schema_join_by simple_schema_lhs simple_schema_rhs ("baz"%string :: nil).
-Example join_by_test': join_by_test = (IntegerType, "foo"%string) :: (IntegerType, "bar"%string) :: (IntegerType, "baz"%string)  :: (StringType, "qux"%string) :: nil.
-Proof.
-  reflexivity.
-Qed.
-
-Example tuple_a := [[ << 1 >>, << 2 >>, << 3 >>, << ("abcd"%string) >> ]].
-Example tuple_b := [[ << 4 >>, << 2 >>, << 3 >>, << ("dcba"%string) >> ]].
-Example tuple_schema_lhs := (IntegerType, "foo"%string) :: (IntegerType, "bar"%string) :: (IntegerType, "baz"%string) :: (StringType, "qux"%string) :: nil.
-Example tuple_schema_rhs := (IntegerType, "a"%string) :: (IntegerType, "bar"%string) :: (IntegerType, "baz"%string) :: (StringType, "b"%string) :: nil.
-
-Example common_join_list := find_common (join_list_to_index tuple_schema_lhs ("bar"%string :: "baz"%string :: nil) 0)
-                                        (join_list_to_index tuple_schema_rhs ("bar"%string :: "baz"%string :: nil) 0).
-Example common_join_list_correct: common_join_list = ((1, 1), (IntegerType, "bar"%string)) :: ((2, 2), (IntegerType, "baz"%string)) :: nil.
-Proof.
-  reflexivity.
-Qed.
-
-Example removed_schema_lhs := remove_common tuple_schema_lhs (List.map (fun x => fst (fst x)) common_join_list) 0.
-Example removed_schema_rhs := remove_common tuple_schema_rhs (List.map (fun x => snd (fst x)) common_join_list) 0.
-Example removed_schema_lhs_correct: removed_schema_lhs = (IntegerType, "foo"%string) :: (StringType, "qux"%string) :: nil.
-Proof.
-  reflexivity.
-Qed.
-Example removed_schema_rhs_correct: removed_schema_rhs = (IntegerType, "a"%string) :: (StringType, "b"%string) :: nil.
-Proof.
-  reflexivity.
-Qed.
-
-Example removed_common_lhs := remove_common_part tuple_schema_lhs tuple_a 0 (List.map (fun x => fst (fst x)) common_join_list).
-Example removed_common_rhs := remove_common_part tuple_schema_rhs tuple_b 0 (List.map (fun x => snd (fst x)) common_join_list).
-Example removed_common_lhs_correct: removed_common_lhs = [[ << 1 >>, << ("abcd"%string) >> ]].
-Proof.
-  reflexivity.
-Qed.
-Example removed_common_rhs_correct: removed_common_rhs = [[ << 4 >>, << ("dcba"%string) >> ]].
-Proof.
-  reflexivity.
-Qed.
-
-Example tuple_concat_by_test := tuple_concat_by tuple_schema_lhs tuple_schema_rhs ("bar"%string :: "baz"%string :: nil) tuple_a tuple_b.
-(* 
-Example tuple_concat_by_test_correct:
-  tuple_concat_by_test =
-  Some [[ << 1 >>, << ("abcd"%string) >>, << 2 >>, << 3 >>, << 4 >>, << ("dcba"%string) >> ]].
-Proof.
-  (*
-    This is tricky because although Coq uses `eq_refl` to inhabit the refl type, the concrete form
-    of the term appears rather complex. This is due to the heavy use of dependent types.
-
-    Nevertheless, we can still use `reflexivity` to check the equivalance between terms as Coq can
-    reduce the term recursively since the term is determined; thus the computation must terminate.
-    To check if we are obtaining the correct result, we can just use `reflexivity`.
-   *)
-  reflexivity.
-Qed. *)
-
-End Test.

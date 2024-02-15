@@ -35,6 +35,7 @@ Fixpoint expr_type_eqb (τ1 τ2: expr_type): bool :=
     | _, _ => false
   end.
 
+(* There is no `let xxx in yyy` because it is unnecessary. *)
 Inductive expression: Type :=
   (* x *)
   | expression_var: string → expression
@@ -88,14 +89,19 @@ Inductive expression_lexed: Type :=
 Inductive EResult: Type :=
   | EResultError: EResult
   | EResultFunction: expr_type → expression_lexed → list EResult → EResult
-  | EResultValue: ∀ bt, type_to_coq_type bt → EResult
+  (*
+    A value can be associated with a unique identifier for looking up in the context;
+    if it is not associated with an identifier, the identifier is `None` which means
+    that it is just a "safe" value (like the value obtained by projecting a constant).
+  *)
+  | EResultValue: ∀ bt, (type_to_coq_type bt * option nat) → EResult
   | EResultRelation: relation_wrapped → EResult
 .
 
 (* `groupby` list is just a list of indices of the original data frame that should be chosen as keys. *)
 Definition groupby_list := (list nat)%type.
 (* simple_agg_expression := (AggOp * agg_func * nat) *)
-Definition agg_list := (list (expression * string))%type.
+Definition agg_list := (list (expression * nat))%type.
 (* This represents a range of groups within the original data frame. *)
 Definition group := (list nat)%type.
 
@@ -123,16 +129,20 @@ Inductive groupby :=
   | groupby_proxy: ∀ s, Tuple.tuple s → group → groupby
 .
 
+Inductive tuple_wrapped: Type :=
+  | TupleWrapped: ∀ s, Tuple.tuple (♭ s) → tuple_wrapped
+.
+
 Definition symbol_lookup_table := (list EResult)%type.
 
 (*
   The evaluation environment for the lambda calculus is a list of:
   - The current configuration.
-  - The current active relation.
+  - The current active tuple (for non-aggregate expressions).
   - The symbol lookup table.
   - The current groupby proxy (optional).
 *)
-Definition eval_env := (config * relation_wrapped * symbol_lookup_table * option groupby)%type.
+Definition eval_env := (config * tuple_wrapped * symbol_lookup_table * option groupby)%type.
 
 Fixpoint index (x: string) (env: list string): nat :=
   match env with
@@ -165,24 +175,24 @@ Definition get_new_policy cur op: Policy.policy :=
 Inductive eval_unary_expression_in_cell: ∀ bt,
   unary_func → (type_to_coq_type bt * nat) → eval_env →
     (eval_env * EResult) → Prop :=
-  | E_UnaryLabelNotFound: ∀ bt f (arg: type_to_coq_type bt) id c r lookup proxy db Γ β p,
+  | E_UnaryLabelNotFound: ∀ bt f (arg: type_to_coq_type bt) id c tr lookup proxy db Γ β p,
       c = ⟨ db Γ β p ⟩ →
       label_lookup Γ id = None ∨
       label_lookup p id = None →
-      eval_unary_expression_in_cell bt f (arg, id) (c, r, lookup, proxy) ((c, r, lookup, proxy), EResultError)
-  | E_UnaryTypeError: ∀ bt bt' f op lambda (arg: type_to_coq_type bt) id c r lookup proxy,
+      eval_unary_expression_in_cell bt f (arg, id) (c, tr, lookup, proxy) ((c, tr, lookup, proxy), EResultError)
+  | E_UnaryTypeError: ∀ bt bt' f op lambda (arg: type_to_coq_type bt) id c tr lookup proxy,
       f = unary_function op bt' lambda →
       bt ≠ bt' →
-      eval_unary_expression_in_cell bt f (arg, id) (c, r, lookup, proxy) ((c, r, lookup, proxy), EResultError)
-  | E_UnaryPolicyError: ∀ bt bt' f op lambda (arg: type_to_coq_type bt) id db c r lookup proxy Γ β p p_cur,
+      eval_unary_expression_in_cell bt f (arg, id) (c, tr, lookup, proxy) ((c, tr, lookup, proxy), EResultError)
+  | E_UnaryPolicyError: ∀ bt bt' f op lambda (arg: type_to_coq_type bt) id db c tr lookup proxy Γ β p p_cur,
       c = ⟨ db Γ β p ⟩ →
       label_lookup Γ id = Some p_cur →
       f = unary_function op bt' lambda →
       bt = bt' →
       let p_f := ∘ (Policy.policy_transform ((unary_trans_op op) :: nil)) in
         ¬ (p_cur ⪯ p_f) →
-        eval_unary_expression_in_cell bt f (arg, id) (c, r, lookup, proxy) ((c, r, lookup, proxy), EResultError)
-  | E_UnaryPolicyOk: ∀ bt bt' f op lambda (arg: type_to_coq_type bt) id c r lookup proxy
+        eval_unary_expression_in_cell bt f (arg, id) (c, tr, lookup, proxy) ((c, tr, lookup, proxy), EResultError)
+  | E_UnaryPolicyOk: ∀ bt bt' f op lambda (arg: type_to_coq_type bt) id c tr lookup proxy
                        db Γ Γ' β β' p p' p_cur prov_cur,
       c = ⟨ db Γ β p ⟩ →
       label_lookup Γ id = Some p_cur →
@@ -194,153 +204,164 @@ Inductive eval_unary_expression_in_cell: ∀ bt,
             let prov_new := prov_list (prov_trans_unary op) ((id, prov_cur) :: nil) in
               Γ' = update_label Γ id p_new →
               p' = update_label p id prov_new →
-              eval_unary_expression_in_cell bt f (arg, id) (c, r, lookup, proxy)
-                ((⟨ db Γ' β' p' ⟩, r, lookup, proxy), EResultValue bt' (lambda (eq ♯ arg)))
+              eval_unary_expression_in_cell bt f (arg, id) (c, tr, lookup, proxy)
+                ((⟨ db Γ' β' p' ⟩, tr, lookup, proxy), EResultValue bt' (lambda (eq ♯ arg), Some id))
 .
 
+(* TODO: MOVE THIS TO `semantics.v`.
 Inductive eval_unary_expression_in_relation: unary_func → eval_env → (eval_env * EResult) → Prop :=
-  | E_EmptyRelation: ∀ f env c rr s r lookup proxy,
-      env = (c, rr, lookup, proxy) →
-      rr = relation_output s r →
-      r = nil →
-      eval_unary_expression_in_relation f env (env, EResultRelation (relation_output s r))
-  | E_ApplySchemaError: ∀ f env c rr s r lookup proxy,
-      env = (c, rr, lookup, proxy) →
-      rr = relation_output s r →
+  | E_ApplySchemaError: ∀ f env c tr s t lookup proxy,
+      env = (c, tr, lookup, proxy) →
+      tr = TupleWrapped s t →
       List.length s ≠ 1 →
       eval_unary_expression_in_relation f env (env, EResultError)
   | E_ApplyInCellHeadError: ∀ ty ty' v f env env' res c rr s (s_case: s = ty :: nil) r arg id tl lookup proxy,
       env = (c, rr, lookup, proxy) →
-      rr = relation_output s r →
+      rr = RelationWrapped s r →
       ((tuple_single_eq s ty s_case) ♯ r) = [[ (arg, id) ]] :: tl →
       eval_unary_expression_in_cell (fst ty) f (arg, id) env (env', res) →
       res ≠ EResultValue ty' v →
       eval_unary_expression_in_relation f env (env', EResultError)
   | E_ApplyInCellConsError: ∀ ty f env env' c rr s (s_case: s = ty :: nil) r arg id tl tl' res lookup proxy,
       env = (c, rr, lookup, proxy) →
-      rr = relation_output s r →
+      rr = RelationWrapped s r →
       ((tuple_single_eq s ty s_case) ♯ r) = [[ (arg, id) ]] :: tl →
       eval_unary_expression_in_relation
           f
-          (c, relation_output s ((eq_sym (tuple_single_eq s ty s_case) ♯ tl)), lookup, proxy)
+          (c, RelationWrapped s ((eq_sym (tuple_single_eq s ty s_case) ♯ tl)), lookup, proxy)
           (env', res) →
       res ≠ EResultRelation tl' →
       eval_unary_expression_in_relation f env (env', EResultError)
   | E_ApplyOk: ∀ ty f env env' env'' c rr s (s_case: s = ty :: nil) r arg id v tl tl' s' r' lookup proxy,
       env = (c, rr, lookup, proxy) →
-      rr = relation_output s r →
+      rr = RelationWrapped s r →
       ((tuple_single_eq s ty s_case) ♯ r) = [[ (arg, id) ]] :: tl →
       eval_unary_expression_in_cell (fst ty) f (arg, id) env (env', EResultValue (fst ty) v) →
       eval_unary_expression_in_relation
           f
           ((fst (fst (fst env'))),
-            relation_output s ((eq_sym (tuple_single_eq s ty s_case) ♯ tl)), (snd (fst env')), snd env')
+            RelationWrapped s ((eq_sym (tuple_single_eq s ty s_case) ♯ tl)), (snd (fst env')), snd env')
           (env'', EResultRelation tl') →
-      tl' = relation_output s' r' →
+      tl' = RelationWrapped s' r' →
         ∀ (schema_eq: s' = s),
           let result := ([[ (v, id) ]] :: ((tuple_single_eq s ty s_case) ♯ (schema_eq ♯ r'))) in
             eval_unary_expression_in_relation f env
-              (env'', EResultRelation (relation_output s (eq_sym (tuple_single_eq s ty s_case) ♯ result)))
-.
+              (env'', EResultRelation (RelationWrapped s (eq_sym (tuple_single_eq s ty s_case) ♯ result)))
+. *)
 
 (*
-  This function evaluates a unary expression with a given function.
+  This function evaluates a unary expression with a given function and returns a value.
 *)
 Inductive eval_unary_expression: unary_func → eval_env → EResult → (eval_env * EResult) → Prop :=
   (* We only allow the argument to a unary function to be either a relation and a constant. *)
-  | EvalUnaryNonEvaluable: ∀ τ f env v body f_e,
-    v = EResultError ∨ v = EResultFunction τ body f_e →
+  | EvalUnaryNonEvaluable: ∀ τ f env v body f_e r,
+    v = EResultError ∨ v = EResultFunction τ body f_e ∨ v = EResultRelation r →
     eval_unary_expression f env v (env, EResultError)
-  | EvalUnaryValueTypeMismatch: ∀ f op env bt bt' v v' lambda,
-    v = EResultValue bt v' →
+  | EvalUnaryValueTypeMismatch: ∀ f op env bt bt' v v' id lambda,
+    v = EResultValue bt (v', id) →
     f = unary_function op bt' lambda →
-    bt' ≠ bt →
+    (* We cannot cast it. *)
+    try_cast bt bt' v' = None →
     eval_unary_expression f env v (env, EResultError)
-  | EvalUnaryValue: ∀ f op env bt bt' v v' lambda,
-    v = EResultValue bt v' →
+  | EvalUnaryValue: ∀ f op env bt bt' v v' v'' lambda,
+    v = EResultValue bt (v', None) →
     f = unary_function op bt' lambda →
-      ∀ (eq: bt = bt'),
-        eval_unary_expression f env v (env, EResultValue bt' (lambda (eq ♯ v')))
-  | EvalUnaryRelation: ∀ f env env' v s r c rr lookup proxy,
-    v = relation_output s r →
-    env = (c, rr, lookup, proxy) →
-    eval_unary_expression_in_relation f (c, v, lookup, proxy) env' →
-    eval_unary_expression f env (EResultRelation v) env'
+    try_cast bt bt' v' = Some v'' →
+    eval_unary_expression f env v (env, EResultValue bt' (lambda v'', None))
+  | EvalUnaryValueWithId: ∀ f env bt v v' id res,
+    v = EResultValue bt (v', Some id) →
+    eval_unary_expression_in_cell bt f (v', id) env res →
+    eval_unary_expression f env v res
 .
 
 Inductive eval: nat → expression_lexed → eval_env → (eval_env * EResult) → Prop :=
   (* The evaluation hangs and we have to force termination. *)
   | EvalNoStep: ∀ e env step, step = O → eval step e env (env, EResultError)
   (* Evaluating a variable value is simple: we just lookup it. *)
-  | EvalVar: ∀ step step' n e env c r lookup db Γ β p proxy,
+  | EvalVar: ∀ step step' n e env c tr lookup db Γ β p proxy,
       c = ⟨ db Γ β p ⟩ →
       step = S step' →
       e = expression_lexed_var n →
-      eval step e (c, r, lookup, proxy) (env, nth_default EResultError n lookup)
+      eval step e (c, tr, lookup, proxy) (env, nth_default EResultError n lookup)
   (* Evaluating a constant value is simple: we just return it. *)
-  | EvalConst: ∀ step step' bt v e env c r lookup db Γ β p proxy,
+  | EvalConst: ∀ step step' bt v e env c tr lookup db Γ β p proxy,
       c = ⟨ db Γ β p ⟩ →
       step = S step' →
       e = expression_lexed_const bt v →
-      eval step e (c, r, lookup, proxy) (env, EResultValue bt v)
-  | EvalColumn: ∀ step step' n e env c s r r' lookup db Γ β p proxy,
+      eval step e (c, tr, lookup, proxy) (env, EResultValue bt (v, None))
+  | EvalColumn: ∀ step step' id n e env c s tr t lookup db Γ β p proxy,
       c = ⟨ db Γ β p ⟩ →
       step = S step' →
-      e = expression_lexed_column n →
-      r = relation_output s r' →
-      ∀ ok: n < List.length s,
-        eval step e (c, r, lookup, proxy) (env, EResultRelation (relation_output _ (extract_column s r' n ok)))
-  | EvalColumnFail: ∀ step step' n e env c s r r' lookup db Γ β p proxy,
+      e = expression_lexed_column id →
+      tr = TupleWrapped s t →
+      (* We locate this column by its identifier `id` using the comparison function. *)
+      ∀ (find: find_index (λ x y, Nat.eqb (snd x) y) s id 0 = Some n),
+        let col := 
+          (Tuple.nth_col_tuple (♭ s) n
+            (eq_sym (schema_to_no_name_length s) ♯
+              (elem_find_index_bounded_zero _ _ _ _ find)) t) in
+        eval step e (c, tr, lookup, proxy)
+          (env, EResultValue _ (fst (fst col), Some (snd (fst col))))
+  | EvalColumnFail: ∀ step step' id e env c s tr t lookup db Γ β p proxy,
       c = ⟨ db Γ β p ⟩ →
       step = S step' →
-      e = expression_lexed_column n →
-      r = relation_output s r' →
-      ¬ (n < List.length s) →
-      eval step e (c, r, lookup, proxy) (env, EResultError)
-  | EvalAbs: ∀ step step' τ e' e env c r lookup db Γ β p proxy,
+      e = expression_lexed_column id →
+      tr = TupleWrapped s t →
+      (* The requested column identifier is not found. *)
+      find_index (λ x y, Nat.eqb (snd x) y) s id 0 = None →
+      eval step e (c, tr, lookup, proxy) (env, EResultError)
+  | EvalAbs: ∀ step step' τ e' e env c tr lookup db Γ β p proxy,
       c = ⟨ db Γ β p ⟩ →
       step = S step' →
       e = expression_lexed_abs τ e' →
-      eval step e (c, r, lookup, proxy) (env, EResultFunction τ e' lookup)
-  | EvalApp: ∀ step step' e1 e2 e ev env env' v c r lookup lookup' τ body f_env res db Γ β p proxy,
+      eval step e (c, tr, lookup, proxy) (env, EResultFunction τ e' lookup)
+  | EvalApp: ∀ step step' e1 e2 e ev env env' v c tr lookup lookup' τ body f_env res db Γ β p proxy,
       c = ⟨ db Γ β p ⟩ →
       step = S step' →
       e = expression_lexed_app e1 e2 →
       (* We first evaluate the function and obtain the updated environment and result. *)
-      eval step' e1 (c, r, lookup, proxy) (env, EResultFunction τ body f_env) →
+      eval step' e1 (c, tr, lookup, proxy) (env, EResultFunction τ body f_env) →
       (* We then evaluate the argument. *)
-      eval step' e2 (c, r, lookup, proxy) (env', v) →
+      eval step' e2 (c, tr, lookup, proxy) (env', v) →
       v ≠ EResultError →
       env' = (ev, lookup', proxy) →
       (* Then we add the argument to the environment. *)
       eval step' body (ev, v :: f_env, proxy) res →
-      eval step e (c, r, lookup, proxy) res
-  | EvalAppFail: ∀ step step' e e1 e2 env env' f τ body f_env v c r lookup db Γ β p proxy,
+      eval step e (c, tr, lookup, proxy) res
+  | EvalAppFail: ∀ step step' e e1 e2 env env' f τ body f_env v c tr lookup db Γ β p proxy,
       c = ⟨ db Γ β p ⟩ →
       step = S step' →
       e = expression_lexed_app e1 e2 →
-      eval step' e1 (c, r, lookup, proxy) (env, f) →
-      eval step' e2 (c, r, lookup, proxy) (env', v) →
+      eval step' e1 (c, tr, lookup, proxy) (env, f) →
+      eval step' e2 (c, tr, lookup, proxy) (env', v) →
       v = EResultError ∨ f ≠ EResultFunction τ body f_env →
-      eval step e (c, r, lookup, proxy) (env, EResultError)
-  | EvalUnary: ∀ step step' e f e' env v res c r lookup db Γ β p proxy,
+      eval step e (c, tr, lookup, proxy) (env, EResultError)
+  | EvalUnary: ∀ step step' e f e' env v res c tr lookup db Γ β p proxy,
       c = ⟨ db Γ β p ⟩ →
       step = S step' →
       e = expression_lexed_unary f e' →
-      eval step' e' (c, r, lookup, proxy) (env, v) →
+      eval step' e' (c, tr, lookup, proxy) (env, v) →
       eval_unary_expression f env v res →
-      eval step e (c, r, lookup, proxy) res
-  | EvalAgg: ∀ step step' e agg body res c r lookup db Γ β p proxy,
+      eval step e (c, tr, lookup, proxy) res
+  | EvalAggProxyMissing: ∀ step step' e agg body c tr lookup db Γ β p proxy,
       c = ⟨ db Γ β p ⟩ →
       step = S step' →
+      proxy = None →
       e = expression_lexed_agg agg body →
-      eval step e (c, r, lookup, proxy) res
+      eval step e (c, tr, lookup, proxy) (c, tr, lookup, proxy, EResultError)
+  | EvalAggProxy: ∀ step step' e agg body c tr lookup db Γ β p proxy s_key gb_keys gb_indices,
+      c = ⟨ db Γ β p ⟩ →
+      step = S step' →
+      proxy = Some (groupby_proxy s_key gb_keys gb_indices) →
+      e = expression_lexed_agg agg body →
+      (* TODO: Implement this. *)
+      eval step e (c, tr, lookup, proxy) (c, tr, lookup, proxy, EResultError)
 .
 
 Inductive eval_expr:
-  config → relation_wrapped → option groupby → expression → (eval_env * EResult) → Prop :=
-  | EvalExpr: ∀ c r proxy e env,
-    eval 100 (lex e nil) (c, r, nil, proxy) env → eval_expr c r proxy e env
+  config → tuple_wrapped → option groupby → expression → (eval_env * EResult) → Prop :=
+  | EvalExpr: ∀ c tr proxy e env,
+    eval 100 (lex e nil) (c, tr, nil, proxy) env → eval_expr c tr proxy e env
 .
 
 Section Facts.

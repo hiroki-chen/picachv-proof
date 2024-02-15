@@ -176,6 +176,19 @@ Definition ntypes {A: Type} (l: list A) (idx: list nat): bounded_list l idx → 
     exact (cur :: rest).
 Defined.
 
+Fixpoint find_index {A B: Type} (f: A → B → bool) (l: list A) (elem: B) (cur: nat): option nat :=
+  match l with
+  | nil => None
+  | h :: t => if f h elem then Some cur else find_index f t elem (S cur)
+  end.
+
+Fixpoint find' {A B: Type} (f: A → B → bool) (l: list A) (elem: B): option A :=
+  match l with
+  | nil => None
+  | h :: t => if f h elem then Some h else find' f t elem
+  end.
+
+
 Fixpoint set_nth {A: Type} (l: list A) (n: nat) (a: A): list A :=
   match l, n with
   | nil, _ => nil
@@ -309,6 +322,25 @@ Theorem list_has_head_gt_zero:
     l = (a :: l') → List.length l > 0.
 Proof.
   intros. rewrite H. simpl. lia.
+Qed.
+
+Theorem elem_find_index_bounded:
+∀ {A B: Type} (f: A → B → bool) (l: list A) (elem: B) (start: nat) (n: nat),
+  find_index f l elem start = Some n → n < List.length l + start.
+Proof.
+  induction l; intros.
+  - inversion H.
+  - simpl in *.
+    destruct (f a elem) eqn: Hf.
+    + inversion H. lia.
+    + apply IHl in H. lia.
+Qed.
+
+Theorem elem_find_index_bounded_zero:
+∀ {A B: Type} (f: A → B → bool) (l: list A) (elem: B) (n: nat),
+  find_index f l elem 0 = Some n → n < List.length l.
+Proof.
+  intros. apply elem_find_index_bounded in H. lia.
 Qed.
 
 (*

@@ -18,11 +18,14 @@ Require Import prov.
 Require Import relation.
 Require Import util.
 
+(* A typing environment `Γ ⊢ ...` for evalauting the schema. *)
+Definition ty_env := (list expr_type)%type.
+
 Inductive project_list: Set :=
   (* Denotes a projection list that projects on *all*. *)
   | project_star: project_list
-  (* Denotes a project list consisting of expressions, i.e., lambda terms. *)
-  | project: list (expression * string) → project_list
+  (* Denotes a project list consisting of expressions, i.e., lambda terms; and new ids. *)
+  | project: list (expression * nat) → project_list
 .
 Hint Constructors project_list: core.
 
@@ -36,7 +39,7 @@ Hint Constructors project_list: core.
   expression given a schema and an environment of basic types. This function is used more like as a
   type checker.
 *)
-Fixpoint determine_bt_from_expr_helper (s: schema) (arg: expression_lexed) (env: list expr_type):
+Fixpoint determine_bt_from_expr_helper (s: schema) (arg: expression_lexed) (env: ty_env):
   option expr_type :=
     match arg with
     (* Lookup in the environment. *)
@@ -45,7 +48,8 @@ Fixpoint determine_bt_from_expr_helper (s: schema) (arg: expression_lexed) (env:
     | expression_lexed_const bt _ => Some (expr_type_basic bt)
     (* For columns, we need to extract it from the schema. *)
     | expression_lexed_column n =>
-        option_map (fun x => expr_type_basic x) (Tuple.nth_nocheck (♭ s) n)
+        let bt := find' (fun x y => (snd x) =? y) s n in
+          option_map (fun x => expr_type_basic (fst x)) bt
     (* For function abstraction, we encode the argument type, so wecan extract it and evaluate its body. *)
     | expression_lexed_abs τ body =>
         option_map (fun x => expr_type_func τ x) (determine_bt_from_expr_helper s body (τ :: env))
@@ -88,17 +92,19 @@ Fixpoint determine_bt_from_expr_helper (s: schema) (arg: expression_lexed) (env:
         match determine_bt_from_expr_helper s x env with
           | Some τ =>
             match op with
-              | unary_function op _ _ =>
-                match op with
-                | Not =>
-                  if expr_type_eqb τ (expr_type_basic BoolType) then
-                    Some (expr_type_basic BoolType)
-                  else None
-                | _ =>
-                  if expr_type_eqb τ (expr_type_basic IntegerType) then
-                    Some (expr_type_basic IntegerType)
-                  else None
-              end
+              | unary_function op ty _ =>
+                if expr_type_eqb τ (expr_type_basic ty) then
+                  match op with
+                  | Not =>
+                    if expr_type_eqb τ (expr_type_basic BoolType) then
+                      Some (expr_type_basic BoolType)
+                    else None
+                  | _ =>
+                    if expr_type_eqb τ (expr_type_basic ty) then
+                      Some (expr_type_basic IntegerType)
+                    else None
+                  end
+                else None
             end
           | _ => None
         end
@@ -118,7 +124,7 @@ Definition determine_bt_from_expr (s: schema) (arg: expression_lexed): option ba
     | _ => None
   end.
 
-Fixpoint determine_schema (s: schema) (pl: list (expression * string)): option schema :=
+Fixpoint determine_schema (s: schema) (pl: list (expression * nat)): option schema :=
   match pl with
   | nil => Some nil
   | (x, name) :: ℓ' =>
@@ -283,16 +289,14 @@ Definition get_new_policy cur op: Policy.policy :=
     end
   end.
 
+(* Apply *one* expression on the relation. *)
 Inductive eval_expr_in_relation (s: schema) (r: relation s):
   Policy.context → budget → prov_ctx → expression →
     option (EResult * Policy.context * budget * prov_ctx) → Prop :=
-  | E_Eval: ∀ db db' Γ Γ' β β' p p' e env res,
-      eval_expr (⟨ db Γ β p ⟩) (relation_output s r) None e (env, res) →
-      (fst (fst (fst env))) = (⟨ db' Γ' β' p' ⟩) →
-      eval_expr_in_relation s r Γ β p e (Some (res, Γ, β, p))
 .
 
-Inductive apply_proj_in_relation (s: schema) (r: relation s) (ℓ: list (expression * string)):
+(* Apply each project expression on the given relation `r`. *)
+Inductive apply_proj_in_relation (s: schema) (r: relation s) (ℓ: list (expression * nat)):
   ∀ s', Policy.context → budget → prov_ctx →
     option (relation s' * Policy.context * budget * prov_ctx) → Prop :=
   (* Either the projection list is empty or the relation is empty. As such, we just do nothing here. *)
@@ -315,7 +319,7 @@ Inductive apply_proj_in_relation (s: schema) (r: relation s) (ℓ: list (express
   | E_ApplyElemOk: ∀ s_hd s_tl Γ Γ' Γ'' β β' β'' p p' p'' hd hd' tl tl'
                 (proj_case: ℓ = hd :: tl),
       r ≠ nil →
-      eval_expr_in_relation s r Γ β p (fst hd) (Some (EResultRelation (relation_output s_hd hd'), Γ', β', p')) →
+      eval_expr_in_relation s r Γ β p (fst hd) (Some (EResultRelation (RelationWrapped s_hd hd'), Γ', β', p')) →
       Some s_tl = determine_schema s tl →
       apply_proj_in_relation s r tl s_tl Γ' β' p' (Some (tl', Γ'', β'', p'')) →
       (*
@@ -360,26 +364,25 @@ Inductive eval_predicate_in_relation (s: schema) (r: relation s):
   | E_EvalExprRelationNil: ∀ Γ β p e,
       r = nil →
       eval_predicate_in_relation s r Γ β p e (Some (nil, Γ, β, p))
-  | E_EvalExprConsTrue: ∀ db db' Γ Γ' Γ'' β β' β'' p p' p'' e env hd tl tl',
+  | E_EvalExprConsTrue: ∀ db db' Γ Γ' Γ'' β β' β'' p p' p'' e env hd tl tl' id,
       r = hd :: tl →
-      eval_expr (⟨ db Γ β p ⟩) (relation_output s (hd :: nil)) None e (env, EResultValue BoolType true) →
+      eval_expr (⟨ db Γ β p ⟩) (TupleWrapped s hd) None e (env, EResultValue BoolType (true, id)) →
       fst (fst (fst env)) = ⟨ db' Γ' β' p' ⟩ →
       eval_predicate_in_relation s tl Γ' β' p' e (Some (tl', Γ'', β'', p'')) →
       eval_predicate_in_relation s r Γ β p e (Some (hd :: tl', Γ'', β'', p''))
-  | E_EvalExprConsFalse: ∀ db db' Γ Γ' Γ'' β β' β'' p p' p'' e env hd tl tl',
+  | E_EvalExprConsFalse: ∀ db db' Γ Γ' Γ'' β β' β'' p p' p'' e env hd tl tl' id,
       r = hd :: tl →
-      eval_expr (⟨ db Γ β p ⟩) (relation_output s (hd :: nil)) None e (env, EResultValue BoolType false) →
+      eval_expr (⟨ db Γ β p ⟩) (TupleWrapped s hd) None e (env, EResultValue BoolType (false, id)) →
       fst (fst (fst env)) = ⟨ db' Γ' β' p' ⟩ →
       eval_predicate_in_relation s tl Γ' β' p' e (Some (tl', Γ'', β'', p'')) →
       eval_predicate_in_relation s r Γ β p e (Some (tl', Γ'', β'', p''))
   | E_EvalError: ∀ db res v Γ β p e env hd tl,
       r = hd :: tl →
-      eval_expr (⟨ db Γ β p ⟩) (relation_output s (hd :: nil)) None e (env, res) →
+      eval_expr (⟨ db Γ β p ⟩) (TupleWrapped s hd) None e (env, res) →
       res ≠ EResultValue BoolType v →
       eval_predicate_in_relation s r Γ β p e None
-  | E_EvalError2: ∀ db Γ Γ' β β' p p' e env v hd tl,
+  | E_EvalError2: ∀ Γ Γ' β β' p p' e hd tl,
       r = hd :: tl →
-      eval_expr (⟨ db Γ β p ⟩) (relation_output s (hd :: nil)) None e (env, EResultValue BoolType v) →
       eval_predicate_in_relation s tl Γ' β' p' e None →
       eval_predicate_in_relation s r Γ β p e None
 .
@@ -391,7 +394,13 @@ Inductive eval_predicate_in_relation (s: schema) (r: relation s):
 Inductive apply_fold_on_groups:
   ∀ s s_agg, Policy.context → budget → prov_ctx → list groupby → agg_list → relation s →
     option (relation s_agg * Policy.context * budget * prov_ctx) → Prop :=
+  | E_ApplyFoldOnGroupsEmpty: ∀ s s_agg Γ β p gb agg r,
+      gb = nil ∨ agg = nil →
+      apply_fold_on_groups s s_agg Γ β p gb agg r (Some (nil, Γ, β, p))
 .
+
+(* TODO *)
+(* Inductive eval_groupby_having *)
 
 (* We should invoke `eval_expr` to get the result. *)
 Inductive eval_aggregate:
@@ -428,7 +437,7 @@ Inductive step_config: (config * operator) → config → Prop :=
   (* Empty operator returns nothing and does not affect the configuration. *)
   | E_Empty: ∀ c c' db Γ β p,
       c = ⟨ db Γ β p ⟩ →
-      c' = config_output (relation_output nil nil) c →
+      c' = config_output (RelationWrapped nil nil) c →
       ⟦ (⟨ db Γ β p ⟩) operator_empty ⟧ ⇓ ⟦ c' ⟧
   (* Getting the relation is an identity operation w.r.t. configurations. *)
   | E_GetRelation: ∀ c c' db o n r Γ Γ' β p p',
@@ -457,7 +466,7 @@ Inductive step_config: (config * operator) → config → Prop :=
   | E_ProjEmpty: ∀ c c' db db' Γ Γ' β β' p p' s r o pl,
       c = ⟨ db Γ β p ⟩ →
       ⟦ c o ⟧ ⇓ ⟦ c' ⟧ → 
-      c' = config_output (relation_output s r) (⟨ db' Γ' β' p' ⟩) →
+      c' = config_output (RelationWrapped s r) (⟨ db' Γ' β' p' ⟩) →
       r = nil ∨ s = nil →
       ⟦ c (operator_project pl o) ⟧ ⇓ ⟦ c' ⟧
   (* If the operator returns a valid relation, we can then apply projection. *)
@@ -467,14 +476,14 @@ Inductive step_config: (config * operator) → config → Prop :=
       (* We first evaluate the inner operator and get the output. *)
       ⟦ c o ⟧ ⇓ ⟦ c' ⟧ →
       (* We then destruct the output. *)
-      c' = config_output (relation_output s' r') (⟨ db' Γ' β' p' ⟩) →
+      c' = config_output (RelationWrapped s' r') (⟨ db' Γ' β' p' ⟩) →
       s' ≠ nil ∧ r' ≠ nil →
       (* We do a simple preprocess. *)
       project pl' = project_list_preprocess s' pl →
       Some s'' = determine_schema s' pl' →
         (* We then apply projection inside the environment. *)
         apply_proj_in_relation s' r' pl' s'' Γ' β' p' (Some (r'', Γ'', β'', p'')) →
-        c'' = config_output (relation_output _ r'') (⟨ db' Γ'' β'' p'' ⟩) →
+        c'' = config_output (RelationWrapped _ r'') (⟨ db' Γ'' β'' p'' ⟩) →
         ⟦ c (operator_project pl o) ⟧ ⇓ ⟦ c'' ⟧
   (*
      If the operator returns a valid environment, we can then apply projection. Then if the
@@ -486,7 +495,7 @@ Inductive step_config: (config * operator) → config → Prop :=
       (* We first evaluate the inner operator and get the output. *)
       ⟦ c o ⟧ ⇓ ⟦ c' ⟧ →
       (* We then destruct the output. *)
-      c' = config_output (relation_output s' r') (⟨ db' Γ' β' p' ⟩) →
+      c' = config_output (RelationWrapped s' r') (⟨ db' Γ' β' p' ⟩) →
       s' ≠ nil ∧ r' ≠ nil →
       (* We do a simple preprocess. *)
       project pl' = project_list_preprocess s' pl →
@@ -512,7 +521,7 @@ Inductive step_config: (config * operator) → config → Prop :=
       (* We first evaluate the inner operator and get the output. *)
       ⟦ c o ⟧ ⇓ ⟦ c' ⟧ →
       (* We then destruct the output. *)
-      c' = config_output (relation_output s' r') (⟨ db' Γ' β' p' ⟩) →
+      c' = config_output (RelationWrapped s' r') (⟨ db' Γ' β' p' ⟩) →
       s' ≠ nil ∧ r' ≠ nil →
       (* We do a simple preprocess. *)
       project pl' = project_list_preprocess s' pl →
@@ -521,7 +530,7 @@ Inductive step_config: (config * operator) → config → Prop :=
   | E_SelectError: ∀ c c' db db' Γ Γ' β β' p p' s' r' o expr,
       c = ⟨ db Γ β p ⟩ →
       ⟦ c o ⟧ ⇓ ⟦ c' ⟧ →
-      c' = config_output (relation_output s' r') (⟨ db' Γ' β' p' ⟩) →
+      c' = config_output (RelationWrapped s' r') (⟨ db' Γ' β' p' ⟩) →
       eval_predicate_in_relation s' r' Γ' β' p' expr  None →
       ⟦ c (operator_select expr o) ⟧ ⇓ ⟦ config_error ⟧
   | E_SelectError2: ∀ c db Γ β p o expr,
@@ -531,15 +540,15 @@ Inductive step_config: (config * operator) → config → Prop :=
   | E_SelectError3: ∀ c c' db db' Γ Γ' β β' p p' s1 s2 r' o expr,
       c = ⟨ db Γ β p ⟩ →
       ⟦ c o ⟧ ⇓ ⟦ c' ⟧ →
-      c' = config_output (relation_output s2 r') (⟨ db' Γ' β' p' ⟩) →
+      c' = config_output (RelationWrapped s2 r') (⟨ db' Γ' β' p' ⟩) →
       s1 ≠ s2 →
       ⟦ c (operator_select expr o) ⟧ ⇓ ⟦ config_error ⟧
   | E_SelectOk: ∀ c c' c'' db db' Γ Γ' Γ'' β β' β'' p p' p'' s' r' r'' o expr,
       c = ⟨ db Γ β p ⟩ →
       ⟦ c o ⟧ ⇓ ⟦ c' ⟧ →
-      c' = config_output (relation_output s' r') (⟨ db' Γ' β' p' ⟩) →
+      c' = config_output (RelationWrapped s' r') (⟨ db' Γ' β' p' ⟩) →
       eval_predicate_in_relation s' r' Γ' β' p' expr (Some (r'', Γ'', β'', p'')) →
-      c'' = config_output (relation_output s' r'') (⟨ db' Γ'' β'' p'' ⟩) →
+      c'' = config_output (RelationWrapped s' r'') (⟨ db' Γ'' β'' p'' ⟩) →
       ⟦ c (operator_select expr o)⟧ ⇓ ⟦ c'' ⟧
   | E_UnionError: ∀ c c' c'' db Γ β p o1 o2,
       c = ⟨ db Γ β p ⟩ → 
@@ -550,17 +559,17 @@ Inductive step_config: (config * operator) → config → Prop :=
   | E_UnionSchemaError: ∀ c c' c'' db db' db'' Γ Γ' Γ'' β β' β'' p p' p'' s1 s2 r' r'' o1 o2,
       c = ⟨ db Γ β p ⟩ → 
       ⟦ c o1 ⟧ ⇓ ⟦ c' ⟧ →
-      c' = config_output (relation_output s1 r') (⟨ db' Γ' β' p' ⟩) →
+      c' = config_output (RelationWrapped s1 r') (⟨ db' Γ' β' p' ⟩) →
       ⟦ c o2 ⟧ ⇓ ⟦ c'' ⟧ →
-      c'' = config_output (relation_output s2 r'') (⟨ db'' Γ'' β'' p'' ⟩) →
+      c'' = config_output (RelationWrapped s2 r'') (⟨ db'' Γ'' β'' p'' ⟩) →
       s1 ≠ s2 →
       ⟦ c (operator_union o1 o2) ⟧ ⇓ ⟦ config_error ⟧
   | E_UnionOk: ∀ c c' c'' db db' db'' Γ Γ' Γ'' β β' β'' p p' p'' s r' r'' o1 o2,
       c = ⟨ db Γ β p ⟩ →
       ⟦ c o1 ⟧ ⇓ ⟦ c' ⟧ →
-      c' = config_output (relation_output s r') (⟨ db' Γ' β' p' ⟩) →
+      c' = config_output (RelationWrapped s r') (⟨ db' Γ' β' p' ⟩) →
       ⟦ c o2 ⟧ ⇓ ⟦ c'' ⟧ →
-      c'' = config_output (relation_output s r'') (⟨ db'' Γ'' β'' p'' ⟩) →
+      c'' = config_output (RelationWrapped s r'') (⟨ db'' Γ'' β'' p'' ⟩) →
       (*
         We ensure that cells are always assigned new ids;
         so it is safe for us to just append them together.
@@ -570,7 +579,7 @@ Inductive step_config: (config * operator) → config → Prop :=
           let merged_β := calculate_budget β' β'' in
           (* TODO: How to deal with privacy budget? *)
           ⟦ c (operator_union o1 o2) ⟧ ⇓
-          ⟦ config_output (relation_output s (r' ++ r'')) (⟨ db'' merged_Γ merged_β merged_p ⟩) ⟧
+          ⟦ config_output (RelationWrapped s (r' ++ r'')) (⟨ db'' merged_Γ merged_β merged_p ⟩) ⟧
   | E_JoinError: ∀ c c' c'' db Γ β p o1 o2,
       c = ⟨ db Γ β p ⟩ → 
       ⟦ c o1 ⟧ ⇓ ⟦ c' ⟧ →
@@ -580,9 +589,9 @@ Inductive step_config: (config * operator) → config → Prop :=
   | E_JoinError2: ∀ c c' c'' db db' db'' Γ Γ' Γ'' β β' β'' p p' p'' s1 s2 r' r'' o1 o2,
       c = ⟨ db Γ β p ⟩ →
       ⟦ c o1 ⟧ ⇓ ⟦ c' ⟧ →
-      c' = config_output (relation_output s1 r') (⟨ db' Γ' β' p' ⟩) →
+      c' = config_output (RelationWrapped s1 r') (⟨ db' Γ' β' p' ⟩) →
       ⟦ c o2 ⟧ ⇓ ⟦ c'' ⟧ →
-      c'' = config_output (relation_output s2 r'') (⟨ db'' Γ'' β'' p'' ⟩) →
+      c'' = config_output (RelationWrapped s2 r'') (⟨ db'' Γ'' β'' p'' ⟩) →
       let join_by := (natural_join_list s1 s2) in
         (relation_join_by_prv s1 s2 join_by r' r'' Γ' Γ'' β' β'' p' p'')
         None →
@@ -590,20 +599,20 @@ Inductive step_config: (config * operator) → config → Prop :=
   | E_JoinOk: ∀ c c' c'' db db' db'' Γ Γ' Γ'' Γout β β' β'' βout p p' p'' pout s1 s2 r' r'' r rout o1 o2,
       c = ⟨ db Γ β p ⟩ →
       ⟦ c o1 ⟧ ⇓ ⟦ c' ⟧ →
-      c' = config_output (relation_output s1 r') (⟨ db' Γ' β' p' ⟩) →
+      c' = config_output (RelationWrapped s1 r') (⟨ db' Γ' β' p' ⟩) →
       ⟦ c o2 ⟧ ⇓ ⟦ c'' ⟧ →
-      c'' = config_output (relation_output s2 r'') (⟨ db'' Γ'' β'' p'' ⟩) →
+      c'' = config_output (RelationWrapped s2 r'') (⟨ db'' Γ'' β'' p'' ⟩) →
       let join_by := (natural_join_list s1 s2) in
         (relation_join_by_prv s1 s2 join_by r' r'' Γ' Γ'' β' β'' p' p'')
         (Some (rout, Γout, βout, pout))→
-        r = relation_output _ rout →
+        r = RelationWrapped _ rout →
         ⟦ c (operator_join o1 o2) ⟧ ⇓
         (* TODO: Should join. *)
         ⟦ config_output r (⟨ db'' Γout βout pout ⟩) ⟧
   | E_AggEmpty: ∀ c c' db Γ β p o s r gb agg f,
       c = ⟨ db Γ β p ⟩ →
       ⟦ c o ⟧ ⇓ ⟦ c' ⟧ →
-      c' = config_output (relation_output s r) c' →
+      c' = config_output (RelationWrapped s r) c' →
       s = nil ∨ r = nil →
       ⟦ c (operator_groupby_having gb agg f o) ⟧ ⇓ ⟦ c' ⟧
   | E_AggError: ∀ c db Γ β p o gb agg f,
@@ -613,14 +622,14 @@ Inductive step_config: (config * operator) → config → Prop :=
   | E_AggNotBounded: ∀ s c c' db db' Γ Γ' β β' p p' o r gb agg f,
       c = ⟨ db Γ β p ⟩ →
       ⟦ c o ⟧ ⇓ ⟦ c' ⟧ →
-      c' = config_output (relation_output s r) (⟨ db' Γ' β' p' ⟩) →
+      c' = config_output (RelationWrapped s r) (⟨ db' Γ' β' p' ⟩) →
       s ≠ nil ∧ r ≠ nil →
       ¬ bounded_list s gb →
       ⟦ c (operator_groupby_having gb agg f o) ⟧ ⇓ ⟦ config_error ⟧
   | E_AggSchemaError: ∀ c c' db db' Γ Γ' β β' p p' s r gb agg o f,
       c = ⟨ db Γ β p ⟩ →
       ⟦ c o ⟧ ⇓ ⟦ c' ⟧ →
-      c' = config_output (relation_output s r) (⟨ db' Γ' β' p' ⟩) →
+      c' = config_output (RelationWrapped s r) (⟨ db' Γ' β' p' ⟩) →
       s ≠ nil ∧ r ≠ nil →
       ∀ (bounded: bounded_list s gb),
         None = determine_schema_agg s agg gb bounded →
@@ -628,7 +637,7 @@ Inductive step_config: (config * operator) → config → Prop :=
   | E_AggFail: ∀ c c' db db' Γ Γ' β β' p p' s s_agg r gb agg o f,
       c = ⟨ db Γ β p ⟩ →
       ⟦ c o ⟧ ⇓ ⟦ c' ⟧ →
-      c' = config_output (relation_output s r) (⟨ db' Γ' β' p' ⟩) →
+      c' = config_output (RelationWrapped s r) (⟨ db' Γ' β' p' ⟩) →
       s ≠ nil ∧ r ≠ nil →
       ∀ (bounded: bounded_list s gb),
         Some s_agg = determine_schema_agg s agg gb bounded →
@@ -637,15 +646,67 @@ Inductive step_config: (config * operator) → config → Prop :=
   | E_AggOk: ∀ c c' c'' db db' Γ Γ' Γ'' β β' β'' p p' p'' s s_agg r r' gb agg o f,
       c = ⟨ db Γ β p ⟩ →
       ⟦ c o ⟧ ⇓ ⟦ c' ⟧ →
-      c' = config_output (relation_output s r) (⟨ db' Γ' β' p' ⟩) →
+      c' = config_output (RelationWrapped s r) (⟨ db' Γ' β' p' ⟩) →
       s ≠ nil ∧ r ≠ nil →
       ∀ (bounded: bounded_list s gb),
         Some s_agg = determine_schema_agg s agg gb bounded →
         eval_aggregate s s_agg gb bounded agg f Γ' β' p' r (Some (r', Γ'', β'', p'')) →
-        c'' = config_output (relation_output s_agg r') (⟨ db' Γ'' β'' p'' ⟩) →
+        c'' = config_output (RelationWrapped s_agg r') (⟨ db' Γ'' β'' p'' ⟩) →
         ⟦ c (operator_groupby_having gb agg f o) ⟧ ⇓ ⟦ c'' ⟧
 where "'⟦' c op '⟧' '⇓' '⟦' c' '⟧'" := (step_config (c, op) c').
 Hint Constructors step_config: core.
+
+Section Facts.
+
+Inductive has_type: schema → ty_env → expression_lexed → expr_type → Prop :=
+  (* If variable is found in the typing environment, then we know its type. *)
+  | T_Var: ∀ s env x t,
+      nth_option env x = Some t →
+      has_type s env (expression_lexed_var x) t
+  | T_Const: ∀ s env bt c,
+      has_type s env (expression_lexed_const bt c) (expr_type_basic bt)
+  | T_Abs: ∀ s env t1 t2 body,
+      has_type s (t1 :: env) body t2 →
+      has_type s env (expression_lexed_abs t1 body) (expr_type_func t1 t2)
+  | T_Column: ∀ s env n t,
+      find' (fun x y => (snd x) =? y) s n = Some t →
+      has_type s env (expression_lexed_column n) (expr_type_basic (fst t))
+  | T_App: ∀ s env t1 t2 e1 e2,
+      has_type s env e1 (expr_type_func t1 t2) →
+      has_type s env e2 t1 →
+      has_type s env (expression_lexed_app e1 e2) t2
+  (* TODO. *)
+.
+
+Theorem determine_bt_from_expr_correct: ∀ s e env bt,
+  determine_bt_from_expr_helper s e env = Some bt →
+  has_type s env e bt.
+Proof with eauto.
+  intros s e.
+  induction e; intros; try discriminate; inversion H.
+  - destruct (nth_option env n).
+    + inversion H1. subst. apply T_Var. assumption.
+    + discriminate.
+  - inversion H1. subst. constructor.
+  - destruct ((find' (λ (x : basic_type * nat) (y : nat), snd x =? y) s n)) eqn: Heq; simpl in *.
+    + inversion H1. subst. apply T_Column. auto.
+    + discriminate.
+  - destruct (determine_bt_from_expr_helper s e0 (e :: env)) eqn: Heq.
+    + simpl in H1. inversion H1. subst. apply T_Abs. apply IHe...
+    + discriminate.
+  - destruct (determine_bt_from_expr_helper s e1 env) eqn: Heq1;
+    destruct (determine_bt_from_expr_helper s e2 env) eqn: Heq2.
+    + destruct e.
+      * discriminate.
+      * destruct (expr_type_eqb e3 e0) eqn: Heq3.
+        -- inversion H1. subst. eapply T_App; eauto.
+           eapply IHe2. apply expr_type_eqb_eq_iff in Heq3. subst. assumption.
+        -- discriminate.
+    + destruct e; discriminate. 
+    + discriminate.
+    + discriminate.
+  
+Admitted.
 
 (* For Hongbo: can you help me prove this theorem? *)
 Theorem operator_deterministic: ∀ c o c1 c2, 
@@ -669,22 +730,22 @@ Proof.
       * inversion H0; subst; try discriminate.
       * destruct H7; subst.
         -- inversion H0; subst.
-           specialize IHo1 with (c1 := (config_output (relation_output s r') (⟨ db' Γ' β' p' ⟩))) (c2 := config_error).
+           specialize IHo1 with (c1 := (config_output (RelationWrapped s r') (⟨ db' Γ' β' p' ⟩))) (c2 := config_error).
            apply IHo1 in H9.
            ++ discriminate.
            ++ assumption.
         -- inversion H0; subst.
-           specialize IHo2 with (c1 := config_error) (c2 := (config_output (relation_output s r'') (⟨ db'' Γ'' β'' p'' ⟩))).
+           specialize IHo2 with (c1 := config_error) (c2 := (config_output (RelationWrapped s r'') (⟨ db'' Γ'' β'' p'' ⟩))).
            apply IHo2 in H11.
            ++ discriminate.
            ++ assumption.
       * inversion H0; subst; try discriminate.
         inversion H8. subst.
         (* The contradiction occurs when s1 ≠ s2 where s = s1 ∧ s = s2. *)
-        specialize IHo1 with (c1 := (config_output (relation_output s1 r') (⟨ db' Γ' β' p' ⟩)))
-                             (c2 := (config_output (relation_output s r'0) (⟨ db'0 Γ'0 β'0 p'0 ⟩))).
-        specialize IHo2 with (c1 := (config_output (relation_output s2 r'') (⟨ db'' Γ'' β'' p'' ⟩)))
-                             (c2 := (config_output (relation_output s r''0) (⟨ db''0 Γ''0 β''0 p''0 ⟩))).
+        specialize IHo1 with (c1 := (config_output (RelationWrapped s1 r') (⟨ db' Γ' β' p' ⟩)))
+                             (c2 := (config_output (RelationWrapped s r'0) (⟨ db'0 Γ'0 β'0 p'0 ⟩))).
+        specialize IHo2 with (c1 := (config_output (RelationWrapped s2 r'') (⟨ db'' Γ'' β'' p'' ⟩)))
+                             (c2 := (config_output (RelationWrapped s r''0) (⟨ db''0 Γ''0 β''0 p''0 ⟩))).
         apply IHo2 in H7. inversion H7. subst.
         apply IHo1 in H5. inversion H5. subst.
         -- exfalso. apply H9. reflexivity.
@@ -697,22 +758,22 @@ Proof.
       * inversion H; subst; try discriminate.
       * destruct H7; subst.
         -- inversion H; subst; try discriminate.
-           specialize IHo1 with (c1 := (config_output (relation_output s r') (⟨ db' Γ' β' p' ⟩))) (c2 := config_error).
+           specialize IHo1 with (c1 := (config_output (RelationWrapped s r') (⟨ db' Γ' β' p' ⟩))) (c2 := config_error).
            apply IHo1 in H9.
            ++ discriminate.
            ++ assumption.
         -- inversion H; subst.
-           specialize IHo2 with (c1 := config_error) (c2 := (config_output (relation_output s r'') (⟨ db'' Γ'' β'' p'' ⟩))).
+           specialize IHo2 with (c1 := config_error) (c2 := (config_output (RelationWrapped s r'') (⟨ db'' Γ'' β'' p'' ⟩))).
            apply IHo2 in H11.
            ++ discriminate.
            ++ assumption.
       * inversion H; subst; try discriminate.
         inversion H8. subst.
         (* The contradiction occurs when s1 ≠ s2 where s = s1 ∧ s = s2. *)
-        specialize IHo1 with (c1 := (config_output (relation_output s1 r') (⟨ db' Γ' β' p' ⟩)))
-                             (c2 := (config_output (relation_output s r'0) (⟨ db'0 Γ'0 β'0 p'0 ⟩))).
-        specialize IHo2 with (c1 := (config_output (relation_output s2 r'') (⟨ db'' Γ'' β'' p'' ⟩)))
-                             (c2 := (config_output (relation_output s r''0) (⟨ db''0 Γ''0 β''0 p''0 ⟩))).
+        specialize IHo1 with (c1 := (config_output (RelationWrapped s1 r') (⟨ db' Γ' β' p' ⟩)))
+                             (c2 := (config_output (RelationWrapped s r'0) (⟨ db'0 Γ'0 β'0 p'0 ⟩))).
+        specialize IHo2 with (c1 := (config_output (RelationWrapped s2 r'') (⟨ db'' Γ'' β'' p'' ⟩)))
+                             (c2 := (config_output (RelationWrapped s r''0) (⟨ db''0 Γ''0 β''0 p''0 ⟩))).
         apply IHo2 in H7. inversion H7. subst.
         apply IHo1 in H5. inversion H5. subst.
         -- exfalso. apply H9. reflexivity.
@@ -722,10 +783,10 @@ Proof.
     + inversion H; inversion H0; subst; try discriminate.
       * inversion H8. subst. inversion H4. subst. assumption.
       * inversion H16. subst.
-        specialize IHo2 with (c1 := (config_output (relation_output s0 r''0) (⟨ db''0 Γ''0 β''0 p''0 ⟩)))
-                             (c2 := (config_output (relation_output s r'') (⟨ db'' Γ'' β'' p'' ⟩))).
-        specialize IHo1 with (c1 := (config_output (relation_output s0 r'0) (⟨ db'0 Γ'0 β'0 p'0 ⟩)))
-                             (c2 := (config_output (relation_output s r') (⟨ db' Γ' β' p' ⟩))).
+        specialize IHo2 with (c1 := (config_output (RelationWrapped s0 r''0) (⟨ db''0 Γ''0 β''0 p''0 ⟩)))
+                             (c2 := (config_output (RelationWrapped s r'') (⟨ db'' Γ'' β'' p'' ⟩))).
+        specialize IHo1 with (c1 := (config_output (RelationWrapped s0 r'0) (⟨ db'0 Γ'0 β'0 p'0 ⟩)))
+                             (c2 := (config_output (RelationWrapped s r') (⟨ db' Γ' β' p' ⟩))).
         intuition. inversion H3. inversion H1. subst.
         (*
           Now we have some weird equality over dependent types:
@@ -751,8 +812,8 @@ Proof.
       * apply (IHo1 config_error) in H13. discriminate. assumption.
       * apply (IHo2 config_error) in H15. discriminate. assumption.
     + inversion H14. subst. clear H14.
-      apply (IHo1 (config_output (relation_output s1 r') (⟨ db' Γ' β' p' ⟩))) in H15.
-      apply (IHo2 (config_output (relation_output s2 r'') (⟨ db'' Γ'' β'' p'' ⟩))) in H17.
+      apply (IHo1 (config_output (RelationWrapped s1 r') (⟨ db' Γ' β' p' ⟩))) in H15.
+      apply (IHo2 (config_output (RelationWrapped s2 r'') (⟨ db'' Γ'' β'' p'' ⟩))) in H17.
       inversion H15. inversion H17. subst.
       apply inj_pair2_eq_dec in H3, H12; subst. 
       * eapply relation_join_by_prv_deterministic with (res2 := None) in H20.
@@ -765,8 +826,8 @@ Proof.
       * apply (IHo1 config_error) in H5. discriminate. assumption.
       * apply (IHo2 config_error) in H7. discriminate. assumption.
     + inversion H15. subst. clear H15.
-      apply (IHo1 (config_output (relation_output s1 r') (⟨ db' Γ' β' p' ⟩))) in H16.
-      apply (IHo2 (config_output (relation_output s2 r'') (⟨ db'' Γ'' β'' p'' ⟩))) in H18.
+      apply (IHo1 (config_output (RelationWrapped s1 r') (⟨ db' Γ' β' p' ⟩))) in H16.
+      apply (IHo2 (config_output (RelationWrapped s2 r'') (⟨ db'' Γ'' β'' p'' ⟩))) in H18.
       inversion H16. inversion H18. subst.
       apply inj_pair2_eq_dec in H3, H12; subst. 
       * eapply relation_join_by_prv_deterministic with (res2 := None) in H10.
@@ -775,8 +836,8 @@ Proof.
       * apply list_eq_dec; apply attribute_eq_dec.
       * assumption.
       * assumption.
-    + apply (IHo1 (config_output (relation_output s1 r') (⟨ db' Γ' β' p' ⟩))) in H16.
-      apply (IHo2 (config_output (relation_output s2 r'') (⟨ db'' Γ'' β'' p'' ⟩))) in H18.
+    + apply (IHo1 (config_output (RelationWrapped s1 r') (⟨ db' Γ' β' p' ⟩))) in H16.
+      apply (IHo2 (config_output (RelationWrapped s2 r'') (⟨ db'' Γ'' β'' p'' ⟩))) in H18.
       inversion H15. inversion H18. inversion H16. subst.
       apply inj_pair2_eq_dec in H9, H19. subst.
       eapply relation_join_by_prv_deterministic with (res2 := (Some (rout, Γout, βout, pout))) in H21.
@@ -798,7 +859,7 @@ Proof.
   - exfalso. auto.
   - (* Although we don't need `s`, we need to introduce this term into the context. *)
     pose (s := @nil Attribute).
-    exists (config_output (relation_output nil nil) (⟨ d c b p ⟩)).
+    exists (config_output (RelationWrapped nil nil) (⟨ d c b p ⟩)).
     econstructor; reflexivity.
   - pose (s := @nil Attribute). exists (config_output r c).
     eapply E_Already with (r := r) (c := (config_output r c)) (c' := c). reflexivity.
@@ -844,10 +905,12 @@ Proof.
           pose (merged_p := merge_env p0 p1).
           pose (merged_Γ := merge_env c0 c1).
           pose (merged_β := calculate_budget b0 b1).
-          exists (config_output (relation_output s (r ++ r0)) (⟨ d1 merged_Γ merged_β merged_p ⟩)).
+          exists (config_output (RelationWrapped s (r ++ r0)) (⟨ d1 merged_Γ merged_β merged_p ⟩)).
           econstructor; try reflexivity; eauto.
         -- exists config_error. eapply E_UnionSchemaError with (s1 := s) (s2 := s0); try eauto.
       * (* There should be no rule for constructing nested output. *)
         inversion H1; subst; try discriminate.
-        
+
 Admitted.
+
+End Facts.
