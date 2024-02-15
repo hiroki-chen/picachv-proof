@@ -43,7 +43,7 @@ Fixpoint determine_bt_from_expr_helper (s: schema) (arg: expression_lexed) (env:
   option expr_type :=
     match arg with
     (* Lookup in the environment. *)
-    | expression_lexed_var n => nth_option env n
+    | expression_lexed_var n => List.nth_error env n
     (* For constants, we already know its type. *)
     | expression_lexed_const bt _ => Some (expr_type_basic bt)
     (* For columns, we need to extract it from the schema. *)
@@ -289,13 +289,33 @@ Definition get_new_policy cur op: Policy.policy :=
     end
   end.
 
-(* Apply *one* expression on the relation. *)
+
+(*
+  Apply *one* expression on the relation.
+
+  This works by iterating over the relation and applying the expression on *each tuple*, and
+  the evaluation context for the expression contains that specific tuple.
+*)
 Inductive eval_expr_in_relation (s: schema) (r: relation s):
   Policy.context → budget → prov_ctx → expression →
-    option (EResult * Policy.context * budget * prov_ctx) → Prop :=
+    option (relation_wrapped * Policy.context * budget * prov_ctx) → Prop :=
+  | E_EvalExprInRelationNil: ∀ Γ β p e,
+      r = nil →
+      eval_expr_in_relation s r Γ β p e (Some (RelationWrapped s r, Γ, β, p))
+
+    (* TODO! *)
 .
 
-(* Apply each project expression on the given relation `r`. *)
+(*
+  Apply each project expression on the given relation `r`.
+
+  This works as follows:
+
+  - If the projection list is empty or the relation is empty, we just do nothing.
+  - If the projection list is not empty, we evaluate each expression in the list.
+    - Evaluation will further invoke `eval_expr_in_relation` (for readability).
+
+*)
 Inductive apply_proj_in_relation (s: schema) (r: relation s) (ℓ: list (expression * nat)):
   ∀ s', Policy.context → budget → prov_ctx →
     option (relation s' * Policy.context * budget * prov_ctx) → Prop :=
@@ -307,11 +327,6 @@ Inductive apply_proj_in_relation (s: schema) (r: relation s) (ℓ: list (express
       ℓ = hd :: tl →
       eval_expr_in_relation s r Γ β p (fst hd) None →
       apply_proj_in_relation s r ℓ s' Γ β p None
-  | E_ApplyElemHeadNonRelation: ∀ s' res r' Γ Γ' β β' p p' hd tl,
-      ℓ = hd :: tl →
-      eval_expr_in_relation s r Γ β p (fst hd) (Some (res, Γ', β', p')) →
-      res ≠ EResultRelation r' →
-      apply_proj_in_relation s r ℓ s' Γ β p None
   | E_ApplyElemErrTail: ∀ s' hd tl Γ β p,
       ℓ = hd :: tl →
       apply_proj_in_relation s r tl s' Γ β p None →
@@ -319,7 +334,7 @@ Inductive apply_proj_in_relation (s: schema) (r: relation s) (ℓ: list (express
   | E_ApplyElemOk: ∀ s_hd s_tl Γ Γ' Γ'' β β' β'' p p' p'' hd hd' tl tl'
                 (proj_case: ℓ = hd :: tl),
       r ≠ nil →
-      eval_expr_in_relation s r Γ β p (fst hd) (Some (EResultRelation (RelationWrapped s_hd hd'), Γ', β', p')) →
+      eval_expr_in_relation s r Γ β p (fst hd) (Some (RelationWrapped s_hd hd', Γ', β', p')) →
       Some s_tl = determine_schema s tl →
       apply_proj_in_relation s r tl s_tl Γ' β' p' (Some (tl', Γ'', β'', p'')) →
       (*
@@ -366,20 +381,20 @@ Inductive eval_predicate_in_relation (s: schema) (r: relation s):
       eval_predicate_in_relation s r Γ β p e (Some (nil, Γ, β, p))
   | E_EvalExprConsTrue: ∀ db db' Γ Γ' Γ'' β β' β'' p p' p'' e env hd tl tl' id,
       r = hd :: tl →
-      eval_expr (⟨ db Γ β p ⟩) (TupleWrapped s hd) None e (env, EResultValue BoolType (true, id)) →
+      eval_expr (⟨ db Γ β p ⟩) (TupleWrapped s hd) None e (Some (env, ValuePrimitive BoolType (true, id))) →
       fst (fst (fst env)) = ⟨ db' Γ' β' p' ⟩ →
       eval_predicate_in_relation s tl Γ' β' p' e (Some (tl', Γ'', β'', p'')) →
       eval_predicate_in_relation s r Γ β p e (Some (hd :: tl', Γ'', β'', p''))
   | E_EvalExprConsFalse: ∀ db db' Γ Γ' Γ'' β β' β'' p p' p'' e env hd tl tl' id,
       r = hd :: tl →
-      eval_expr (⟨ db Γ β p ⟩) (TupleWrapped s hd) None e (env, EResultValue BoolType (false, id)) →
+      eval_expr (⟨ db Γ β p ⟩) (TupleWrapped s hd) None e (Some (env, ValuePrimitive BoolType (false, id))) →
       fst (fst (fst env)) = ⟨ db' Γ' β' p' ⟩ →
       eval_predicate_in_relation s tl Γ' β' p' e (Some (tl', Γ'', β'', p'')) →
       eval_predicate_in_relation s r Γ β p e (Some (tl', Γ'', β'', p''))
   | E_EvalError: ∀ db res v Γ β p e env hd tl,
       r = hd :: tl →
-      eval_expr (⟨ db Γ β p ⟩) (TupleWrapped s hd) None e (env, res) →
-      res ≠ EResultValue BoolType v →
+      eval_expr (⟨ db Γ β p ⟩) (TupleWrapped s hd) None e (Some (env, res)) →
+      res ≠ ValuePrimitive BoolType v →
       eval_predicate_in_relation s r Γ β p e None
   | E_EvalError2: ∀ Γ Γ' β β' p p' e hd tl,
       r = hd :: tl →
@@ -661,7 +676,7 @@ Section Facts.
 Inductive has_type: schema → ty_env → expression_lexed → expr_type → Prop :=
   (* If variable is found in the typing environment, then we know its type. *)
   | T_Var: ∀ s env x t,
-      nth_option env x = Some t →
+      List.nth_error env x = Some t →
       has_type s env (expression_lexed_var x) t
   | T_Const: ∀ s env bt c,
       has_type s env (expression_lexed_const bt c) (expr_type_basic bt)
@@ -684,7 +699,7 @@ Theorem determine_bt_from_expr_correct: ∀ s e env bt,
 Proof with eauto.
   intros s e.
   induction e; intros; try discriminate; inversion H.
-  - destruct (nth_option env n).
+  - destruct (nth_error env n).
     + inversion H1. subst. apply T_Var. assumption.
     + discriminate.
   - inversion H1. subst. constructor.
