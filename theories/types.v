@@ -162,6 +162,19 @@ Definition try_cast (t1 t2: basic_type): type_to_coq_type t1 → option (type_to
   | StringType, BoolType => fun _ _ _ => None
   end eq_refl eq_refl.
 
+Definition type_coerce (t1 t2: basic_type): basic_type :=
+  match t1, t2 with
+  | IntegerType, IntegerType => IntegerType
+  | IntegerType, StringType => StringType
+  | IntegerType, BoolType => IntegerType
+  | BoolType, BoolType => BoolType
+  | BoolType, IntegerType => IntegerType
+  | BoolType, StringType => StringType
+  | StringType, StringType => StringType
+  | StringType, IntegerType => StringType
+  | StringType, BoolType => StringType
+  end.
+
 Definition value_eq (t1 t2: basic_type) (v1: type_to_coq_type t1) (v2: type_to_coq_type t2) : bool :=
   match t1, t2 return type_to_coq_type t1 → type_to_coq_type t2 → bool with
   | IntegerType, IntegerType => Nat.eqb

@@ -94,7 +94,21 @@ Inductive e_value: Type :=
     that it is just a "safe" value (like the value obtained by projecting a constant).
   *)
   | ValuePrimitive: ∀ bt, (type_to_coq_type bt * option nat) → e_value
+  (* This is the argument for the aggregation expression because it operates on list of values. *)
+  | ValuePrimitiveList: ∀ bt, list (type_to_coq_type bt * option nat) → e_value
 .
+
+(* TODO: How to evaluate expressions like (sum (a + b)) where a and b are columns? *)
+(*
+  My idea is:
+
+  - First we will know that the groupby information.
+  - Upon invoking `sum` we need to walk `a + b` but at this timepoint we have set
+    `in_agg` to be true.
+  - We will then evaluate `a + b` on the groupby proxy.
+  - Thus `a + b` returns a list of values rather than a single value.
+
+*)
 
 (* `groupby` list is just a list of indices of the original data frame that should be chosen as keys. *)
 Definition groupby_list := (list nat)%type.
@@ -117,6 +131,7 @@ Definition group := (list nat)%type.
   +-----------------+-----------------+
 
   Where:
+  - relation s1 is the relation of the original data frame the groupby proxy is referring to.
   - Tuple.tuple s is the tuple of s, which represents the grouped columns.
   - group_range represents the range of each group.
 
@@ -124,7 +139,7 @@ Definition group := (list nat)%type.
   a dependent type would introduce undue complexity.
 *)
 Inductive groupby :=
-  | groupby_proxy: ∀ s, Tuple.tuple s → group → groupby
+  | groupby_proxy: ∀ s1 s2, relation s1 → Tuple.tuple s2 → group → groupby
 .
 
 Inductive tuple_wrapped: Type :=
@@ -231,105 +246,134 @@ Inductive eval_unary_expression: unary_func → eval_env → e_value → option 
     eval_unary_expression f env v res
 .
 
+Inductive eval_binary_expression: binary_func → eval_env → e_value → e_value → option (eval_env * e_value) → Prop :=
+.
+
 (*
-  Eval : (ℕ × Expr × Γ) × Maybe (Γ' × Val) 
+  Eval : (ℕ × Expr × 𝔹 × Γ) × Maybe (Γ' × Val) 
     where 
   - ℕ is the number of steps to evaluate the expression.
   - Expr is the expression to evaluate.
+  - 𝔹 is a boolean flag indicating whether the evaluation is performed within an aggregation context.
+    - If it is `true`, we need to evaluate the expression on groupby proxy rather than the current tuple.
   - Γ is the current environment.
   - Maybe (Γ' × Val) is the result of the evaluation:
     - If it is `None`, the evaluation results in an error.
     - If it is `Some (Γ', Val)`, the evaluation is finished with an updated environment Γ',
       and the result is `Val`.
 *)
-Inductive eval: nat → expression_lexed → eval_env → option (eval_env * e_value) → Prop :=
+Inductive eval: nat → expression_lexed → bool → eval_env → option (eval_env * e_value) → Prop :=
   (* The evaluation hangs and we have to force termination. *)
-  | EvalNoStep: ∀ e env step, step = O → eval step e env None
+  | EvalNoStep: ∀ e b env step, step = O → eval step e b env None
   (* Evaluating a variable value is simple: we just lookup it. *)
-  | EvalVar: ∀ step step' n e env c tr lookup db Γ β p proxy,
+  | EvalVar: ∀ step step' n e b env c tr lookup db Γ β p proxy,
       c = ⟨ db Γ β p ⟩ →
       step = S step' →
       e = expression_lexed_var n →
-      eval step e (c, tr, lookup, proxy)
+      eval step e b (c, tr, lookup, proxy)
         (option_map (fun x => (env, x)) (List.nth_error lookup n))
   (* Evaluating a constant value is simple: we just return it. *)
-  | EvalConst: ∀ step step' bt v e env c tr lookup db Γ β p proxy,
+  | EvalConst: ∀ step step' b bt v e env c tr lookup db Γ β p proxy,
       c = ⟨ db Γ β p ⟩ →
       step = S step' →
       e = expression_lexed_const bt v →
-      eval step e (c, tr, lookup, proxy) (Some (env, ValuePrimitive bt (v, None)))
-  | EvalColumn: ∀ step step' id n e env c s tr t lookup db Γ β p proxy,
+      eval step e b (c, tr, lookup, proxy) (Some (env, ValuePrimitive bt (v, None)))
+  (* Extracts the value from the tuple if we are not inside an aggregation context. *)
+  | EvalColumnNotAgg: ∀ step step' b id n e env c s tr t lookup db Γ β p proxy,
       c = ⟨ db Γ β p ⟩ →
       step = S step' →
       e = expression_lexed_column id →
       tr = TupleWrapped s t →
+      b = false →
       (* We locate this column by its identifier `id` using the comparison function. *)
       ∀ (find: find_index (λ x y, Nat.eqb (snd x) y) s id 0 = Some n),
         let col := 
           (Tuple.nth_col_tuple (♭ s) n
             (eq_sym (schema_to_no_name_length s) ♯
               (elem_find_index_bounded_zero _ _ _ _ find)) t) in
-        eval step e (c, tr, lookup, proxy)
+        eval step e b (c, tr, lookup, proxy)
           (Some ((env, ValuePrimitive _ (fst (fst col), Some (snd (fst col))))))
-  | EvalColumnFail: ∀ step step' id e c s tr t lookup db Γ β p proxy,
-      c = ⟨ db Γ β p ⟩ →
+  | EvalColumnNotAggFail: ∀ step step' b id e c s tr t lookup proxy,
       step = S step' →
       e = expression_lexed_column id →
+      b = false →
       tr = TupleWrapped s t →
       (* The requested column identifier is not found. *)
       find_index (λ x y, Nat.eqb (snd x) y) s id 0 = None →
-      eval step e (c, tr, lookup, proxy) None
-  | EvalAbs: ∀ step step' τ e' e env c tr lookup db Γ β p proxy,
+      eval step e b (c, tr, lookup, proxy) None
+  (* Extracts the value from the groupby proxy if we are inside an aggregation context. *)
+  | EvalColumnInAggProxyMissing: ∀ step step' b id e c tr lookup proxy,
+      step = S step' →
+      e = expression_lexed_column id →
+      b = true →
+      proxy = None →
+      eval step e b (c, tr, lookup, proxy) None
+  (* | EvalColumnInAgg: ∀ step step' b id e c s1 s2 tr lookup proxy r gb_keys gb_indices,
+      step = S step' →
+      e = expression_lexed_column id →
+      b = true →
+      proxy = Some (groupby_proxy s1 s2 r gb_keys gb_indices) →
+      None *)
+  (* Evaluating a lambda expression is simple: we just return it. *)
+  | EvalAbs: ∀ step step' b τ e' e env c tr lookup db Γ β p proxy,
       c = ⟨ db Γ β p ⟩ →
       step = S step' →
       e = expression_lexed_abs τ e' →
-      eval step e (c, tr, lookup, proxy) (Some (env, ValueFunc τ e' lookup))
-  | EvalApp: ∀ step step' e1 e2 e ev env env' v c tr lookup lookup' τ body f_env res db Γ β p proxy,
+      eval step e b (c, tr, lookup, proxy) (Some (env, ValueFunc τ e' lookup))
+  | EvalApp: ∀ step step' b e1 e2 e ev env env' v c tr lookup lookup' τ body f_env res db Γ β p proxy,
       c = ⟨ db Γ β p ⟩ →
       step = S step' →
       e = expression_lexed_app e1 e2 →
       (* We first evaluate the function and obtain the updated environment and result. *)
-      eval step' e1 (c, tr, lookup, proxy) (Some (env, ValueFunc τ body f_env)) →
+      eval step' e1 b (c, tr, lookup, proxy) (Some (env, ValueFunc τ body f_env)) →
       (* We then evaluate the argument. *)
-      eval step' e2 (c, tr, lookup, proxy) (Some (env', v)) →
+      eval step' e2 b (c, tr, lookup, proxy) (Some (env', v)) →
       env' = (ev, lookup', proxy) →
       (* Then we add the argument to the environment. *)
-      eval step' body (ev, v :: f_env, proxy) res →
-      eval step e (c, tr, lookup, proxy) res
-  | EvalAppFail: ∀ step step' e e1 e2 res1 res2 c tr lookup db Γ β p proxy,
+      eval step' body b (ev, v :: f_env, proxy) res →
+      eval step e b (c, tr, lookup, proxy) res
+  | EvalAppFail: ∀ step step' b e e1 e2 res1 res2 c tr lookup db Γ β p proxy,
       c = ⟨ db Γ β p ⟩ →
       step = S step' →
       e = expression_lexed_app e1 e2 →
-      eval step' e1 (c, tr, lookup, proxy) res1 →
-      eval step' e2 (c, tr, lookup, proxy) res2 →
+      eval step' e1 b (c, tr, lookup, proxy) res1 →
+      eval step' e2 b (c, tr, lookup, proxy) res2 →
       res1 = None ∨ res2 = None →
-      eval step e (c, tr, lookup, proxy) None
-  | EvalUnary: ∀ step step' e f e' env v res c tr lookup db Γ β p proxy,
+      eval step e b (c, tr, lookup, proxy) None
+  | EvalUnary: ∀ step step' b e f e' env v res c tr lookup db Γ β p proxy,
       c = ⟨ db Γ β p ⟩ →
       step = S step' →
       e = expression_lexed_unary f e' →
-      eval step' e' (c, tr, lookup, proxy) (Some (env, v)) →
+      eval step' e' b (c, tr, lookup, proxy) (Some (env, v)) →
       eval_unary_expression f env v res →
-      eval step e (c, tr, lookup, proxy) res
-  | EvalAggProxyMissing: ∀ step step' e agg body c tr lookup db Γ β p proxy,
+      eval step e b (c, tr, lookup, proxy) res
+  | EvalAggProxyMissing: ∀ step step' b e agg body c tr lookup db Γ β p proxy,
       c = ⟨ db Γ β p ⟩ →
       step = S step' →
       proxy = None →
       e = expression_lexed_agg agg body →
-      eval step e (c, tr, lookup, proxy) None
-  | EvalAggProxy: ∀ step step' e agg body c tr lookup db Γ β p proxy s_key gb_keys gb_indices,
+      eval step e b (c, tr, lookup, proxy) None
+  | EvalAggError: ∀ step step' b e agg body c tr lookup db Γ β p proxy s r s_key gb_keys gb_indices,
       c = ⟨ db Γ β p ⟩ →
       step = S step' →
-      proxy = Some (groupby_proxy s_key gb_keys gb_indices) →
+      proxy = Some (groupby_proxy s s_key r gb_keys gb_indices) →
       e = expression_lexed_agg agg body →
-      (* TODO: Implement this. *)
-      eval step e (c, tr, lookup, proxy) None
+      eval step' body b (c, tr, lookup, proxy) None →
+      eval step e b (c, tr, lookup, proxy) None
+  | EvalAggArgError: ∀ step step' b e agg body c tr lookup db Γ β p proxy s r s_key gb_keys gb_indices v bt l,
+      c = ⟨ db Γ β p ⟩ →
+      step = S step' →
+      proxy = Some (groupby_proxy s s_key r gb_keys gb_indices) →
+      e = expression_lexed_agg agg body →
+      eval step' body b (c, tr, lookup, proxy) (Some v) →
+      snd v ≠ ValuePrimitiveList bt l →
+      eval step e b (c, tr, lookup, proxy) None
 .
 
 Inductive eval_expr:
-  config → tuple_wrapped → option groupby → expression → option (eval_env * e_value) → Prop :=
-  | EvalExpr: ∀ c tr proxy e env,
-    eval 100 (lex e nil) (c, tr, nil, proxy) env → eval_expr c tr proxy e env
+  bool → config → tuple_wrapped → option groupby → expression → option (eval_env * e_value) → Prop :=
+  | EvalExpr: ∀ b c tr proxy e env,
+    eval 100 (lex e nil) b (c, tr, nil, proxy) env → eval_expr b c tr proxy e env
 .
 
 Section Facts.

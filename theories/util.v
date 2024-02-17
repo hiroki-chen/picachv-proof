@@ -201,14 +201,10 @@ Fixpoint mark_updated {A: Type} (l: list (nat * bool * A)) (id: list nat): optio
     end
   end.
 
-(*
-  Coq cannot guess if `n / 10` and `n mod 10` will terminate;
-  we use binary representation for the time being.
-*)
-Fixpoint nat_to_str (n: nat): String.string :=
-  match n with
-  | O => "0"%string
-  | S n' => append (nat_to_str n') "1"%string
+Definition unwrap_or_default {A: Type} (o: option A) (default: A): A :=
+  match o with
+  | Some a => a
+  | None => default
   end.
 
 Fixpoint rev_string (s: string): string :=

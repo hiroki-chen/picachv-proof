@@ -218,10 +218,20 @@ Definition get_group_proxy_helper s (r: relation s) (gb_keys: groupby_list) (bou
     (fix create_group_proxy keys n :=
       match keys with
       | nil => nil
-      | hd :: tl => groupby_proxy _ hd (n :: nil) :: (create_group_proxy tl (S n))
+      | hd :: tl => groupby_proxy _ _ r hd (n :: nil) :: (create_group_proxy tl (S n))
       end
     ) gb_keys_extracted 0.
 
+(*
+  @param s The schema of the relation.
+  @param r The relation from which the groupby elements are to be extracted.
+  @param gb_keys The list of keys that define the grouping.
+  @param bounded The bounded list that restricts the grouping.
+  @returns list groupby The list of groupby elements extracted from the relation.
+
+  The `get_group_proxy` function extracts a list of groupby elements from a given relation based
+  on a list of groupby keys and group indices. The groupby keys define the grouping.
+*)
 Definition get_group_proxy s (r: relation s) (gb_keys: groupby_list) (bounded: bounded_list s gb_keys): list groupby.
   pose (intermediate_gb_proxy := get_group_proxy_helper s r gb_keys bounded).
   induction intermediate_gb_proxy.
@@ -237,11 +247,11 @@ Definition get_group_proxy s (r: relation s) (gb_keys: groupby_list) (bounded: b
        | nil => elem :: nil
        | hd :: tl =>
           match hd, elem with
-          | groupby_proxy s key indices, groupby_proxy s' key' indices' =>
-            match list_eq_dec basic_type_eq_dec s s' with
+          | groupby_proxy _ s1 _ key indices, groupby_proxy _ s2 _ key' indices' =>
+            match list_eq_dec basic_type_eq_dec s1 s2 with
             | left eq => 
               if (Tuple.tuple_value_eqb _ key' (eq ♯ key)) then
-                (groupby_proxy s key (indices ++ indices'):: gather elem tl)
+                (groupby_proxy s s1 r key (indices ++ indices'):: gather elem tl)
               else
                 hd :: (gather elem tl)
             | right _ => nil
@@ -250,7 +260,7 @@ Definition get_group_proxy s (r: relation s) (gb_keys: groupby_list) (bounded: b
        end
      ).
 
-     exact (gather a rest).
+      exact (gather a rest).
 Defined.
 
 Inductive operator: Type :=
@@ -295,18 +305,43 @@ Definition get_new_policy cur op: Policy.policy :=
 
   This works by iterating over the relation and applying the expression on *each tuple*, and
   the evaluation context for the expression contains that specific tuple.
+
+  The result of the evaluation is only a relation that contain only *one* attribute.
 *)
-Inductive eval_expr_in_relation (s: schema) (r: relation s):
+Inductive eval_expr_in_relation (s: schema) (r: relation s) ty:
   Policy.context → budget → prov_ctx → expression →
-    option (relation_wrapped * Policy.context * budget * prov_ctx) → Prop :=
+    option (relation (ty :: nil) * Policy.context * budget * prov_ctx) → Prop :=
   | E_EvalExprInRelationNil: ∀ Γ β p e,
       r = nil →
-      eval_expr_in_relation s r Γ β p e (Some (RelationWrapped s r, Γ, β, p))
-
-    (* TODO! *)
+      eval_expr_in_relation s r ty Γ β p e (Some (nil, Γ, β, p))
+  | E_EvalExprInRelationHdError: ∀ db Γ β p e hd tl,
+      r = hd :: tl →
+      eval_expr false (⟨ db Γ β p ⟩) (TupleWrapped s hd) None e None →
+      eval_expr_in_relation s r ty Γ β p e None
+  | E_EvalExprInRelationTlError: ∀ hd tl Γ β p e,
+      r = hd :: tl →
+      eval_expr_in_relation s tl ty Γ β p e None →
+      eval_expr_in_relation s r ty Γ β p e None
+  | E_EvalExprInRelationOk: ∀ bt' db Γ Γ' β β' p p' hd hd' id tl tl' e e' Γ'' β'' p'',
+      r = hd :: tl →
+      eval_expr false (⟨ db Γ β p ⟩) (TupleWrapped s hd) None e (Some (e', ValuePrimitive bt' (hd', id))) →
+      ∀ (eq: bt' = (fst ty)),
+      eval_expr_in_relation s tl ty Γ' β' p' e (Some (tl', Γ'', β'', p'')) →
+      let res := (eq ♯ hd', (unwrap_or_default id 0), tt) :: ((tuple_single_eq (ty :: nil) ty eq_refl) ♯ tl') in
+        let res' := eq_sym (tuple_single_eq (ty :: nil) ty eq_refl) ♯ res in 
+          eval_expr_in_relation s r ty Γ β p e (Some (res', Γ'', β'', p''))
 .
 
 (*
+  @param s The schema of the input relation.
+  @param s' The **schema of the output** relation after projection.
+  @param r The input relation on which the projection is to be applied.
+  @param ℓ The list of expressions and their corresponding column indices that form the projection.
+  @param Policy.context The policy context.
+  @param budget The budget for the operation.
+  @param prov_ctx The provenance context.
+  @returns option (relation s' * Policy.context * budget * prov_ctx) The expected result of the operation.
+
   Apply each project expression on the given relation `r`.
 
   This works as follows:
@@ -314,45 +349,38 @@ Inductive eval_expr_in_relation (s: schema) (r: relation s):
   - If the projection list is empty or the relation is empty, we just do nothing.
   - If the projection list is not empty, we evaluate each expression in the list.
     - Evaluation will further invoke `eval_expr_in_relation` (for readability).
-
 *)
-Inductive apply_proj_in_relation (s: schema) (r: relation s) (ℓ: list (expression * nat)):
-  ∀ s', Policy.context → budget → prov_ctx →
+Inductive apply_proj_in_relation (s s': schema) (r: relation s) (ℓ: list (expression * nat)):
+  Policy.context → budget → prov_ctx →
     option (relation s' * Policy.context * budget * prov_ctx) → Prop :=
   (* Either the projection list is empty or the relation is empty. As such, we just do nothing here. *)
-  | E_ApplyElemEmpty: ∀ s' Γ β p,
-      ℓ = nil ∨ r = nil →
-      apply_proj_in_relation s r ℓ s' Γ β p (Some (nil, Γ, β, p))
-  | E_ApplyElemErrHead: ∀ s' Γ β p hd tl,
+  | E_ApplyElemEmpty: ∀ Γ β p,
+      ℓ = nil ∨ r = nil ∨ s' = nil →
+      apply_proj_in_relation s s' r ℓ Γ β p (Some (nil, Γ, β, p))
+  | E_ApplyElemErrHead: ∀ Γ β p hd tl s_hd s_tl,
       ℓ = hd :: tl →
-      eval_expr_in_relation s r Γ β p (fst hd) None →
-      apply_proj_in_relation s r ℓ s' Γ β p None
-  | E_ApplyElemErrTail: ∀ s' hd tl Γ β p,
+      s' = s_hd :: s_tl →
+      eval_expr_in_relation s r s_hd Γ β p (fst hd) None →
+      apply_proj_in_relation s s' r ℓ  Γ β p None
+  | E_ApplyElemErrTail: ∀  hd tl Γ β p,
       ℓ = hd :: tl →
-      apply_proj_in_relation s r tl s' Γ β p None →
-      apply_proj_in_relation s r ℓ s' Γ β p None
+      apply_proj_in_relation s s' r tl Γ β p None →
+      apply_proj_in_relation s s' r ℓ Γ β p None
   | E_ApplyElemOk: ∀ s_hd s_tl Γ Γ' Γ'' β β' β'' p p' p'' hd hd' tl tl'
                 (proj_case: ℓ = hd :: tl),
       r ≠ nil →
-      eval_expr_in_relation s r Γ β p (fst hd) (Some (RelationWrapped s_hd hd', Γ', β', p')) →
-      Some s_tl = determine_schema s tl →
-      apply_proj_in_relation s r tl s_tl Γ' β' p' (Some (tl', Γ'', β'', p'')) →
+      s' = s_hd :: s_tl →
+      eval_expr_in_relation s r (fst s_hd, snd hd) Γ β p (fst hd) (Some (hd', Γ', β', p')) →
+      apply_proj_in_relation s s_tl r tl Γ' β' p' (Some (tl', Γ'', β'', p'')) →
       (*
         Goal:
-        (determine_schema s (project (hd :: nil)) ++
-        determine_schema s (project tl)) = determine_schema s (project ℓ)
-        -------------------------------
-        project ℓ = project (hd :: tl) by ℓ = hd :: tl with ♯
-        --–----------------------------
-        Then by determine_schema_concat we have:
-        (determine_schema s (project (hd :: nil)) ++
-        determine_schema s (project tl)) = determine_schema s (project (hd :: tl))
-        -------------------------------
+        (((fst s_hd, snd hd) :: nil) ++ s_tl) = relation s'
       *)
       let col := (relation_product _ _ hd' tl') in
         (* let col_proxy := ((determine_schema_concat s hd tl) ♯ col_tmp) in
           col = ((eq_sym proj_case) ♯ col_proxy) → *)
-          apply_proj_in_relation s r ℓ _ Γ β p (Some (col, Γ'', β'', p''))
+          (* TODO: Prove type equality to pass the type checker for `col`. *)
+          apply_proj_in_relation s s' r ℓ Γ β p (Some (nil, Γ'', β'', p''))
 .
 
 (*
@@ -381,52 +409,177 @@ Inductive eval_predicate_in_relation (s: schema) (r: relation s):
       eval_predicate_in_relation s r Γ β p e (Some (nil, Γ, β, p))
   | E_EvalExprConsTrue: ∀ db db' Γ Γ' Γ'' β β' β'' p p' p'' e env hd tl tl' id,
       r = hd :: tl →
-      eval_expr (⟨ db Γ β p ⟩) (TupleWrapped s hd) None e (Some (env, ValuePrimitive BoolType (true, id))) →
+      eval_expr false (⟨ db Γ β p ⟩) (TupleWrapped s hd) None e (Some (env, ValuePrimitive BoolType (true, id))) →
       fst (fst (fst env)) = ⟨ db' Γ' β' p' ⟩ →
       eval_predicate_in_relation s tl Γ' β' p' e (Some (tl', Γ'', β'', p'')) →
       eval_predicate_in_relation s r Γ β p e (Some (hd :: tl', Γ'', β'', p''))
   | E_EvalExprConsFalse: ∀ db db' Γ Γ' Γ'' β β' β'' p p' p'' e env hd tl tl' id,
       r = hd :: tl →
-      eval_expr (⟨ db Γ β p ⟩) (TupleWrapped s hd) None e (Some (env, ValuePrimitive BoolType (false, id))) →
+      eval_expr false (⟨ db Γ β p ⟩) (TupleWrapped s hd) None e (Some (env, ValuePrimitive BoolType (false, id))) →
       fst (fst (fst env)) = ⟨ db' Γ' β' p' ⟩ →
       eval_predicate_in_relation s tl Γ' β' p' e (Some (tl', Γ'', β'', p'')) →
       eval_predicate_in_relation s r Γ β p e (Some (tl', Γ'', β'', p''))
   | E_EvalError: ∀ db res v Γ β p e env hd tl,
       r = hd :: tl →
-      eval_expr (⟨ db Γ β p ⟩) (TupleWrapped s hd) None e (Some (env, res)) →
+      eval_expr false (⟨ db Γ β p ⟩) (TupleWrapped s hd) None e (Some (env, res)) →
       res ≠ ValuePrimitive BoolType v →
       eval_predicate_in_relation s r Γ β p e None
-  | E_EvalError2: ∀ Γ Γ' β β' p p' e hd tl,
+  | E_EvalError2: ∀ db db' Γ Γ' β β' p p' e hd tl env v,
       r = hd :: tl →
+      eval_expr false (⟨ db Γ β p ⟩) (TupleWrapped s hd) None e (Some (env, ValuePrimitive BoolType v)) →
+      fst (fst (fst env)) = ⟨ db' Γ' β' p' ⟩ →
       eval_predicate_in_relation s tl Γ' β' p' e None →
       eval_predicate_in_relation s r Γ β p e None
 .
 
 (*
-  The `apply_fold_on_groups` inductive type represents the application of a list of aggregation operations on a list of
-  `groupby_proxy` elements.
+  @param bt The basic type of the elements in the resulting list of tuples.
+  @param Policy.context The policy context in which the operation is performed.
+  @param budget The budget available for the operation.
+  @param prov_ctx The provenance context for the operation.
+  @param list groupby The list of groupby elements on which the aggregation operation is applied.
+  @param expression The aggregation operation to be applied.
+  @param option (list (Tuple.tuple (bt :: nil)) * Policy.context * budget * prov_ctx) The expected result of the operation.
+
+  This evaluates the aggregate expression on a given group.
 *)
-Inductive apply_fold_on_groups:
-  ∀ s s_agg, Policy.context → budget → prov_ctx → list groupby → agg_list → relation s →
-    option (relation s_agg * Policy.context * budget * prov_ctx) → Prop :=
-  | E_ApplyFoldOnGroupsEmpty: ∀ s s_agg Γ β p gb agg r,
-      gb = nil ∨ agg = nil →
-      apply_fold_on_groups s s_agg Γ β p gb agg r (Some (nil, Γ, β, p))
+Inductive apply_fold_on_groups_once: ∀ bt, Policy.context → budget → prov_ctx → list groupby → expression →
+  option (list (Tuple.tuple (bt :: nil)) * Policy.context * budget * prov_ctx) → Prop :=
+  | E_ApplyFoldOnGroupsOnceNil: ∀ bt Γ β p gb e,
+      gb = nil →
+      apply_fold_on_groups_once bt Γ β p gb e (Some (nil, Γ, β, p))
+  | E_ApplyFoldOnGroupsHdError: ∀ bt db Γ β p tp gb hd tl e,
+      gb = hd :: tl →
+      eval_expr true (⟨ db Γ β p ⟩) tp (Some hd) e None →
+      apply_fold_on_groups_once bt Γ β p gb e None
+  | E_AplpyFoldOnGroupConsError: ∀ bt db db' Γ Γ' β β' p p' tp gb hd tl e env res,
+      gb = hd :: tl →
+      eval_expr true (⟨ db Γ β p ⟩) tp (Some hd) e (Some (env, res)) →
+      fst (fst (fst env)) = (⟨ db' Γ' β' p' ⟩) →
+      apply_fold_on_groups_once bt Γ' β' p' tl e None →
+      apply_fold_on_groups_once bt Γ β p gb e None
+  | E_ApplyFoldOnGroupsOk: ∀ bt db db' Γ Γ' Γ'' β β' β'' p p' p'' tp gb hd tl e env v res id res',
+      gb = hd :: tl →
+      (* Evalautes the expression. *)
+      eval_expr true (⟨ db Γ β p ⟩) tp (Some hd) e (Some (env, v)) →
+      fst (fst (fst env)) = (⟨ db' Γ' β' p' ⟩) →
+      v = ValuePrimitive bt (res, id) →
+      apply_fold_on_groups_once bt Γ' β' p' tl e (Some (res', Γ'', β'', p'')) →
+      apply_fold_on_groups_once bt Γ β p gb e (Some ((res, (unwrap_or_default id 0), tt) :: res', Γ'', β'', p''))
 .
 
-(* TODO *)
-(* Inductive eval_groupby_having *)
+(*
+  @param s, s_gb The schemas of the input and output relations.
+  @param Policy.context The policy context in which the operation is performed.
+  @param budget The budget available for the operation.
+  @param prov_ctx The provenance context for the operation.
+  @param list (groupby_proxy s_gb) The list of groupby elements on which the aggregation operations are applied.
+  @param agg_list The list of aggregation operations to be applied.
+  @param relation s The initial relation on which the operations are performed.
+  @param option (relation s * Policy.context * budget * prov_ctx) The expected result of the operation.
+
+  The `apply_fold_on_groups` represents the application of a list of aggregation operations on a list of
+  groupby elements. This operation is performed within a given policy context and provenance context, and
+  it may consume a certain amount of budget. 
+*)
+Inductive apply_fold_on_groups: schema → Policy.context → budget → prov_ctx → list groupby → agg_list →
+  option (relation_wrapped * Policy.context * budget * prov_ctx) → Prop :=
+  | E_ApplyFoldOnGroupNilAggList: ∀ s Γ β p gb agg,
+      agg = nil ∨ s = nil →
+      apply_fold_on_groups s Γ β p gb agg (Some (RelationWrapped s nil, Γ, β, p))
+  | E_ApplyFoldOnGroupHeadError: ∀ s s_hd s_tl Γ β p gb agg agg_hd agg_tl,
+      agg = agg_hd :: agg_tl →
+      s = s_hd :: s_tl →
+      apply_fold_on_groups_once (fst s_hd) Γ β p gb (fst agg_hd) None →
+      apply_fold_on_groups s Γ β p gb agg None
+  | E_ApplyFoldOnGroupTailError: ∀ s s_hd s_tl Γ Γ' β β' p p' gb agg agg_hd agg_tl,
+      agg = agg_hd :: agg_tl →
+      s = s_hd :: s_tl →
+      apply_fold_on_groups_once (fst s_hd) Γ β p gb (fst agg_hd) (Some (nil, Γ', β', p')) →
+      apply_fold_on_groups s_tl Γ' β' p' gb agg_tl None →
+      apply_fold_on_groups s Γ β p gb agg None
+  | E_ApplyFoldOnGroupOk: ∀ s s_hd s_tl Γ Γ' Γ'' β β' β'' p p' p'' gb agg agg_hd agg_tl res res',
+      agg = agg_hd :: agg_tl →
+      s = s_hd :: s_tl →
+      apply_fold_on_groups_once (fst s_hd) Γ β p gb (fst agg_hd) (Some (res, Γ', β', p')) →
+      apply_fold_on_groups s_tl Γ' β' p' gb agg_tl (Some (RelationWrapped s_tl res', Γ'', β'', p'')) →
+      let output := relation_product ((fst s_hd, snd agg_hd) :: nil) s_tl res res' in
+        apply_fold_on_groups s Γ β p gb agg (Some (RelationWrapped _ output, Γ', β', p'))
+.
+
+(*
+  @param list groupby The list of groupby elements to be evaluated.
+  @param expression The having clause to be evaluated.
+  @param Policy.context The policy context.
+  @param budget The budget for the evaluation.
+  @param prov_ctx The provenance context.
+  @param option (list groupby * Policy.context * budget * prov_ctx) The expected result of the evaluation.
+  @returns Prop A proposition that is true if the evaluation is correctly applied, false otherwise.
+
+  The `eval_groupby_having` inductive type represents the evaluation of a having clause on a list of groupby
+  elements. A having clause is a predicate that is evaluated on the result of a groupby operation.
+
+  # Examples
+
+  ```
+  let gb = [0, 1];
+  let having = (λ x: x, > "count"(x) 6) (col 2);
+  ```
+*)
+Inductive eval_groupby_having:
+  list groupby → expression → Policy.context → budget → prov_ctx →
+    option (list groupby * Policy.context * budget * prov_ctx) → Prop :=
+  | E_EvalGroupByHavingNil: ∀ gb Γ β p e,
+      gb = nil →
+      eval_groupby_having gb e Γ β p (Some (nil, Γ, β, p))
+  | E_EvalGroupByHavingHeadFalse: ∀ t gb hd tl db db' Γ Γ' β β' p p' e env id res,
+      gb = hd :: tl →
+      eval_expr true (⟨ db Γ β p⟩) t (Some hd) e (Some (env, ValuePrimitive BoolType (false, id))) →
+      (fst (fst (fst env))) = ⟨ db' Γ' β' p' ⟩ →
+      eval_groupby_having tl e Γ' β' p' res →
+      eval_groupby_having gb e Γ β p res
+  | E_EvalGroupByHavingHeadTrue: ∀ t gb hd tl db db' Γ Γ' Γ'' β β' β'' p p' p'' e env id res,
+      gb = hd :: tl →
+      eval_expr true (⟨ db Γ β p⟩) t (Some hd) e (Some (env, ValuePrimitive BoolType (true, id))) →
+      (fst (fst (fst env))) = ⟨ db' Γ' β' p' ⟩ →
+      eval_groupby_having tl e Γ' β' p' (Some (res, Γ'', β'', p'')) →
+      eval_groupby_having gb e Γ β p (Some (hd :: res, Γ'', β'', p''))
+  | E_EvalGroupByHavingHeadError1: ∀ t gb hd tl db Γ β p e,
+      gb = hd :: tl →
+      eval_expr true (⟨ db Γ β p⟩) t (Some hd) e None →
+      eval_groupby_having gb e Γ β p None
+  | E_EvalGroupByHavingHeadError2: ∀ t gb hd tl db db' Γ Γ' β β' p p' e env id,
+      gb = hd :: tl →
+      eval_expr true (⟨ db Γ β p⟩) t (Some hd) e (Some (env, ValuePrimitive BoolType id)) →
+      (fst (fst (fst env))) = ⟨ db' Γ' β' p' ⟩ →
+      eval_groupby_having tl e Γ' β p' None →
+      eval_groupby_having gb e Γ β p None
+.
 
 (* We should invoke `eval_expr` to get the result. *)
 Inductive eval_aggregate:
   ∀ s s_agg gb, bounded_list s gb → agg_list → expression → Policy.context → budget → prov_ctx → relation s →
     option (relation s_agg * Policy.context * budget * prov_ctx) → Prop :=
-  | E_EvalAggregate: ∀ s s_agg Γ β p gb (bounded: bounded_list s gb)
-                       gb_proxy agg f r res,
-      get_group_proxy s r gb bounded = gb_proxy →
-      (* TODO: Filter `gb proxy` using the `group_by` filter. *)
-      apply_fold_on_groups s s_agg Γ β p gb_proxy agg r res →
-      eval_aggregate s s_agg gb bounded agg f Γ β p r res
+  | E_EvalAggregate: ∀ s s_agg Γ Γ' β β' p p' gb (bounded: bounded_list s gb)
+                      gb_proxy agg f r r' res,
+      let gb_proxy_raw := get_group_proxy s r gb bounded in
+        (* We do a filtering here. *)
+        eval_groupby_having gb_proxy_raw f Γ β p (Some (gb_proxy, Γ', β', p')) →
+        apply_fold_on_groups s Γ' β' p' gb_proxy agg res →
+        res = Some (RelationWrapped s_agg r', Γ', β', p') →
+        (* TODO: "Stitch" the groupby keys and aggregated values `res` together. *)
+        eval_aggregate s s_agg gb bounded agg f Γ β p r (Some (r', Γ', β', p'))
+  | E_EvalAggregateError: ∀ s s_agg Γ Γ' β β' p p' gb (bounded: bounded_list s gb)
+                      gb_proxy agg r f,
+      let gb_proxy_raw := get_group_proxy s r gb bounded in
+        (* We do a filtering here. *)
+        eval_groupby_having gb_proxy_raw f Γ β p (Some (gb_proxy, Γ', β', p')) →
+        apply_fold_on_groups s Γ' β' p' gb_proxy agg None →
+        eval_aggregate s s_agg gb bounded agg f Γ β p r None
+  | E_EvalAggregateGroupByError: ∀ s s_agg Γ β p gb agg f r (bounded: bounded_list s gb),
+      let gb_proxy_raw := get_group_proxy s r gb bounded in
+        eval_groupby_having gb_proxy_raw f Γ β p None →
+        eval_aggregate s s_agg gb bounded agg f Γ β p r None
 .
 
 (* 
@@ -497,7 +650,7 @@ Inductive step_config: (config * operator) → config → Prop :=
       project pl' = project_list_preprocess s' pl →
       Some s'' = determine_schema s' pl' →
         (* We then apply projection inside the environment. *)
-        apply_proj_in_relation s' r' pl' s'' Γ' β' p' (Some (r'', Γ'', β'', p'')) →
+        apply_proj_in_relation s' s'' r' pl' Γ' β' p' (Some (r'', Γ'', β'', p'')) →
         c'' = config_output (RelationWrapped _ r'') (⟨ db' Γ'' β'' p'' ⟩) →
         ⟦ c (operator_project pl o) ⟧ ⇓ ⟦ c'' ⟧
   (*
@@ -516,7 +669,7 @@ Inductive step_config: (config * operator) → config → Prop :=
       project pl' = project_list_preprocess s' pl →
       Some s'' = determine_schema s' pl' →
         (* We then apply projection inside the environment. *)
-        apply_proj_in_relation s' r' pl' s'' Γ β p None →
+        apply_proj_in_relation s' s'' r' pl' Γ β p None →
         ⟦ c (operator_project pl o) ⟧ ⇓ ⟦ config_error ⟧
   (*
      If the operator returns a valid environment, we can then apply projection. Then if the
@@ -925,7 +1078,6 @@ Proof.
         -- exists config_error. eapply E_UnionSchemaError with (s1 := s) (s2 := s0); try eauto.
       * (* There should be no rule for constructing nested output. *)
         inversion H1; subst; try discriminate.
-
 Admitted.
 
 End Facts.
