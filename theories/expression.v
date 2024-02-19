@@ -175,6 +175,15 @@ Fixpoint lex (e: expression) (env: list string): expression_lexed :=
   | expression_agg f e => expression_lexed_agg f (lex e env)
   end.
 
+(*
+  Since this function is called only after we have decided that p_cur ⪯ p_f which means that
+  the current policy is less or equal to the operation we are about to apply, we can safely
+  assume that the operation is allowed. So, this function's logic is simple as there are
+  only two possible cases:
+  - The current policy is less stricter, then the new policy is the current policy.
+  - The current policy can be declassified, then the new policy is the declassified policy.
+    In other words, ℓ ⇝ p ⪯ ∘ (op) ==> p_new = p.
+*)
 Definition get_new_policy cur op: Policy.policy :=
   match cur with
   | ∎ => cur
@@ -183,6 +192,23 @@ Definition get_new_policy cur op: Policy.policy :=
     | left _ => p
     | right _ => cur
     end
+  end.
+
+(*
+  This function merges two provenance information.
+
+  The first argument is the operation and p1 is the new provenance information to be applied 
+  to p2. If p2 is empty, then we just return p1. If p2 is a list, then we need to check if
+  the operation is the same as the operation of p2. If it is, then we just append p1 to p2.
+  Otherwise, we just return p2.
+*)
+Definition merge_prov op p1 p2 : prov :=
+  match p2 with
+  | ∅ => prov_list op (p1 :: nil)
+  | prov_list op' l =>
+    if prov_type_eqb op op'
+    then prov_list op (p1 :: l)
+    else p2
   end.
 
 Inductive eval_unary_expression_in_cell: ∀ bt,
@@ -201,7 +227,7 @@ Inductive eval_unary_expression_in_cell: ∀ bt,
       c = ⟨ db Γ β p ⟩ →
       label_lookup Γ id = Some p_cur →
       f = unary_function op bt' lambda →
-      bt = bt' →
+      bt = bt' → 
       let p_f := ∘ (Policy.policy_transform ((unary_trans_op op) :: nil)) in
         ¬ (p_cur ⪯ p_f) →
         eval_unary_expression_in_cell bt f (arg, id) (c, tr, lookup, proxy) None
@@ -235,6 +261,7 @@ Inductive eval_unary_expression_prim:
     (* We cannot cast it. *)
     try_cast bt bt' v' = None →
     eval_unary_expression_prim bt f env v None
+  (* If a value does not carry any id, then it is just a value without any policy. *)
   | EvalUnaryValue: ∀ f op env bt bt' v v' v'' lambda,
     v = (v', None) →
     f = unary_function op bt' lambda →
@@ -279,10 +306,68 @@ Inductive eval_binary_expression_list:
     → option (eval_env * e_value) → Prop :=
 .
 
-(* TODO *)
-Inductive eval_agg:
-  ∀ bt, agg_func → eval_env → list (type_to_coq_type bt * option nat) →
-    option (eval_env * e_value) → Prop :=
+(* bt1: the input type; bt2: the output type. *)
+Inductive do_eval_agg:
+  ∀ bt1 bt2, agg_func → Policy.context → prov_ctx → list (type_to_coq_type bt1 * option nat) →
+    option (Policy.policy * prov * (type_to_coq_type bt2)) → Prop :=
+  (* When the list being folded is empty, we shall return the initial value. *)
+  | EvalDoAggNil: ∀ f op bt1 bt2 f' init_val Γ p l,
+      l = nil →
+      f = aggregate_function op bt1 bt2 f' init_val →
+      do_eval_agg bt1 bt2 f Γ p l (Some (∎, ∅, init_val))
+  | EvalDoAggLabelNotFound: ∀ f op bt1 bt2 f' init_val Γ p l hd hd_v id tl,
+      l = hd :: tl →
+      f = aggregate_function op bt1 bt2 f' init_val →
+      hd = (hd_v, Some id) →
+      label_lookup Γ id = None ∨
+      label_lookup p id = None →
+      do_eval_agg bt1 bt2 f Γ p l None
+  | EvalDoAggPolicyError: ∀ f op bt1 bt2 f' init_val Γ p l hd hd_v id tl p_cur p_f,
+      l = hd :: tl →
+      f = aggregate_function op bt1 bt2 f' init_val →
+      hd = (hd_v, Some id) →
+      label_lookup Γ id = Some p_cur →
+      p_f = ∘ (Policy.policy_agg (op :: nil)) →
+      ¬ (p_cur ⪯ p_f) →
+      do_eval_agg bt1 bt2 f Γ p l None
+  | EvalDoAggPolicyConsError: ∀ bt1 bt2 f Γ p l hd tl,
+      l = hd :: tl →
+      do_eval_agg bt1 bt2 f Γ p tl None →
+      do_eval_agg bt1 bt2 f Γ p l None
+  | EvalDoAggOk: ∀ f op bt1 bt2 f' init_val Γ p l hd hd_v id tl tl_v p_cur p_f prov_cur p_tl p_final prov_tl,
+      l = hd :: tl →
+      f = aggregate_function op bt1 bt2 f' init_val →
+      hd = (hd_v, Some id) →
+      label_lookup Γ id = Some p_cur →
+      label_lookup p id = Some prov_cur →
+      p_f = ∘ (Policy.policy_agg (op :: nil)) →
+      p_cur ⪯ p_f →
+      do_eval_agg bt1 bt2 f Γ p tl (Some (p_tl, prov_tl, tl_v)) →
+      let p_new := get_new_policy p_cur (Policy.policy_agg (op :: nil)) in
+      let prov_new := merge_prov (prov_agg op) (id, prov_cur) prov_tl in
+      let res := f' tl_v hd_v in
+      p_new ∪ p_tl = p_final →
+      do_eval_agg bt1 bt2 f Γ p l (Some (p_final, prov_new, res))
+.
+
+(*
+  This is just a simple wrapper around `do_eval_agg` that does the policy job.
+*)
+Inductive eval_agg: ∀ bt, agg_func → eval_env → list (type_to_coq_type bt * option nat) →
+  option (eval_env * e_value) → Prop :=
+  | EvalAggErr: ∀ bt f env db Γ β p l res,
+      fst (fst (fst env)) = ⟨ db Γ β p ⟩ →
+      do_eval_agg bt bt f Γ p l None →
+      eval_agg bt f env l res
+  | EvalAggOk: ∀ bt f env c tr proxy lookup db Γ β p l v policy provenance,
+      env = (c, tr, lookup, proxy) →
+      c = ⟨ db Γ β p ⟩ →
+      do_eval_agg bt bt f Γ p l (Some (policy, provenance, v)) →
+      let new_id := next_available_id Γ 0 in
+      let Γ' := (new_id, policy) :: Γ in
+      let p' := (new_id, provenance) :: p in
+      let v' := (ValuePrimitive bt (v, Some new_id)) in
+        eval_agg bt f env l (Some ((⟨ db Γ' β p' ⟩, tr, lookup, proxy), v'))
 .
 
 (*
@@ -302,20 +387,20 @@ Inductive eval: nat → expression_lexed → bool → eval_env → option (eval_
   (* The evaluation hangs and we have to force termination. *)
   | EvalNoStep: ∀ e b env step, step = O → eval step e b env None
   (* Evaluating a variable value is simple: we just lookup it. *)
-  | EvalVar: ∀ step step' n e b env c tr lookup db Γ β p proxy,
+  | EvalVar: ∀ step step' n e b c tr lookup db Γ β p proxy,
       c = ⟨ db Γ β p ⟩ →
       step = S step' →
       e = expression_lexed_var n →
       eval step e b (c, tr, lookup, proxy)
-        (option_map (fun x => (env, x)) (List.nth_error lookup n))
+        (option_map (fun x => ((c, tr, lookup, proxy), x)) (List.nth_error lookup n))
   (* Evaluating a constant value is simple: we just return it. *)
-  | EvalConst: ∀ step step' b bt v e env c tr lookup db Γ β p proxy,
+  | EvalConst: ∀ step step' b bt v e c tr lookup db Γ β p proxy,
       c = ⟨ db Γ β p ⟩ →
       step = S step' →
       e = expression_lexed_const bt v →
-      eval step e b (c, tr, lookup, proxy) (Some (env, ValuePrimitive bt (v, None)))
+      eval step e b (c, tr, lookup, proxy) (Some ((c, tr, lookup, proxy), ValuePrimitive bt (v, None)))
   (* Extracts the value from the tuple if we are not inside an aggregation context. *)
-  | EvalColumnNotAgg: ∀ step step' b id n e env c s tr t lookup db Γ β p proxy,
+  | EvalColumnNotAgg: ∀ step step' b id n e c s tr t lookup db Γ β p proxy,
       c = ⟨ db Γ β p ⟩ →
       step = S step' →
       e = expression_lexed_column id →
@@ -328,7 +413,7 @@ Inductive eval: nat → expression_lexed → bool → eval_env → option (eval_
             (eq_sym (schema_to_no_name_length s) ♯
               (elem_find_index_bounded_zero _ _ _ _ find)) t) in
         eval step e b (c, tr, lookup, proxy)
-          (Some ((env, ValuePrimitive _ (fst (fst col), Some (snd (fst col))))))
+          (Some (((c, tr, lookup, proxy), ValuePrimitive _ (fst (fst col), Some (snd (fst col))))))
   | EvalColumnNotAggFail: ∀ step step' b id e c s tr t lookup proxy,
       step = S step' →
       e = expression_lexed_column id →
@@ -344,12 +429,22 @@ Inductive eval: nat → expression_lexed → bool → eval_env → option (eval_
       b = true →
       proxy = None →
       eval step e b (c, tr, lookup, proxy) None
-  (* | EvalColumnInAgg: ∀ step step' b id e c s1 s2 tr lookup proxy r gb_keys gb_indices,
+  | EvalColumnInAgg: ∀ step step' b id n e c s1 s2 tr lookup proxy r gb_keys gb_indices,
       step = S step' →
       e = expression_lexed_column id →
       b = true →
       proxy = Some (groupby_proxy s1 s2 r gb_keys gb_indices) →
-      None *)
+      ∀ (find: find_index (λ x y, Nat.eqb (snd x) y) s1 id 0 = Some n),
+        let col' := extract_column_as_list s1 r n (elem_find_index_bounded_zero _ _ _ _ find) in
+          let col := map (fun elem => (fst elem, Some (snd elem))) col' in
+            eval step e b (c, tr, lookup, proxy) (Some ((c, tr, lookup, proxy), ValuePrimitiveList _ col))
+  | EvalColumnInAggFail: ∀ step step' b id e c s1 s2 tr lookup proxy r gb_keys gb_indices,
+      step = S step' →
+      e = expression_lexed_column id →
+      b = true →
+      proxy = Some (groupby_proxy s1 s2 r gb_keys gb_indices) →
+      find_index (λ x y, Nat.eqb (snd x) y) s1 id 0 = None →
+      eval step e b (c, tr, lookup, proxy) None
   (* Evaluating a lambda expression is simple: we just return it. *)
   | EvalAbs: ∀ step step' b τ e' e env c tr lookup db Γ β p proxy,
       c = ⟨ db Γ β p ⟩ →

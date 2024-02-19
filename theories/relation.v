@@ -746,7 +746,7 @@ Inductive join_policy: list nat → list nat → list nat → Policy.context →
       com = hd3 :: tl3 →
       label_lookup Γ1 hd1 = Some p1 →
       label_lookup Γ2 hd2 = Some p2 →
-      p1 ∪ p2 pjoin →
+      p1 ∪ p2 = pjoin →
       join_policy tl1 tl2 tl3 Γ1 Γ2 (Some Γ) →
       join_policy l1 l2 com Γ1 Γ2 (Some ((hd3, pjoin) :: Γ))
 .

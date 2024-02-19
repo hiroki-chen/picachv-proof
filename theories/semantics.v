@@ -112,7 +112,7 @@ Fixpoint determine_bt_from_expr_helper (s: schema) (arg: expression_lexed) (env:
         match determine_bt_from_expr_helper s x env with
           | Some τ =>
             match op with
-            | aggregate_function _ _ τ _ => Some (expr_type_basic τ)
+            | aggregate_function _ _ τ _ _ => Some (expr_type_basic τ)
             end
           | _ => None
         end

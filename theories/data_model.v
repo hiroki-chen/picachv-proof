@@ -121,7 +121,18 @@ Definition can_declassify ℓ ℓop : Prop :=
   | _, _ => ℓ = ℓop
   end.
 
-Axiom can_declassify_dec : ∀ ℓ ℓop, {can_declassify ℓ ℓop} + {~ can_declassify ℓ ℓop}.
+Theorem can_declassify_dec: ∀ ℓ ℓop, {can_declassify ℓ ℓop} + {~ can_declassify ℓ ℓop}.
+Admitted.
+
+(* 
+Definition can_declassifyb ℓ ℓop: bool :=
+  match ℓ, ℓop with
+  | policy_bot, _ => true
+  | policy_transform s1, policy_transform s2 => set_subsetb s2 s1
+  | policy_agg s1, policy_agg s2 => set_subsetb s2 s1
+  | policy_top, _ => false
+  | _, _ => policy_label_eq_dec' ℓ ℓop
+  end. *)
 
 Fixpoint policy_as_list (p: policy): list policy_label :=
   match p with
@@ -1315,5 +1326,5 @@ Notation "x ⇝ y" := (Policy.policy_declass x y) (at level 10, no associativity
 Notation "'∎'" := (Policy.policy_clean) (at level 10, no associativity).
 Notation "'∘' p " := (p ⇝ ∎) (at level 10, no associativity).
 Notation "x '⪯' y" := (Policy.policy_ordering x y) (at level 10, no associativity).
-Notation "x '∪' y" := (Policy.policy_join x y) (at level 10, no associativity).
+Notation "x '∪' y '=' z" := (Policy.policy_join x y z) (at level 10, y at next level, z at next level, no associativity).
 Notation "x ≡ y" := (Policy.policy_eq x y) (at level 10, no associativity).

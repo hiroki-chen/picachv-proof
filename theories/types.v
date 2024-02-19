@@ -123,6 +123,71 @@ Proof.
   destruct t1, t2; try (right; discriminate); try (left; congruence).
 Qed.
 
+Definition log_op_eqb op1 op2: bool :=
+  match op1, op2 with
+  | And, And => true
+  | Or, Or => true
+  | _, _ => false
+  end.
+
+Definition com_op_eqb op1 op2: bool :=
+  match op1, op2 with
+  | Gt, Gt => true
+  | Lt, Lt => true
+  | Ge, Ge => true
+  | Le, Le => true
+  | Eq, Eq => true
+  | Neq, Neq => true
+  | _, _ => false
+  end.
+
+Definition bin_arith_op_eqb op1 op2: bool :=
+  match op1, op2 with
+  | Add, Add => true
+  | Sub, Sub => true
+  | Mul, Mul => true
+  | Div, Div => true
+  | Mod, Mod => true
+  | Concat, Concat => true
+  | _, _ => false
+  end.
+
+
+Definition un_op_eqb op1 op2: bool :=
+  match op1, op2 with
+  | Identity, Identity => true
+  | Redact n1, Redact n2 => n1 =? n2
+  | Ascii, Ascii => true
+  | Strlen, Strlen => true
+  | Lower, Lower => true
+  | Upper, Upper => true
+  | Not, Not => true
+  | _, _ => false
+  end.
+
+Definition bin_op_eqb op1 op2: bool :=
+  match op1, op2 with
+  | Logical l1, Logical l2 => log_op_eqb l1 l2
+  | Comparison c1, Comparison c2 => com_op_eqb c1 c2
+  | Arithmetic a1, Arithmetic a2 => bin_arith_op_eqb a1 a2
+  | _, _ => false
+  end.
+
+Definition agg_op_eqb op1 op2: bool :=
+  match op1, op2 with
+  | Max, Max => true
+  | Min, Min => true
+  | Sum, Sum => true
+  | Avg, Avg => true
+  | Count, Count => true
+  | _, _ => false
+  end.
+
+Definition noise_op_eqb op1 op2: bool :=
+  match op1, op2 with
+  | differential_privacy (ε1, δ1), differential_privacy (ε2, δ2) => (ε1 =? ε2) && (δ1 =? δ2)
+  end.
+
 Definition type_matches (lhs rhs: basic_type): bool :=
   match lhs, rhs with
   | IntegerType, IntegerType => true
@@ -130,14 +195,6 @@ Definition type_matches (lhs rhs: basic_type): bool :=
   | StringType, StringType => true
   | _, _ => false
   end.
-
-Lemma type_matches_eq: ∀ t1 t2, type_matches t1 t2 = true ↔ t1 = t2.
-Proof.
-  intros.
-  split.
-  - destruct t1, t2; simpl; intros; try discriminate; auto.
-  - intros. subst. destruct t2; auto.
-Qed.
 
 Definition type_to_coq_type (t: basic_type): Set :=
   match t with
@@ -249,8 +306,17 @@ Inductive binary_func :=
 
 Inductive agg_func :=
   (* AggOp is the "sort" signature of the function because function itself is opaque. *)
+  (*
+    agg := op × (τ2 → τ1 → τ2) → τ2
+                 ^^^^^^^^^^^^    ^^
+                   folder      initial value
+    where
+      τ1 is the type of the input column.
+      τ2 is the type of the output value.
+  *)
   | aggregate_function: AggOp → ∀ ty1 ty2,
-      (type_to_coq_type ty1 → type_to_coq_type ty2 → type_to_coq_type ty1) → agg_func
+      (type_to_coq_type ty2 → type_to_coq_type ty1 → type_to_coq_type ty2)
+        → type_to_coq_type ty2 → agg_func
 .
 
 (*
@@ -272,6 +338,8 @@ Fixpoint schema_to_no_name (s: schema): schema_no_name :=
 Notation "'♭' s" := (schema_to_no_name s) (at level 60).
 
 (* Converts a list of numbers into a list of strings. *)
+
+Section Facts.
 
 Lemma schema_to_no_name_length: ∀ s,
   List.length (♭ s) = List.length s.
@@ -310,3 +378,65 @@ Proof.
   intros.
   destruct op1, op2; try (right; discriminate); try (left; congruence).
 Qed.
+
+Lemma un_op_eq_eqb: ∀ op1 op2, un_op_eqb op1 op2 = true ↔ op1 = op2.
+Proof.
+  intros.
+  destruct op1, op2; simpl; split; intros; try discriminate; auto.
+  - f_equal. apply Nat.eqb_eq in H. auto.
+  - inversion H. apply Nat.eqb_refl.
+Qed.
+
+Lemma log_op_eq_eqb: ∀ op1 op2, log_op_eqb op1 op2 = true ↔ op1 = op2.
+Proof.
+  intros.
+  destruct op1, op2; simpl; split; intros; try discriminate; auto.
+Qed.
+
+Lemma com_op_eq_eqb: ∀ op1 op2, com_op_eqb op1 op2 = true ↔ op1 = op2.
+Proof.
+  intros.
+  destruct op1, op2; simpl; split; intros; try discriminate; auto.
+Qed.
+
+Lemma bin_arith_op_eq_eqb: ∀ op1 op2, bin_arith_op_eqb op1 op2 = true ↔ op1 = op2.
+Proof.
+  intros.
+  destruct op1, op2; simpl; split; intros; try discriminate; auto.
+Qed.
+
+Lemma bin_op_eq_eqb: ∀ op1 op2, bin_op_eqb op1 op2 = true ↔ op1 = op2.
+Proof.
+  intros.
+  destruct op1, op2; simpl; split; intros; try discriminate; auto.
+  - f_equal. apply log_op_eq_eqb. auto.
+  - apply log_op_eq_eqb. inversion H. auto.
+  - f_equal. apply com_op_eq_eqb. auto.
+  - apply com_op_eq_eqb. inversion H. auto.
+  - f_equal. apply bin_arith_op_eq_eqb. auto.
+  - apply bin_arith_op_eq_eqb. inversion H. auto.
+Qed.
+
+Lemma agg_op_eq_eqb: ∀ op1 op2, agg_op_eqb op1 op2 = true ↔ op1 = op2.
+Proof.
+  intros.
+  destruct op1, op2; simpl; split; intros; try discriminate; auto.
+Qed.
+
+Lemma noise_op_eq_eqb: ∀ op1 op2, noise_op_eqb op1 op2 = true ↔ op1 = op2.
+Proof.
+  intros.
+  destruct op1, op2; simpl; split; intros; try discriminate; auto; destruct d; destruct d0.
+  - apply andb_true_iff in H. destruct H. apply Nat.eqb_eq in H. apply Nat.eqb_eq in H0. auto. subst. auto.
+  - apply andb_true_iff. split; apply Nat.eqb_eq; inversion H; auto.
+Qed.
+
+Lemma type_matches_eq: ∀ t1 t2, type_matches t1 t2 = true ↔ t1 = t2.
+Proof.
+  intros.
+  split.
+  - destruct t1, t2; simpl; intros; try discriminate; auto.
+  - intros. subst. destruct t2; auto.
+Qed.
+
+End Facts.
