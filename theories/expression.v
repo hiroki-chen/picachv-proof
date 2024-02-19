@@ -223,30 +223,66 @@ Inductive eval_unary_expression_in_cell: ∀ bt,
 
 (*
   This function evaluates a unary expression with a given function and returns a value.
+
+  Notice that this works on a single value, not a list of values.
 *)
-Inductive eval_unary_expression: unary_func → eval_env → e_value → option (eval_env * e_value) → Prop :=
-  (* We only allow the argument to a unary function to be either a relation and a constant. *)
-  | EvalUnaryNonEvaluable: ∀ τ f env v body f_e,
-    v = ValueFunc τ body f_e  →
-    eval_unary_expression f env v None
+Inductive eval_unary_expression_prim:
+  ∀ bt, unary_func → eval_env → (type_to_coq_type bt * option nat) →
+    option (eval_env * e_value) → Prop :=
   | EvalUnaryValueTypeMismatch: ∀ f op env bt bt' v v' id lambda,
-    v = ValuePrimitive bt (v', id) →
+    v = (v', id) →
     f = unary_function op bt' lambda →
     (* We cannot cast it. *)
     try_cast bt bt' v' = None →
-    eval_unary_expression f env v None
+    eval_unary_expression_prim bt f env v None
   | EvalUnaryValue: ∀ f op env bt bt' v v' v'' lambda,
-    v = ValuePrimitive bt (v', None) →
+    v = (v', None) →
     f = unary_function op bt' lambda →
     try_cast bt bt' v' = Some v'' →
-    eval_unary_expression f env v (Some (env, ValuePrimitive bt' (lambda v'', None)))
+    eval_unary_expression_prim bt f env v (Some (env, ValuePrimitive bt' (lambda v'', None)))
   | EvalUnaryValueWithId: ∀ f env bt v v' id res,
-    v = ValuePrimitive bt (v', Some id) →
+    v = (v', Some id) →
     eval_unary_expression_in_cell bt f (v', id) env res →
-    eval_unary_expression f env v res
+    eval_unary_expression_prim bt f env v res
 .
 
-Inductive eval_binary_expression: binary_func → eval_env → e_value → e_value → option (eval_env * e_value) → Prop :=
+Inductive eval_unary_expression_list:
+  ∀ bt, unary_func → eval_env → list (type_to_coq_type bt * option nat) →
+    option (eval_env * e_value) → Prop :=
+  | EvalUnaryListNil: ∀ bt f env l,
+    l = nil →
+    eval_unary_expression_list bt f env l (Some (env, ValuePrimitiveList bt nil))
+  | EvalUnaryListHeadError: ∀ bt f env l hd tl,
+    l = hd :: tl →
+    eval_unary_expression_prim bt f env hd None →
+    eval_unary_expression_list bt f env l None
+  | EvalUnaryListTailError: ∀ bt f env l hd tl,
+    l = hd :: tl →
+    eval_unary_expression_list bt f env tl None →
+    eval_unary_expression_list bt f env l None
+  | EvalUnaryListOk: ∀ bt f env env' env'' l hd tl hd' tl',
+    l = hd :: tl →
+    eval_unary_expression_prim bt f env hd (Some (env', ValuePrimitive bt hd')) →
+    eval_unary_expression_list bt f env' tl (Some (env'', ValuePrimitiveList bt tl')) →
+    eval_unary_expression_list bt f env l (Some (env'', ValuePrimitiveList bt (hd' :: tl')))
+.
+
+(* TODO *)
+Inductive eval_binary_expression_prim:
+  ∀ bt1 bt2, binary_func → eval_env → (type_to_coq_type bt1 * option nat) → (type_to_coq_type bt2 * option nat) →
+  option (eval_env * e_value) → Prop :=
+.
+
+(* TODO *)
+Inductive eval_binary_expression_list:
+  ∀ bt1 bt2, binary_func → eval_env → list (type_to_coq_type bt1 * option nat) → list (type_to_coq_type bt2 * option nat)
+    → option (eval_env * e_value) → Prop :=
+.
+
+(* TODO *)
+Inductive eval_agg:
+  ∀ bt, agg_func → eval_env → list (type_to_coq_type bt * option nat) →
+    option (eval_env * e_value) → Prop :=
 .
 
 (*
@@ -340,17 +376,65 @@ Inductive eval: nat → expression_lexed → bool → eval_env → option (eval_
       eval step' e2 b (c, tr, lookup, proxy) res2 →
       res1 = None ∨ res2 = None →
       eval step e b (c, tr, lookup, proxy) None
-  | EvalUnary: ∀ step step' b e f e' env v res c tr lookup db Γ β p proxy,
+  | EvalUnary: ∀ step step' bt b e f e' env v v' res c tr lookup db Γ β p proxy,
       c = ⟨ db Γ β p ⟩ →
       step = S step' →
       e = expression_lexed_unary f e' →
+      b = false →
       eval step' e' b (c, tr, lookup, proxy) (Some (env, v)) →
-      eval_unary_expression f env v res →
+      v = ValuePrimitive bt v' →
+      eval_unary_expression_prim bt f env v' res →
       eval step e b (c, tr, lookup, proxy) res
+  | EvalUnaryInAgg: ∀ step step' bt b e f e' env v v' res c tr lookup db Γ β p proxy,
+      c = ⟨ db Γ β p ⟩ →
+      step = S step' →
+      e = expression_lexed_unary f e' →
+      b = true →
+      eval step' e' b (c, tr, lookup, proxy) (Some (env, v)) →
+      v = ValuePrimitiveList bt v' →
+      eval_unary_expression_list bt f env v' res →
+      eval step e b (c, tr, lookup, proxy) res
+  (*
+    There are still many other cases for us to deal with:
+
+    - Type coercion.
+    - Scalar value + vector value -> This means we need to propagate to lists.
+   *)
+  | EvalBinary: ∀ step step' bt1 bt2 b e f e1 e2 env v1 v1' v2 v2' res c tr lookup db Γ β p proxy,
+      c = ⟨ db Γ β p ⟩ →
+      step = S step' →
+      e = expression_lexed_binary f e1 e2 →
+      b = false →
+      eval step' e1 b (c, tr, lookup, proxy) (Some (env, v1)) →
+      eval step' e2 b (c, tr, lookup, proxy) (Some (env, v2)) →
+      v1 = ValuePrimitive bt1 v1' →
+      v2 = ValuePrimitive bt2 v2' →
+      eval_binary_expression_prim bt1 bt2 f env v1' v2' res →
+      eval step e b (c, tr, lookup, proxy) res
+  | EvalBinaryInAgg: ∀ step step' bt1 bt2 b e f e1 e2 env v1 v1' v2 v2' res c tr lookup db Γ β p proxy,
+      c = ⟨ db Γ β p ⟩ →
+      step = S step' →
+      e = expression_lexed_binary f e1 e2 →
+      b = true →
+      eval step' e1 b (c, tr, lookup, proxy) (Some (env, v1)) →
+      eval step' e2 b (c, tr, lookup, proxy) (Some (env, v2)) →
+      v1 = ValuePrimitiveList bt1 v1' →
+      v2 = ValuePrimitiveList bt2 v2' →
+      eval_binary_expression_list bt1 bt2 f env v1' v2' res →
+      eval step e b (c, tr, lookup, proxy) res
+  (* Nested aggregation makes no sense. *)
+  | EvalNestedAgg: ∀ step step' b e agg body c tr lookup db Γ β p proxy s r s_key gb_keys gb_indices,
+      c = ⟨ db Γ β p ⟩ →
+      step = S step' →
+      proxy = Some (groupby_proxy s s_key r gb_keys gb_indices) →
+      e = expression_lexed_agg agg body →
+      b = true →
+      eval step e b (c, tr, lookup, proxy) None
   | EvalAggProxyMissing: ∀ step step' b e agg body c tr lookup db Γ β p proxy,
       c = ⟨ db Γ β p ⟩ →
       step = S step' →
       proxy = None →
+      b = false →
       e = expression_lexed_agg agg body →
       eval step e b (c, tr, lookup, proxy) None
   | EvalAggError: ∀ step step' b e agg body c tr lookup db Γ β p proxy s r s_key gb_keys gb_indices,
@@ -358,6 +442,7 @@ Inductive eval: nat → expression_lexed → bool → eval_env → option (eval_
       step = S step' →
       proxy = Some (groupby_proxy s s_key r gb_keys gb_indices) →
       e = expression_lexed_agg agg body →
+      b = false →
       eval step' body b (c, tr, lookup, proxy) None →
       eval step e b (c, tr, lookup, proxy) None
   | EvalAggArgError: ∀ step step' b e agg body c tr lookup db Γ β p proxy s r s_key gb_keys gb_indices v bt l,
@@ -365,9 +450,20 @@ Inductive eval: nat → expression_lexed → bool → eval_env → option (eval_
       step = S step' →
       proxy = Some (groupby_proxy s s_key r gb_keys gb_indices) →
       e = expression_lexed_agg agg body →
+      b = false →
       eval step' body b (c, tr, lookup, proxy) (Some v) →
       snd v ≠ ValuePrimitiveList bt l →
       eval step e b (c, tr, lookup, proxy) None
+  | EvalAgg: ∀ step step' b e agg body c tr lookup db Γ β p proxy s r s_key gb_keys gb_indices v bt l res,
+      c = ⟨ db Γ β p ⟩ →
+      step = S step' →
+      proxy = Some (groupby_proxy s s_key r gb_keys gb_indices) →
+      e = expression_lexed_agg agg body →
+      b = false →
+      eval step' body b (c, tr, lookup, proxy) (Some v) →
+      snd v = ValuePrimitiveList bt l →
+      eval_agg bt agg (c, tr, lookup, proxy) l res →
+      eval step e b (c, tr, lookup, proxy) res
 .
 
 Inductive eval_expr:

@@ -450,18 +450,22 @@ Inductive apply_fold_on_groups_once: ∀ bt, Policy.context → budget → prov_
       apply_fold_on_groups_once bt Γ β p gb e (Some (nil, Γ, β, p))
   | E_ApplyFoldOnGroupsHdError: ∀ bt db Γ β p tp gb hd tl e,
       gb = hd :: tl →
-      eval_expr true (⟨ db Γ β p ⟩) tp (Some hd) e None →
+      (*
+        We have to set `in_agg` to false here to avoid confusion; this bit is set only when we are
+        evaluating the argument of a fold operation.
+       *)
+      eval_expr false (⟨ db Γ β p ⟩) tp (Some hd) e None →
       apply_fold_on_groups_once bt Γ β p gb e None
   | E_AplpyFoldOnGroupConsError: ∀ bt db db' Γ Γ' β β' p p' tp gb hd tl e env res,
       gb = hd :: tl →
-      eval_expr true (⟨ db Γ β p ⟩) tp (Some hd) e (Some (env, res)) →
+      eval_expr false (⟨ db Γ β p ⟩) tp (Some hd) e (Some (env, res)) →
       fst (fst (fst env)) = (⟨ db' Γ' β' p' ⟩) →
       apply_fold_on_groups_once bt Γ' β' p' tl e None →
       apply_fold_on_groups_once bt Γ β p gb e None
   | E_ApplyFoldOnGroupsOk: ∀ bt db db' Γ Γ' Γ'' β β' β'' p p' p'' tp gb hd tl e env v res id res',
       gb = hd :: tl →
       (* Evalautes the expression. *)
-      eval_expr true (⟨ db Γ β p ⟩) tp (Some hd) e (Some (env, v)) →
+      eval_expr false (⟨ db Γ β p ⟩) tp (Some hd) e (Some (env, v)) →
       fst (fst (fst env)) = (⟨ db' Γ' β' p' ⟩) →
       v = ValuePrimitive bt (res, id) →
       apply_fold_on_groups_once bt Γ' β' p' tl e (Some (res', Γ'', β'', p'')) →
@@ -582,7 +586,7 @@ Inductive eval_aggregate:
         eval_aggregate s s_agg gb bounded agg f Γ β p r None
 .
 
-(* 
+(*
   `step_config` is an inductive type representing the transition rules for configurations. 
   It defines how a configuration changes from one state to another by the query.
 

@@ -139,9 +139,17 @@ refine (
   exact (cons cur rest). 
 Defined.
 
-Fixpoint extract_columns s (r: relation s) (l: list nat):
-  ∀ (bounded: bounded_list s l), relation (ntypes s l bounded).
-Admitted.
+(* Extracts a single column as a list. *)
+Definition extract_column_as_list s (r: relation s) (n: nat):
+  ∀ (ok: n < List.length s), list (type_to_coq_type (fst (nth s n ok)) * nat).
+  intros.
+  pose (extract_column s r n ok) as col.
+  induction col.
+  - exact nil.
+  - destruct (nth s n ok). simpl in a.
+    apply fst in a.
+    exact (a :: IHcol).
+Defined.
 
 (*
   [cartesian_product_helper] is a recursive function that takes two schemas [s1] and [s2], a tuple [t] of type [Tuple.tuple (♭ s1)], and a relation [r] of type [relation s2]. It returns a relation of type [relation (s1 ++ s2)].
@@ -191,6 +199,17 @@ Definition relation_product s1 s2 (r1: relation s1) (r2: relation s2) : relation
   - induction r1.
     + exact nil.
     + exact (cartesian_product_helper _ _ a1 r2 ++ IHr1).
+Defined.
+
+Fixpoint extract_columns s (r: relation s) (l: list nat):
+  ∀ (bounded: bounded_list s l), relation (ntypes s l bounded).
+  destruct l; intros.
+  - exact nil.
+  - simpl in bounded. destruct bounded.
+    pose (extract_column s r n l0) as cur.
+    pose (extract_columns s r l b) as rest.
+    simpl.
+    exact (relation_product _ _ cur rest).
 Defined.
 
 (*
