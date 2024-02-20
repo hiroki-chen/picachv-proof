@@ -21,7 +21,7 @@ Require Import util.
 (* A typing environment `Γ ⊢ ...` for evalauting the schema. *)
 Definition ty_env := (list expr_type)%type.
 
-Inductive project_list: Set :=
+Inductive project_list: Type :=
   (* Denotes a projection list that projects on *all*. *)
   | project_star: project_list
   (* Denotes a project list consisting of expressions, i.e., lambda terms; and new ids. *)
@@ -96,7 +96,7 @@ Fixpoint determine_bt_from_expr_helper (s: schema) (arg: expression) (env: ty_en
             end
           | _ => None
         end
-    | ExprAgg op x =>
+    | ExprAgg op x | ExprAggNoise op _ x =>
         match determine_bt_from_expr_helper s x env with
           | Some τ =>
             match op with
@@ -251,13 +251,20 @@ Definition get_group_proxy s (r: relation s) (gb_keys: groupby_list) (bounded: b
 Defined.
 
 Inductive operator: Type :=
+  (* ∅  *)
   | operator_empty: operator
   (* `nat` means the index of the relation it wants to access the n-th dataset inside `db`. *)
+  (* R *)
   | OperatorRel: nat → operator
+  (* e_1 ∪ e_2 *)
   | OperatorUnion: operator → operator → operator
+  (* e_1 ⋈ e_2 *)
   | OperatorJoin: operator → operator → operator
+  (* Πₐ(e) *)
   | OperatorProject: project_list → operator → operator
+  (* σₗ(e) *)
   | OperatorSelect: expression → operator → operator
+  (* γ(e) *)
   | OperatorGroupByHaving: groupby_list → agg_list → expression → operator → operator
 .
 
@@ -285,7 +292,6 @@ Definition get_new_policy cur op: Policy.policy :=
     | right _ => cur
     end
   end.
-
 
 (*
   Apply *one* expression on the relation.
@@ -356,18 +362,16 @@ Inductive apply_proj_in_relation (s s': schema) (r: relation s) (ℓ: list (expr
   | E_ApplyElemOk: ∀ s_hd s_tl Γ Γ' Γ'' β β' β'' p p' p'' hd hd' tl tl'
                 (proj_case: ℓ = hd :: tl),
       r ≠ nil →
-      s' = s_hd :: s_tl →
-      eval_expr_in_relation s r (fst s_hd, snd hd) Γ β p (fst hd) (Some (hd', Γ', β', p')) →
-      apply_proj_in_relation s s_tl r tl Γ' β' p' (Some (tl', Γ'', β'', p'')) →
-      (*
-        Goal:
-        (((fst s_hd, snd hd) :: nil) ++ s_tl) = relation s'
-      *)
-      let col := (relation_product _ _ hd' tl') in
-        (* let col_proxy := ((determine_schema_concat s hd tl) ♯ col_tmp) in
-          col = ((eq_sym proj_case) ♯ col_proxy) → *)
-          (* TODO: Prove type equality to pass the type checker for `col`. *)
-          apply_proj_in_relation s s' r ℓ Γ β p (Some (nil, Γ'', β'', p''))
+      ∀ (s_case: s' = s_hd :: s_tl),
+        eval_expr_in_relation s r (fst s_hd, snd hd) Γ β p (fst hd) (Some (hd', Γ', β', p')) →
+        apply_proj_in_relation s s_tl r tl Γ' β' p' (Some (tl', Γ'', β'', p'')) →
+        (*
+          Goal:
+          (((fst s_hd, snd hd) :: nil) ++ s_tl) = s'
+        *)
+        let col := (relation_product _ _ hd' tl') in
+        let res := ((Tuple.schema_flat_2nd_arg_irrelevant_tuple s' _ _ _ s_case) ♯ col) in
+          apply_proj_in_relation s s' r ℓ Γ β p (Some (res, Γ'', β'', p''))
 .
 
 (*
@@ -980,7 +984,7 @@ Proof.
       * assumption.
   - inversion H0; inversion H; subst; intuition; auto; subst; try discriminate.
 Admitted.
- 
+
 (* This theorem ensures the "sanity" of the semantics to ensure that operators won't get stuck.
   For Hongbo: also can you finish the remaining part?
  *)

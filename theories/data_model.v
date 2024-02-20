@@ -1304,6 +1304,14 @@ Proof.
   reflexivity.
 Qed.
 
+Lemma schema_flat_2nd_arg_irrelevant_tuple: ∀ s hd snd_hd tl,
+  s = hd :: tl → tuple (♭ (((fst hd, snd_hd) :: nil) ++ tl)) = tuple(♭ s).
+Proof.
+  intros. subst.
+  simpl. destruct hd.
+  simpl. reflexivity.
+Qed.
+
 End Tuple.
 
 Ltac str_eq:= auto; simpl in *; unfold char_eq in *; unfold char_lt in *; lia.

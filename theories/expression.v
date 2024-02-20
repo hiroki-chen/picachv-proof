@@ -46,6 +46,8 @@ Inductive expression: Type :=
   | ExprBinary: binary_func → expression → expression → expression
   (* fold *)
   | ExprAgg: agg_func → expression → expression
+  (* fold with noise *)
+  | ExprAggNoise: agg_func → noise_gen → expression → expression
 .
 
 Inductive e_value: Type :=
@@ -304,6 +306,8 @@ Inductive eval_agg: ∀ bt, agg_func → eval_env → list (type_to_coq_type bt 
       let v' := (ValuePrimitive bt (v, Some new_id)) in
         eval_agg bt f env l (Some ((⟨ db Γ' β p' ⟩, tr, proxy), v'))
 .
+
+(* TODO: Also add an inductive proposition for noised aggregation. *)
 
 (*
   Eval : (ℕ × Expr × 𝔹 × Γ) × Maybe (Γ' × Val) 
