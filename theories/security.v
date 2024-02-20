@@ -109,7 +109,7 @@ Proof.
     + left. eapply E_GetRelationDbEmpty; subst; eauto.
     + destruct (database_get_contexts db n) as [ [ [ r' Γ' ] p' ] | ] eqn: Hget.
       * destruct r'. right. exists s0, (⟨ db Γ' β p' ⟩), db, Γ', β, p', r. split.
-        -- eapply E_GetRelation with (db := db) (o := operator_relation n).
+        -- eapply E_GetRelation with (db := db) (o := OperatorRel n).
           ++ red. intros. rewrite Hdb in H1. inversion H1.
           ++ reflexivity.
           ++ rewrite <- Hdb in H. eapply H.

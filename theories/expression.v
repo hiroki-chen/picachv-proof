@@ -23,71 +23,32 @@ Proof.
 Qed.
 
 Inductive expr_type: Type :=
-  | expr_type_basic: basic_type → expr_type
-  | expr_type_func: expr_type → expr_type → expr_type
+  | ExprTypeBasic: basic_type → expr_type
+  | ExprTypeFunc: expr_type → expr_type → expr_type
 .
 
 Fixpoint expr_type_eqb (τ1 τ2: expr_type): bool :=
   match τ1, τ2 with
-    | expr_type_basic bt1, expr_type_basic bt2 => type_matches bt1 bt2
-    | expr_type_func τ1a τ1b, expr_type_func τ2a τ2b =>
+    | ExprTypeBasic bt1, ExprTypeBasic bt2 => type_matches bt1 bt2
+    | ExprTypeFunc τ1a τ1b, ExprTypeFunc τ2a τ2b =>
       andb (expr_type_eqb τ1a τ2a) (expr_type_eqb τ1b τ2b)
     | _, _ => false
   end.
 
-(* There is no `let xxx in yyy` because it is unnecessary. *)
 Inductive expression: Type :=
-  (* x *)
-  | expression_var: string → expression
   (* v *)
-  | expression_const: ∀ bt, type_to_coq_type bt → expression
+  | ExprConst: ∀ bt, type_to_coq_type bt → expression
   (* a *)
-  | expression_column: ∀ (n: nat), expression
-  (* λ (x: τ). e *)
-  | expression_abs: string → expr_type → expression → expression
-  (* e1 e2 *)
-  | expression_app: expression → expression → expression
+  | ExprCol: ∀ (n: nat), expression
   (* ∘ e *)
-  | expression_unary: unary_func → expression → expression
+  | ExprUnary: unary_func → expression → expression
   (* e1 ⊗ e2 *)
-  | expression_binary: binary_func → expression → expression → expression
+  | ExprBinary: binary_func → expression → expression → expression
   (* fold *)
-  | expression_agg: agg_func → expression → expression
-.
-
-(*
-  The following is the lexed version of the expression.
-  The reason why we need this is because we need to parse the expression from a string.
-
-  A lexed lambda calculus expression is a lambda calculus expression with all the variables
-  replaced by their indices in the original string. For example, the expression `λ x. x` will
-  be lexed to `λ 0`. This is de Bruijn index.
-
-  One reason for this is that we can eliminate the need for alpha conversion and substitution
-  by using de Bruijn indices. So that looking up a variable is just a matter of looking up the
-  index in the environment.
-*)
-Inductive expression_lexed: Type :=
-  (* x *)
-  | expression_lexed_var: nat → expression_lexed
-  (* v *)
-  | expression_lexed_const: ∀ bt, type_to_coq_type bt → expression_lexed
-  (* a *)
-  | expression_lexed_column: ∀ (n: nat), expression_lexed
-  (* λ x. e *)
-  | expression_lexed_abs: expr_type → expression_lexed → expression_lexed
-  (* e1 e2 *)
-  | expression_lexed_app: expression_lexed → expression_lexed → expression_lexed
-  (* ∘ e *)
-  | expression_lexed_unary: unary_func → expression_lexed → expression_lexed
-  (* e1 ⊗ e2 *)
-  | expression_lexed_binary: binary_func → expression_lexed → expression_lexed → expression_lexed
-  (* fold *)
-  | expression_lexed_agg: agg_func → expression_lexed → expression_lexed
+  | ExprAgg: agg_func → expression → expression
 .
 
 Inductive e_value: Type :=
-  | ValueFunc: expr_type → expression_lexed → list e_value → e_value
   (*
     A value can be associated with a unique identifier for looking up in the context;
     if it is not associated with an identifier, the identifier is `None` which means
@@ -98,17 +59,6 @@ Inductive e_value: Type :=
   | ValuePrimitiveList: ∀ bt, list (type_to_coq_type bt * option nat) → e_value
 .
 
-(* TODO: How to evaluate expressions like (sum (a + b)) where a and b are columns? *)
-(*
-  My idea is:
-
-  - First we will know that the groupby information.
-  - Upon invoking `sum` we need to walk `a + b` but at this timepoint we have set
-    `in_agg` to be true.
-  - We will then evaluate `a + b` on the groupby proxy.
-  - Thus `a + b` returns a list of values rather than a single value.
-
-*)
 
 (* `groupby` list is just a list of indices of the original data frame that should be chosen as keys. *)
 Definition groupby_list := (list nat)%type.
@@ -118,7 +68,7 @@ Definition agg_list := (list (expression * nat))%type.
 Definition group := (list nat)%type.
 
 (*
-  A groupby_proxy can be visualized as a pair:
+  A GroupbyProxy can be visualized as a pair:
   
   +-----------------+-----------------+
   |   groupby keys  |   data          |
@@ -139,40 +89,25 @@ Definition group := (list nat)%type.
   a dependent type would introduce undue complexity.
 *)
 Inductive groupby :=
-  | groupby_proxy: ∀ s1 s2, relation s1 → Tuple.tuple s2 → group → groupby
+  | GroupbyProxy: ∀ s1 s2, relation s1 → Tuple.tuple s2 → group → groupby
 .
 
 Inductive tuple_wrapped: Type :=
   | TupleWrapped: ∀ s, Tuple.tuple (♭ s) → tuple_wrapped
 .
 
-Definition symbol_lookup_table := (list e_value)%type.
-
 (*
   The evaluation environment for the lambda calculus is a list of:
   - The current configuration.
   - The current active tuple (for non-aggregate expressions).
-  - The symbol lookup table.
   - The current groupby proxy (optional).
 *)
-Definition eval_env := (config * tuple_wrapped * symbol_lookup_table * option groupby)%type.
+Definition eval_env := (config * tuple_wrapped * option groupby)%type.
 
 Fixpoint index (x: string) (env: list string): nat :=
   match env with
     | h :: t => if string_dec h x then 0 else 1 + index x t
     | _ => 0
-  end.
-
-Fixpoint lex (e: expression) (env: list string): expression_lexed :=
-  match e with
-  | expression_var x => expression_lexed_var (index x env)
-  | expression_const bt v => expression_lexed_const bt v
-  | expression_column n => expression_lexed_column n
-  | expression_abs x τ e => expression_lexed_abs τ (lex e (x :: env))
-  | expression_app e1 e2 => expression_lexed_app (lex e1 env) (lex e2 env)
-  | expression_unary f e => expression_lexed_unary f (lex e env)
-  | expression_binary f e1 e2 => expression_lexed_binary f (lex e1 env) (lex e2 env)
-  | expression_agg f e => expression_lexed_agg f (lex e env)
   end.
 
 (*
@@ -214,24 +149,24 @@ Definition merge_prov op p1 p2 : prov :=
 Inductive eval_unary_expression_in_cell: ∀ bt,
   unary_func → (type_to_coq_type bt * nat) → eval_env →
     option (eval_env * e_value) → Prop :=
-  | E_UnaryLabelNotFound: ∀ bt f (arg: type_to_coq_type bt) id c tr lookup proxy db Γ β p,
+  | E_UnaryLabelNotFound: ∀ bt f (arg: type_to_coq_type bt) id c tr proxy db Γ β p,
       c = ⟨ db Γ β p ⟩ →
       label_lookup Γ id = None ∨
       label_lookup p id = None →
-      eval_unary_expression_in_cell bt f (arg, id) (c, tr, lookup, proxy) None
-  | E_UnaryTypeError: ∀ bt bt' f op lambda (arg: type_to_coq_type bt) id c tr lookup proxy,
+      eval_unary_expression_in_cell bt f (arg, id) (c, tr, proxy) None
+  | E_UnaryTypeError: ∀ bt bt' f op lambda (arg: type_to_coq_type bt) id c tr proxy,
       f = unary_function op bt' lambda →
       bt ≠ bt' →
-      eval_unary_expression_in_cell bt f (arg, id) (c, tr, lookup, proxy) None
-  | E_UnaryPolicyError: ∀ bt bt' f op lambda (arg: type_to_coq_type bt) id db c tr lookup proxy Γ β p p_cur,
+      eval_unary_expression_in_cell bt f (arg, id) (c, tr, proxy) None
+  | E_UnaryPolicyError: ∀ bt bt' f op lambda (arg: type_to_coq_type bt) id db c tr proxy Γ β p p_cur,
       c = ⟨ db Γ β p ⟩ →
       label_lookup Γ id = Some p_cur →
       f = unary_function op bt' lambda →
       bt = bt' → 
       let p_f := ∘ (Policy.policy_transform ((unary_trans_op op) :: nil)) in
         ¬ (p_cur ⪯ p_f) →
-        eval_unary_expression_in_cell bt f (arg, id) (c, tr, lookup, proxy) None
-  | E_UnaryPolicyOk: ∀ bt bt' f op lambda (arg: type_to_coq_type bt) id c tr lookup proxy
+        eval_unary_expression_in_cell bt f (arg, id) (c, tr, proxy) None
+  | E_UnaryPolicyOk: ∀ bt bt' f op lambda (arg: type_to_coq_type bt) id c tr proxy
                        db Γ Γ' β β' p p' p_cur prov_cur,
       c = ⟨ db Γ β p ⟩ →
       label_lookup Γ id = Some p_cur →
@@ -243,8 +178,8 @@ Inductive eval_unary_expression_in_cell: ∀ bt,
             let prov_new := prov_list (prov_trans_unary op) ((id, prov_cur) :: nil) in
               Γ' = update_label Γ id p_new →
               p' = update_label p id prov_new →
-              eval_unary_expression_in_cell bt f (arg, id) (c, tr, lookup, proxy)
-                (Some ((⟨ db Γ' β' p' ⟩, tr, lookup, proxy), ValuePrimitive bt' (lambda (eq ♯ arg), Some id)))
+              eval_unary_expression_in_cell bt f (arg, id) (c, tr, proxy)
+                (Some ((⟨ db Γ' β' p' ⟩, tr, proxy), ValuePrimitive bt' (lambda (eq ♯ arg), Some id)))
 .
 
 (*
@@ -356,18 +291,18 @@ Inductive do_eval_agg:
 Inductive eval_agg: ∀ bt, agg_func → eval_env → list (type_to_coq_type bt * option nat) →
   option (eval_env * e_value) → Prop :=
   | EvalAggErr: ∀ bt f env db Γ β p l res,
-      fst (fst (fst env)) = ⟨ db Γ β p ⟩ →
+      fst (fst env) = ⟨ db Γ β p ⟩ →
       do_eval_agg bt bt f Γ p l None →
       eval_agg bt f env l res
-  | EvalAggOk: ∀ bt f env c tr proxy lookup db Γ β p l v policy provenance,
-      env = (c, tr, lookup, proxy) →
+  | EvalAggOk: ∀ bt f env c tr proxy db Γ β p l v policy provenance,
+      env = (c, tr, proxy) →
       c = ⟨ db Γ β p ⟩ →
       do_eval_agg bt bt f Γ p l (Some (policy, provenance, v)) →
       let new_id := next_available_id Γ 0 in
       let Γ' := (new_id, policy) :: Γ in
       let p' := (new_id, provenance) :: p in
       let v' := (ValuePrimitive bt (v, Some new_id)) in
-        eval_agg bt f env l (Some ((⟨ db Γ' β p' ⟩, tr, lookup, proxy), v'))
+        eval_agg bt f env l (Some ((⟨ db Γ' β p' ⟩, tr, proxy), v'))
 .
 
 (*
@@ -383,27 +318,20 @@ Inductive eval_agg: ∀ bt, agg_func → eval_env → list (type_to_coq_type bt 
     - If it is `Some (Γ', Val)`, the evaluation is finished with an updated environment Γ',
       and the result is `Val`.
 *)
-Inductive eval: nat → expression_lexed → bool → eval_env → option (eval_env * e_value) → Prop :=
+Inductive eval: nat → expression → bool → eval_env → option (eval_env * e_value) → Prop :=
   (* The evaluation hangs and we have to force termination. *)
   | EvalNoStep: ∀ e b env step, step = O → eval step e b env None
-  (* Evaluating a variable value is simple: we just lookup it. *)
-  | EvalVar: ∀ step step' n e b c tr lookup db Γ β p proxy,
-      c = ⟨ db Γ β p ⟩ →
-      step = S step' →
-      e = expression_lexed_var n →
-      eval step e b (c, tr, lookup, proxy)
-        (option_map (fun x => ((c, tr, lookup, proxy), x)) (List.nth_error lookup n))
   (* Evaluating a constant value is simple: we just return it. *)
-  | EvalConst: ∀ step step' b bt v e c tr lookup db Γ β p proxy,
+  | EvalConst: ∀ step step' b bt v e c tr db Γ β p proxy,
       c = ⟨ db Γ β p ⟩ →
       step = S step' →
-      e = expression_lexed_const bt v →
-      eval step e b (c, tr, lookup, proxy) (Some ((c, tr, lookup, proxy), ValuePrimitive bt (v, None)))
+      e = ExprConst bt v →
+      eval step e b (c, tr, proxy) (Some ((c, tr, proxy), ValuePrimitive bt (v, None)))
   (* Extracts the value from the tuple if we are not inside an aggregation context. *)
-  | EvalColumnNotAgg: ∀ step step' b id n e c s tr t lookup db Γ β p proxy,
+  | EvalColumnNotAgg: ∀ step step' b id n e c s tr t db Γ β p proxy,
       c = ⟨ db Γ β p ⟩ →
       step = S step' →
-      e = expression_lexed_column id →
+      e = ExprCol id →
       tr = TupleWrapped s t →
       b = false →
       (* We locate this column by its identifier `id` using the comparison function. *)
@@ -412,159 +340,133 @@ Inductive eval: nat → expression_lexed → bool → eval_env → option (eval_
           (Tuple.nth_col_tuple (♭ s) n
             (eq_sym (schema_to_no_name_length s) ♯
               (elem_find_index_bounded_zero _ _ _ _ find)) t) in
-        eval step e b (c, tr, lookup, proxy)
-          (Some (((c, tr, lookup, proxy), ValuePrimitive _ (fst (fst col), Some (snd (fst col))))))
-  | EvalColumnNotAggFail: ∀ step step' b id e c s tr t lookup proxy,
+        eval step e b (c, tr, proxy)
+          (Some (((c, tr, proxy), ValuePrimitive _ (fst (fst col), Some (snd (fst col))))))
+  | EvalColumnNotAggFail: ∀ step step' b id e c s tr t proxy,
       step = S step' →
-      e = expression_lexed_column id →
+      e = ExprCol id →
       b = false →
       tr = TupleWrapped s t →
       (* The requested column identifier is not found. *)
       find_index (λ x y, Nat.eqb (snd x) y) s id 0 = None →
-      eval step e b (c, tr, lookup, proxy) None
+      eval step e b (c, tr, proxy) None
   (* Extracts the value from the groupby proxy if we are inside an aggregation context. *)
-  | EvalColumnInAggProxyMissing: ∀ step step' b id e c tr lookup proxy,
+  | EvalColumnInAggProxyMissing: ∀ step step' b id e c tr proxy,
       step = S step' →
-      e = expression_lexed_column id →
+      e = ExprCol id →
       b = true →
       proxy = None →
-      eval step e b (c, tr, lookup, proxy) None
-  | EvalColumnInAgg: ∀ step step' b id n e c s1 s2 tr lookup proxy r gb_keys gb_indices,
+      eval step e b (c, tr, proxy) None
+  | EvalColumnInAgg: ∀ step step' b id n e c s1 s2 tr proxy r gb_keys gb_indices,
       step = S step' →
-      e = expression_lexed_column id →
+      e = ExprCol id →
       b = true →
-      proxy = Some (groupby_proxy s1 s2 r gb_keys gb_indices) →
+      proxy = Some (GroupbyProxy s1 s2 r gb_keys gb_indices) →
       ∀ (find: find_index (λ x y, Nat.eqb (snd x) y) s1 id 0 = Some n),
         let col' := extract_column_as_list s1 r n (elem_find_index_bounded_zero _ _ _ _ find) in
           let col := map (fun elem => (fst elem, Some (snd elem))) col' in
-            eval step e b (c, tr, lookup, proxy) (Some ((c, tr, lookup, proxy), ValuePrimitiveList _ col))
-  | EvalColumnInAggFail: ∀ step step' b id e c s1 s2 tr lookup proxy r gb_keys gb_indices,
+            eval step e b (c, tr, proxy) (Some ((c, tr, proxy), ValuePrimitiveList _ col))
+  | EvalColumnInAggFail: ∀ step step' b id e c s1 s2 tr proxy r gb_keys gb_indices,
       step = S step' →
-      e = expression_lexed_column id →
+      e = ExprCol id →
       b = true →
-      proxy = Some (groupby_proxy s1 s2 r gb_keys gb_indices) →
+      proxy = Some (GroupbyProxy s1 s2 r gb_keys gb_indices) →
       find_index (λ x y, Nat.eqb (snd x) y) s1 id 0 = None →
-      eval step e b (c, tr, lookup, proxy) None
-  (* Evaluating a lambda expression is simple: we just return it. *)
-  | EvalAbs: ∀ step step' b τ e' e env c tr lookup db Γ β p proxy,
+      eval step e b (c, tr, proxy) None
+  | EvalUnary: ∀ step step' bt b e f e' env v v' res c tr db Γ β p proxy,
       c = ⟨ db Γ β p ⟩ →
       step = S step' →
-      e = expression_lexed_abs τ e' →
-      eval step e b (c, tr, lookup, proxy) (Some (env, ValueFunc τ e' lookup))
-  | EvalApp: ∀ step step' b e1 e2 e ev env env' v c tr lookup lookup' τ body f_env res db Γ β p proxy,
-      c = ⟨ db Γ β p ⟩ →
-      step = S step' →
-      e = expression_lexed_app e1 e2 →
-      (* We first evaluate the function and obtain the updated environment and result. *)
-      eval step' e1 b (c, tr, lookup, proxy) (Some (env, ValueFunc τ body f_env)) →
-      (* We then evaluate the argument. *)
-      eval step' e2 b (c, tr, lookup, proxy) (Some (env', v)) →
-      env' = (ev, lookup', proxy) →
-      (* Then we add the argument to the environment. *)
-      eval step' body b (ev, v :: f_env, proxy) res →
-      eval step e b (c, tr, lookup, proxy) res
-  | EvalAppFail: ∀ step step' b e e1 e2 res1 res2 c tr lookup db Γ β p proxy,
-      c = ⟨ db Γ β p ⟩ →
-      step = S step' →
-      e = expression_lexed_app e1 e2 →
-      eval step' e1 b (c, tr, lookup, proxy) res1 →
-      eval step' e2 b (c, tr, lookup, proxy) res2 →
-      res1 = None ∨ res2 = None →
-      eval step e b (c, tr, lookup, proxy) None
-  | EvalUnary: ∀ step step' bt b e f e' env v v' res c tr lookup db Γ β p proxy,
-      c = ⟨ db Γ β p ⟩ →
-      step = S step' →
-      e = expression_lexed_unary f e' →
+      e = ExprUnary f e' →
       b = false →
-      eval step' e' b (c, tr, lookup, proxy) (Some (env, v)) →
+      eval step' e' b (c, tr, proxy) (Some (env, v)) →
       v = ValuePrimitive bt v' →
       eval_unary_expression_prim bt f env v' res →
-      eval step e b (c, tr, lookup, proxy) res
-  | EvalUnaryInAgg: ∀ step step' bt b e f e' env v v' res c tr lookup db Γ β p proxy,
+      eval step e b (c, tr, proxy) res
+  | EvalUnaryInAgg: ∀ step step' bt b e f e' env v v' res c tr db Γ β p proxy,
       c = ⟨ db Γ β p ⟩ →
       step = S step' →
-      e = expression_lexed_unary f e' →
+      e = ExprUnary f e' →
       b = true →
-      eval step' e' b (c, tr, lookup, proxy) (Some (env, v)) →
+      eval step' e' b (c, tr, proxy) (Some (env, v)) →
       v = ValuePrimitiveList bt v' →
       eval_unary_expression_list bt f env v' res →
-      eval step e b (c, tr, lookup, proxy) res
+      eval step e b (c, tr, proxy) res
   (*
     There are still many other cases for us to deal with:
 
     - Type coercion.
     - Scalar value + vector value -> This means we need to propagate to lists.
    *)
-  | EvalBinary: ∀ step step' bt1 bt2 b e f e1 e2 env v1 v1' v2 v2' res c tr lookup db Γ β p proxy,
+  | EvalBinary: ∀ step step' bt1 bt2 b e f e1 e2 env v1 v1' v2 v2' res c tr db Γ β p proxy,
       c = ⟨ db Γ β p ⟩ →
       step = S step' →
-      e = expression_lexed_binary f e1 e2 →
+      e = ExprBinary f e1 e2 →
       b = false →
-      eval step' e1 b (c, tr, lookup, proxy) (Some (env, v1)) →
-      eval step' e2 b (c, tr, lookup, proxy) (Some (env, v2)) →
+      eval step' e1 b (c, tr, proxy) (Some (env, v1)) →
+      eval step' e2 b (c, tr, proxy) (Some (env, v2)) →
       v1 = ValuePrimitive bt1 v1' →
       v2 = ValuePrimitive bt2 v2' →
       eval_binary_expression_prim bt1 bt2 f env v1' v2' res →
-      eval step e b (c, tr, lookup, proxy) res
-  | EvalBinaryInAgg: ∀ step step' bt1 bt2 b e f e1 e2 env v1 v1' v2 v2' res c tr lookup db Γ β p proxy,
+      eval step e b (c, tr, proxy) res
+  | EvalBinaryInAgg: ∀ step step' bt1 bt2 b e f e1 e2 env v1 v1' v2 v2' res c tr db Γ β p proxy,
       c = ⟨ db Γ β p ⟩ →
       step = S step' →
-      e = expression_lexed_binary f e1 e2 →
+      e = ExprBinary f e1 e2 →
       b = true →
-      eval step' e1 b (c, tr, lookup, proxy) (Some (env, v1)) →
-      eval step' e2 b (c, tr, lookup, proxy) (Some (env, v2)) →
+      eval step' e1 b (c, tr, proxy) (Some (env, v1)) →
+      eval step' e2 b (c, tr, proxy) (Some (env, v2)) →
       v1 = ValuePrimitiveList bt1 v1' →
       v2 = ValuePrimitiveList bt2 v2' →
       eval_binary_expression_list bt1 bt2 f env v1' v2' res →
-      eval step e b (c, tr, lookup, proxy) res
+      eval step e b (c, tr, proxy) res
   (* Nested aggregation makes no sense. *)
-  | EvalNestedAgg: ∀ step step' b e agg body c tr lookup db Γ β p proxy s r s_key gb_keys gb_indices,
+  | EvalNestedAgg: ∀ step step' b e agg body c tr db Γ β p proxy s r s_key gb_keys gb_indices,
       c = ⟨ db Γ β p ⟩ →
       step = S step' →
-      proxy = Some (groupby_proxy s s_key r gb_keys gb_indices) →
-      e = expression_lexed_agg agg body →
+      proxy = Some (GroupbyProxy s s_key r gb_keys gb_indices) →
+      e = ExprAgg agg body →
       b = true →
-      eval step e b (c, tr, lookup, proxy) None
-  | EvalAggProxyMissing: ∀ step step' b e agg body c tr lookup db Γ β p proxy,
+      eval step e b (c, tr, proxy) None
+  | EvalAggProxyMissing: ∀ step step' b e agg body c tr db Γ β p proxy,
       c = ⟨ db Γ β p ⟩ →
       step = S step' →
       proxy = None →
       b = false →
-      e = expression_lexed_agg agg body →
-      eval step e b (c, tr, lookup, proxy) None
-  | EvalAggError: ∀ step step' b e agg body c tr lookup db Γ β p proxy s r s_key gb_keys gb_indices,
+      e = ExprAgg agg body →
+      eval step e b (c, tr, proxy) None
+  | EvalAggError: ∀ step step' b e agg body c tr db Γ β p proxy s r s_key gb_keys gb_indices,
       c = ⟨ db Γ β p ⟩ →
       step = S step' →
-      proxy = Some (groupby_proxy s s_key r gb_keys gb_indices) →
-      e = expression_lexed_agg agg body →
+      proxy = Some (GroupbyProxy s s_key r gb_keys gb_indices) →
+      e = ExprAgg agg body →
       b = false →
-      eval step' body b (c, tr, lookup, proxy) None →
-      eval step e b (c, tr, lookup, proxy) None
-  | EvalAggArgError: ∀ step step' b e agg body c tr lookup db Γ β p proxy s r s_key gb_keys gb_indices v bt l,
+      eval step' body b (c, tr, proxy) None →
+      eval step e b (c, tr, proxy) None
+  | EvalAggArgError: ∀ step step' b e agg body c tr db Γ β p proxy s r s_key gb_keys gb_indices v bt l,
       c = ⟨ db Γ β p ⟩ →
       step = S step' →
-      proxy = Some (groupby_proxy s s_key r gb_keys gb_indices) →
-      e = expression_lexed_agg agg body →
+      proxy = Some (GroupbyProxy s s_key r gb_keys gb_indices) →
+      e = ExprAgg agg body →
       b = false →
-      eval step' body b (c, tr, lookup, proxy) (Some v) →
+      eval step' body b (c, tr, proxy) (Some v) →
       snd v ≠ ValuePrimitiveList bt l →
-      eval step e b (c, tr, lookup, proxy) None
-  | EvalAgg: ∀ step step' b e agg body c tr lookup db Γ β p proxy s r s_key gb_keys gb_indices v bt l res,
+      eval step e b (c, tr, proxy) None
+  | EvalAgg: ∀ step step' b e agg body c tr db Γ β p proxy s r s_key gb_keys gb_indices v bt l res,
       c = ⟨ db Γ β p ⟩ →
       step = S step' →
-      proxy = Some (groupby_proxy s s_key r gb_keys gb_indices) →
-      e = expression_lexed_agg agg body →
+      proxy = Some (GroupbyProxy s s_key r gb_keys gb_indices) →
+      e = ExprAgg agg body →
       b = false →
-      eval step' body b (c, tr, lookup, proxy) (Some v) →
+      eval step' body b (c, tr, proxy) (Some v) →
       snd v = ValuePrimitiveList bt l →
-      eval_agg bt agg (c, tr, lookup, proxy) l res →
-      eval step e b (c, tr, lookup, proxy) res
+      eval_agg bt agg (c, tr, proxy) l res →
+      eval step e b (c, tr, proxy) res
 .
 
 Inductive eval_expr:
   bool → config → tuple_wrapped → option groupby → expression → option (eval_env * e_value) → Prop :=
   | EvalExpr: ∀ b c tr proxy e env,
-    eval 100 (lex e nil) b (c, tr, nil, proxy) env → eval_expr b c tr proxy e env
+    eval 100 e b (c, tr, proxy) env → eval_expr b c tr proxy e env
 .
 
 Section Facts.

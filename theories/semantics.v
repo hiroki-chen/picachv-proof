@@ -39,97 +39,84 @@ Hint Constructors project_list: core.
   expression given a schema and an environment of basic types. This function is used more like as a
   type checker.
 *)
-Fixpoint determine_bt_from_expr_helper (s: schema) (arg: expression_lexed) (env: ty_env):
+Fixpoint determine_bt_from_expr_helper (s: schema) (arg: expression) (env: ty_env):
   option expr_type :=
     match arg with
-    (* Lookup in the environment. *)
-    | expression_lexed_var n => List.nth_error env n
     (* For constants, we already know its type. *)
-    | expression_lexed_const bt _ => Some (expr_type_basic bt)
+    | ExprConst bt _ => Some (ExprTypeBasic bt)
     (* For columns, we need to extract it from the schema. *)
-    | expression_lexed_column n =>
+    | ExprCol n =>
         let bt := find' (fun x y => (snd x) =? y) s n in
-          option_map (fun x => expr_type_basic (fst x)) bt
-    (* For function abstraction, we encode the argument type, so wecan extract it and evaluate its body. *)
-    | expression_lexed_abs τ body =>
-        option_map (fun x => expr_type_func τ x) (determine_bt_from_expr_helper s body (τ :: env))
-    (* For function application, we need to evaluate the function and the argument and check if their types match. *)
-    | expression_lexed_app f x =>
-        match determine_bt_from_expr_helper s f env, determine_bt_from_expr_helper s x env with
-          | Some (expr_type_func τ1 τ2), Some τ3 =>
-            if expr_type_eqb τ1 τ3 then Some τ2 else None
-          | _, _ => None
-        end
+          option_map (fun x => ExprTypeBasic (fst x)) bt
     (*
       For binary operations, we need to evaluate the two arguments and check if their types match and
       the operation type is correct.
     *)
-    | expression_lexed_binary op x y =>
+    | ExprBinary op x y =>
         match determine_bt_from_expr_helper s x env, determine_bt_from_expr_helper s y env with
           | Some τ1, Some τ2 =>
             match op with
               | binary_function op _ _ =>
                 match op with
                 | Arithmetic _ =>
-                  if expr_type_eqb τ1 (expr_type_basic IntegerType) then
-                    if expr_type_eqb τ2 (expr_type_basic IntegerType) then
-                      Some (expr_type_basic IntegerType)
+                  if expr_type_eqb τ1 (ExprTypeBasic IntegerType) then
+                    if expr_type_eqb τ2 (ExprTypeBasic IntegerType) then
+                      Some (ExprTypeBasic IntegerType)
                     else None
                   else None
                 | Comparison _ =>
-                  if expr_type_eqb τ1 τ2 then Some (expr_type_basic BoolType) else None
+                  if expr_type_eqb τ1 τ2 then Some (ExprTypeBasic BoolType) else None
                 | Logical _ =>
-                  if expr_type_eqb τ1 (expr_type_basic BoolType) then
-                    if expr_type_eqb τ2 (expr_type_basic BoolType) then
-                      Some (expr_type_basic BoolType)
+                  if expr_type_eqb τ1 (ExprTypeBasic BoolType) then
+                    if expr_type_eqb τ2 (ExprTypeBasic BoolType) then
+                      Some (ExprTypeBasic BoolType)
                     else None
                   else None
               end
             end
           | _, _ => None
         end
-    | expression_lexed_unary op x =>
+    | ExprUnary op x =>
         match determine_bt_from_expr_helper s x env with
           | Some τ =>
             match op with
               | unary_function op ty _ =>
-                if expr_type_eqb τ (expr_type_basic ty) then
+                if expr_type_eqb τ (ExprTypeBasic ty) then
                   match op with
                   | Not =>
-                    if expr_type_eqb τ (expr_type_basic BoolType) then
-                      Some (expr_type_basic BoolType)
+                    if expr_type_eqb τ (ExprTypeBasic BoolType) then
+                      Some (ExprTypeBasic BoolType)
                     else None
                   | _ =>
-                    if expr_type_eqb τ (expr_type_basic ty) then
-                      Some (expr_type_basic IntegerType)
+                    if expr_type_eqb τ (ExprTypeBasic ty) then
+                      Some (ExprTypeBasic IntegerType)
                     else None
                   end
                 else None
             end
           | _ => None
         end
-    | expression_lexed_agg op x =>
+    | ExprAgg op x =>
         match determine_bt_from_expr_helper s x env with
           | Some τ =>
             match op with
-            | aggregate_function _ _ τ _ _ => Some (expr_type_basic τ)
+            | aggregate_function _ _ τ _ _ => Some (ExprTypeBasic τ)
             end
           | _ => None
         end
     end.
 
-Definition determine_bt_from_expr (s: schema) (arg: expression_lexed): option basic_type :=
+Definition determine_bt_from_expr (s: schema) (arg: expression): option basic_type :=
   match determine_bt_from_expr_helper s arg nil with
-    | Some (expr_type_basic bt) => Some bt
+    | Some (ExprTypeBasic bt) => Some bt
     | _ => None
   end.
 
 Fixpoint determine_schema (s: schema) (pl: list (expression * nat)): option schema :=
   match pl with
   | nil => Some nil
-  | (x, name) :: ℓ' =>
-    let lexed_expr := lex x nil in
-      match determine_bt_from_expr s lexed_expr with
+  | (expr, name) :: ℓ' =>
+      match determine_bt_from_expr s expr with
         | Some bt =>
           match determine_schema s ℓ' with
             | Some sch => Some ((bt, name) :: sch)
@@ -174,8 +161,8 @@ Definition determine_schema_agg (s: schema) (agg: agg_list) (gb: groupby_list):
       (fix f agg :=
         match agg with
         | nil => Some nil
-        | (x, name) :: ℓ' =>
-          match determine_bt_from_expr s (lex x nil) with
+        | (expr, name) :: ℓ' =>
+          match determine_bt_from_expr s expr with
           | Some bt =>
             match f ℓ' with
             | Some sch => Some ((bt, name) :: sch)
@@ -201,7 +188,7 @@ Definition project_all (s: schema): project_list :=
   let f := fix f s n :=
     match s with
     | nil => nil
-    | hd :: tl => (expression_column n, snd hd) :: f tl (S n)
+    | hd :: tl => (ExprCol n, snd hd) :: f tl (S n)
     end
   in project (f s 0).
 
@@ -211,14 +198,14 @@ Definition project_list_preprocess (s: schema) (pl: project_list): project_list 
     | _ => pl
   end.
 
-(* This first creates for each tuple a `groupby_proxy` which can later be `gathered` for our convenience. *)
+(* This first creates for each tuple a `GroupbyProxy` which can later be `gathered` for our convenience. *)
 Definition get_group_proxy_helper s (r: relation s) (gb_keys: groupby_list) (bounded: bounded_list s gb_keys):
   list groupby :=
   let gb_keys_extracted := (extract_columns s r gb_keys bounded) in
     (fix create_group_proxy keys n :=
       match keys with
       | nil => nil
-      | hd :: tl => groupby_proxy _ _ r hd (n :: nil) :: (create_group_proxy tl (S n))
+      | hd :: tl => GroupbyProxy _ _ r hd (n :: nil) :: (create_group_proxy tl (S n))
       end
     ) gb_keys_extracted 0.
 
@@ -247,11 +234,11 @@ Definition get_group_proxy s (r: relation s) (gb_keys: groupby_list) (bounded: b
        | nil => elem :: nil
        | hd :: tl =>
           match hd, elem with
-          | groupby_proxy _ s1 _ key indices, groupby_proxy _ s2 _ key' indices' =>
+          | GroupbyProxy _ s1 _ key indices, GroupbyProxy _ s2 _ key' indices' =>
             match list_eq_dec basic_type_eq_dec s1 s2 with
             | left eq => 
               if (Tuple.tuple_value_eqb _ key' (eq ♯ key)) then
-                (groupby_proxy s s1 r key (indices ++ indices'):: gather elem tl)
+                (GroupbyProxy s s1 r key (indices ++ indices'):: gather elem tl)
               else
                 hd :: (gather elem tl)
             | right _ => nil
@@ -266,12 +253,12 @@ Defined.
 Inductive operator: Type :=
   | operator_empty: operator
   (* `nat` means the index of the relation it wants to access the n-th dataset inside `db`. *)
-  | operator_relation: nat → operator
-  | operator_union: operator → operator → operator
-  | operator_join: operator → operator → operator
-  | operator_project: project_list → operator → operator
-  | operator_select: expression → operator → operator
-  | operator_groupby_having: groupby_list → agg_list → expression → operator → operator
+  | OperatorRel: nat → operator
+  | OperatorUnion: operator → operator → operator
+  | OperatorJoin: operator → operator → operator
+  | OperatorProject: project_list → operator → operator
+  | OperatorSelect: expression → operator → operator
+  | OperatorGroupByHaving: groupby_list → agg_list → expression → operator → operator
 .
 
 (*
@@ -410,13 +397,13 @@ Inductive eval_predicate_in_relation (s: schema) (r: relation s):
   | E_EvalExprConsTrue: ∀ db db' Γ Γ' Γ'' β β' β'' p p' p'' e env hd tl tl' id,
       r = hd :: tl →
       eval_expr false (⟨ db Γ β p ⟩) (TupleWrapped s hd) None e (Some (env, ValuePrimitive BoolType (true, id))) →
-      fst (fst (fst env)) = ⟨ db' Γ' β' p' ⟩ →
+      fst (fst env) = ⟨ db' Γ' β' p' ⟩ →
       eval_predicate_in_relation s tl Γ' β' p' e (Some (tl', Γ'', β'', p'')) →
       eval_predicate_in_relation s r Γ β p e (Some (hd :: tl', Γ'', β'', p''))
   | E_EvalExprConsFalse: ∀ db db' Γ Γ' Γ'' β β' β'' p p' p'' e env hd tl tl' id,
       r = hd :: tl →
       eval_expr false (⟨ db Γ β p ⟩) (TupleWrapped s hd) None e (Some (env, ValuePrimitive BoolType (false, id))) →
-      fst (fst (fst env)) = ⟨ db' Γ' β' p' ⟩ →
+      fst (fst env) = ⟨ db' Γ' β' p' ⟩ →
       eval_predicate_in_relation s tl Γ' β' p' e (Some (tl', Γ'', β'', p'')) →
       eval_predicate_in_relation s r Γ β p e (Some (tl', Γ'', β'', p''))
   | E_EvalError: ∀ db res v Γ β p e env hd tl,
@@ -427,7 +414,7 @@ Inductive eval_predicate_in_relation (s: schema) (r: relation s):
   | E_EvalError2: ∀ db db' Γ Γ' β β' p p' e hd tl env v,
       r = hd :: tl →
       eval_expr false (⟨ db Γ β p ⟩) (TupleWrapped s hd) None e (Some (env, ValuePrimitive BoolType v)) →
-      fst (fst (fst env)) = ⟨ db' Γ' β' p' ⟩ →
+      fst (fst env) = ⟨ db' Γ' β' p' ⟩ →
       eval_predicate_in_relation s tl Γ' β' p' e None →
       eval_predicate_in_relation s r Γ β p e None
 .
@@ -459,14 +446,14 @@ Inductive apply_fold_on_groups_once: ∀ bt, Policy.context → budget → prov_
   | E_AplpyFoldOnGroupConsError: ∀ bt db db' Γ Γ' β β' p p' tp gb hd tl e env res,
       gb = hd :: tl →
       eval_expr false (⟨ db Γ β p ⟩) tp (Some hd) e (Some (env, res)) →
-      fst (fst (fst env)) = (⟨ db' Γ' β' p' ⟩) →
+      fst (fst env) = (⟨ db' Γ' β' p' ⟩) →
       apply_fold_on_groups_once bt Γ' β' p' tl e None →
       apply_fold_on_groups_once bt Γ β p gb e None
   | E_ApplyFoldOnGroupsOk: ∀ bt db db' Γ Γ' Γ'' β β' β'' p p' p'' tp gb hd tl e env v res id res',
       gb = hd :: tl →
       (* Evalautes the expression. *)
       eval_expr false (⟨ db Γ β p ⟩) tp (Some hd) e (Some (env, v)) →
-      fst (fst (fst env)) = (⟨ db' Γ' β' p' ⟩) →
+      fst (fst env) = (⟨ db' Γ' β' p' ⟩) →
       v = ValuePrimitive bt (res, id) →
       apply_fold_on_groups_once bt Γ' β' p' tl e (Some (res', Γ'', β'', p'')) →
       apply_fold_on_groups_once bt Γ β p gb e (Some ((res, (unwrap_or_default id 0), tt) :: res', Γ'', β'', p''))
@@ -477,7 +464,7 @@ Inductive apply_fold_on_groups_once: ∀ bt, Policy.context → budget → prov_
   @param Policy.context The policy context in which the operation is performed.
   @param budget The budget available for the operation.
   @param prov_ctx The provenance context for the operation.
-  @param list (groupby_proxy s_gb) The list of groupby elements on which the aggregation operations are applied.
+  @param list (GroupbyProxy s_gb) The list of groupby elements on which the aggregation operations are applied.
   @param agg_list The list of aggregation operations to be applied.
   @param relation s The initial relation on which the operations are performed.
   @param option (relation s * Policy.context * budget * prov_ctx) The expected result of the operation.
@@ -539,13 +526,13 @@ Inductive eval_groupby_having:
   | E_EvalGroupByHavingHeadFalse: ∀ t gb hd tl db db' Γ Γ' β β' p p' e env id res,
       gb = hd :: tl →
       eval_expr true (⟨ db Γ β p⟩) t (Some hd) e (Some (env, ValuePrimitive BoolType (false, id))) →
-      (fst (fst (fst env))) = ⟨ db' Γ' β' p' ⟩ →
+      fst (fst env) = ⟨ db' Γ' β' p' ⟩ →
       eval_groupby_having tl e Γ' β' p' res →
       eval_groupby_having gb e Γ β p res
   | E_EvalGroupByHavingHeadTrue: ∀ t gb hd tl db db' Γ Γ' Γ'' β β' β'' p p' p'' e env id res,
       gb = hd :: tl →
       eval_expr true (⟨ db Γ β p⟩) t (Some hd) e (Some (env, ValuePrimitive BoolType (true, id))) →
-      (fst (fst (fst env))) = ⟨ db' Γ' β' p' ⟩ →
+      fst (fst env) = ⟨ db' Γ' β' p' ⟩ →
       eval_groupby_having tl e Γ' β' p' (Some (res, Γ'', β'', p'')) →
       eval_groupby_having gb e Γ β p (Some (hd :: res, Γ'', β'', p''))
   | E_EvalGroupByHavingHeadError1: ∀ t gb hd tl db Γ β p e,
@@ -555,7 +542,7 @@ Inductive eval_groupby_having:
   | E_EvalGroupByHavingHeadError2: ∀ t gb hd tl db db' Γ Γ' β β' p p' e env id,
       gb = hd :: tl →
       eval_expr true (⟨ db Γ β p⟩) t (Some hd) e (Some (env, ValuePrimitive BoolType id)) →
-      (fst (fst (fst env))) = ⟨ db' Γ' β' p' ⟩ →
+      fst (fst env) = ⟨ db' Γ' β' p' ⟩ →
       eval_groupby_having tl e Γ' β p' None →
       eval_groupby_having gb e Γ β p None
 .
@@ -614,33 +601,33 @@ Inductive step_config: (config * operator) → config → Prop :=
   (* Getting the relation is an identity operation w.r.t. configurations. *)
   | E_GetRelation: ∀ c c' db o n r Γ Γ' β p p',
       db ≠ database_empty →
-      o = operator_relation n →
+      o = OperatorRel n →
       c = ⟨ db Γ β p ⟩ →
       database_get_contexts db n = Some (r, Γ', p') →
       c' = config_output r (⟨ db Γ' β p' ⟩) →
-      ⟦ c (operator_relation n) ⟧ ⇓ ⟦ c' ⟧
+      ⟦ c (OperatorRel n) ⟧ ⇓ ⟦ c' ⟧
   (* The given relation index is not found in the database. *)
   | E_GetRelationError: ∀ c c' db o n Γ β p,
       db ≠ database_empty →
-      o = operator_relation n →
+      o = OperatorRel n →
       c = ⟨ db Γ β p ⟩ →
       database_get_contexts db n = None →
       c' = config_error →
-      ⟦ c (operator_relation n) ⟧ ⇓ ⟦ c' ⟧
+      ⟦ c (OperatorRel n) ⟧ ⇓ ⟦ c' ⟧
   (* Database is empty! *)
   | E_GetRelationDbEmpty: ∀ c c' db Γ β p o n,
       db = database_empty →
-      o = operator_relation n →
+      o = OperatorRel n →
       c = ⟨ db Γ β p ⟩ →
       c' = config_error →
-      ⟦ c (operator_relation n) ⟧ ⇓ ⟦ c' ⟧
+      ⟦ c (OperatorRel n) ⟧ ⇓ ⟦ c' ⟧
   (* If the operator returns an empty relation, we do nothing. *)
   | E_ProjEmpty: ∀ c c' db db' Γ Γ' β β' p p' s r o pl,
       c = ⟨ db Γ β p ⟩ →
       ⟦ c o ⟧ ⇓ ⟦ c' ⟧ → 
       c' = config_output (RelationWrapped s r) (⟨ db' Γ' β' p' ⟩) →
       r = nil ∨ s = nil →
-      ⟦ c (operator_project pl o) ⟧ ⇓ ⟦ c' ⟧
+      ⟦ c (OperatorProject pl o) ⟧ ⇓ ⟦ c' ⟧
   (* If the operator returns a valid relation, we can then apply projection. *)
   | E_ProjOk: ∀ c c' c'' db db' pl pl' s' s''
                 Γ Γ' Γ'' β β' β'' p p' p'' r' r'' o,
@@ -656,7 +643,7 @@ Inductive step_config: (config * operator) → config → Prop :=
         (* We then apply projection inside the environment. *)
         apply_proj_in_relation s' s'' r' pl' Γ' β' p' (Some (r'', Γ'', β'', p'')) →
         c'' = config_output (RelationWrapped _ r'') (⟨ db' Γ'' β'' p'' ⟩) →
-        ⟦ c (operator_project pl o) ⟧ ⇓ ⟦ c'' ⟧
+        ⟦ c (OperatorProject pl o) ⟧ ⇓ ⟦ c'' ⟧
   (*
      If the operator returns a valid environment, we can then apply projection. Then if the
      projection fails, we return `config_error`.
@@ -674,7 +661,7 @@ Inductive step_config: (config * operator) → config → Prop :=
       Some s'' = determine_schema s' pl' →
         (* We then apply projection inside the environment. *)
         apply_proj_in_relation s' s'' r' pl' Γ β p None →
-        ⟦ c (operator_project pl o) ⟧ ⇓ ⟦ config_error ⟧
+        ⟦ c (OperatorProject pl o) ⟧ ⇓ ⟦ config_error ⟧
   (*
      If the operator returns a valid environment, we can then apply projection. Then if the
      projection fails, we return `config_error`.
@@ -683,7 +670,7 @@ Inductive step_config: (config * operator) → config → Prop :=
       c = ⟨ db Γ β p ⟩ →
       (* We first evaluate the inner operator and get the output. *)
       ⟦ c o ⟧ ⇓ ⟦ config_error ⟧ →
-      ⟦ c (operator_project pl o) ⟧ ⇓ ⟦ config_error ⟧
+      ⟦ c (OperatorProject pl o) ⟧ ⇓ ⟦ config_error ⟧
   (*
      If we the project list is itself wrongly typed, we return error.
   *)
@@ -698,36 +685,36 @@ Inductive step_config: (config * operator) → config → Prop :=
       (* We do a simple preprocess. *)
       project pl' = project_list_preprocess s' pl →
       None = determine_schema s' pl' →
-      ⟦ c (operator_project pl o) ⟧ ⇓ ⟦ config_error ⟧
+      ⟦ c (OperatorProject pl o) ⟧ ⇓ ⟦ config_error ⟧
   | E_SelectError: ∀ c c' db db' Γ Γ' β β' p p' s' r' o expr,
       c = ⟨ db Γ β p ⟩ →
       ⟦ c o ⟧ ⇓ ⟦ c' ⟧ →
       c' = config_output (RelationWrapped s' r') (⟨ db' Γ' β' p' ⟩) →
       eval_predicate_in_relation s' r' Γ' β' p' expr  None →
-      ⟦ c (operator_select expr o) ⟧ ⇓ ⟦ config_error ⟧
+      ⟦ c (OperatorSelect expr o) ⟧ ⇓ ⟦ config_error ⟧
   | E_SelectError2: ∀ c db Γ β p o expr,
       c = ⟨ db Γ β p ⟩ →
       ⟦ c o ⟧ ⇓ ⟦ config_error ⟧ →
-      ⟦ c (operator_select expr o) ⟧ ⇓ ⟦ config_error ⟧
+      ⟦ c (OperatorSelect expr o) ⟧ ⇓ ⟦ config_error ⟧
   | E_SelectError3: ∀ c c' db db' Γ Γ' β β' p p' s1 s2 r' o expr,
       c = ⟨ db Γ β p ⟩ →
       ⟦ c o ⟧ ⇓ ⟦ c' ⟧ →
       c' = config_output (RelationWrapped s2 r') (⟨ db' Γ' β' p' ⟩) →
       s1 ≠ s2 →
-      ⟦ c (operator_select expr o) ⟧ ⇓ ⟦ config_error ⟧
+      ⟦ c (OperatorSelect expr o) ⟧ ⇓ ⟦ config_error ⟧
   | E_SelectOk: ∀ c c' c'' db db' Γ Γ' Γ'' β β' β'' p p' p'' s' r' r'' o expr,
       c = ⟨ db Γ β p ⟩ →
       ⟦ c o ⟧ ⇓ ⟦ c' ⟧ →
       c' = config_output (RelationWrapped s' r') (⟨ db' Γ' β' p' ⟩) →
       eval_predicate_in_relation s' r' Γ' β' p' expr (Some (r'', Γ'', β'', p'')) →
       c'' = config_output (RelationWrapped s' r'') (⟨ db' Γ'' β'' p'' ⟩) →
-      ⟦ c (operator_select expr o)⟧ ⇓ ⟦ c'' ⟧
+      ⟦ c (OperatorSelect expr o)⟧ ⇓ ⟦ c'' ⟧
   | E_UnionError: ∀ c c' c'' db Γ β p o1 o2,
       c = ⟨ db Γ β p ⟩ → 
       ⟦ c o1 ⟧ ⇓ ⟦ c' ⟧ →
       ⟦ c o2 ⟧ ⇓ ⟦ c'' ⟧ →
       c' = config_error ∨ c'' = config_error →
-      ⟦ c (operator_union o1 o2) ⟧ ⇓ ⟦ config_error ⟧
+      ⟦ c (OperatorUnion o1 o2) ⟧ ⇓ ⟦ config_error ⟧
   | E_UnionSchemaError: ∀ c c' c'' db db' db'' Γ Γ' Γ'' β β' β'' p p' p'' s1 s2 r' r'' o1 o2,
       c = ⟨ db Γ β p ⟩ → 
       ⟦ c o1 ⟧ ⇓ ⟦ c' ⟧ →
@@ -735,7 +722,7 @@ Inductive step_config: (config * operator) → config → Prop :=
       ⟦ c o2 ⟧ ⇓ ⟦ c'' ⟧ →
       c'' = config_output (RelationWrapped s2 r'') (⟨ db'' Γ'' β'' p'' ⟩) →
       s1 ≠ s2 →
-      ⟦ c (operator_union o1 o2) ⟧ ⇓ ⟦ config_error ⟧
+      ⟦ c (OperatorUnion o1 o2) ⟧ ⇓ ⟦ config_error ⟧
   | E_UnionOk: ∀ c c' c'' db db' db'' Γ Γ' Γ'' β β' β'' p p' p'' s r' r'' o1 o2,
       c = ⟨ db Γ β p ⟩ →
       ⟦ c o1 ⟧ ⇓ ⟦ c' ⟧ →
@@ -750,14 +737,14 @@ Inductive step_config: (config * operator) → config → Prop :=
         let merged_Γ := merge_env Γ' Γ'' in
           let merged_β := calculate_budget β' β'' in
           (* TODO: How to deal with privacy budget? *)
-          ⟦ c (operator_union o1 o2) ⟧ ⇓
+          ⟦ c (OperatorUnion o1 o2) ⟧ ⇓
           ⟦ config_output (RelationWrapped s (r' ++ r'')) (⟨ db'' merged_Γ merged_β merged_p ⟩) ⟧
   | E_JoinError: ∀ c c' c'' db Γ β p o1 o2,
       c = ⟨ db Γ β p ⟩ → 
       ⟦ c o1 ⟧ ⇓ ⟦ c' ⟧ →
       ⟦ c o2 ⟧ ⇓ ⟦ c'' ⟧ →
       c' = config_error ∨ c'' = config_error →
-      ⟦ c (operator_join o1 o2) ⟧ ⇓ ⟦ config_error ⟧
+      ⟦ c (OperatorJoin o1 o2) ⟧ ⇓ ⟦ config_error ⟧
   | E_JoinError2: ∀ c c' c'' db db' db'' Γ Γ' Γ'' β β' β'' p p' p'' s1 s2 r' r'' o1 o2,
       c = ⟨ db Γ β p ⟩ →
       ⟦ c o1 ⟧ ⇓ ⟦ c' ⟧ →
@@ -767,7 +754,7 @@ Inductive step_config: (config * operator) → config → Prop :=
       let join_by := (natural_join_list s1 s2) in
         (relation_join_by_prv s1 s2 join_by r' r'' Γ' Γ'' β' β'' p' p'')
         None →
-        ⟦ c (operator_join o1 o2) ⟧ ⇓ ⟦ config_error ⟧
+        ⟦ c (OperatorJoin o1 o2) ⟧ ⇓ ⟦ config_error ⟧
   | E_JoinOk: ∀ c c' c'' db db' db'' Γ Γ' Γ'' Γout β β' β'' βout p p' p'' pout s1 s2 r' r'' r rout o1 o2,
       c = ⟨ db Γ β p ⟩ →
       ⟦ c o1 ⟧ ⇓ ⟦ c' ⟧ →
@@ -778,7 +765,7 @@ Inductive step_config: (config * operator) → config → Prop :=
         (relation_join_by_prv s1 s2 join_by r' r'' Γ' Γ'' β' β'' p' p'')
         (Some (rout, Γout, βout, pout))→
         r = RelationWrapped _ rout →
-        ⟦ c (operator_join o1 o2) ⟧ ⇓
+        ⟦ c (OperatorJoin o1 o2) ⟧ ⇓
         (* TODO: Should join. *)
         ⟦ config_output r (⟨ db'' Γout βout pout ⟩) ⟧
   | E_AggEmpty: ∀ c c' db Γ β p o s r gb agg f,
@@ -786,18 +773,18 @@ Inductive step_config: (config * operator) → config → Prop :=
       ⟦ c o ⟧ ⇓ ⟦ c' ⟧ →
       c' = config_output (RelationWrapped s r) c' →
       s = nil ∨ r = nil →
-      ⟦ c (operator_groupby_having gb agg f o) ⟧ ⇓ ⟦ c' ⟧
+      ⟦ c (OperatorGroupByHaving gb agg f o) ⟧ ⇓ ⟦ c' ⟧
   | E_AggError: ∀ c db Γ β p o gb agg f,
       c = ⟨ db Γ β p ⟩ →
       ⟦ c o ⟧ ⇓ ⟦ config_error ⟧ →
-      ⟦ c (operator_groupby_having gb agg f o) ⟧ ⇓ ⟦ config_error ⟧
+      ⟦ c (OperatorGroupByHaving gb agg f o) ⟧ ⇓ ⟦ config_error ⟧
   | E_AggNotBounded: ∀ s c c' db db' Γ Γ' β β' p p' o r gb agg f,
       c = ⟨ db Γ β p ⟩ →
       ⟦ c o ⟧ ⇓ ⟦ c' ⟧ →
       c' = config_output (RelationWrapped s r) (⟨ db' Γ' β' p' ⟩) →
       s ≠ nil ∧ r ≠ nil →
       ¬ bounded_list s gb →
-      ⟦ c (operator_groupby_having gb agg f o) ⟧ ⇓ ⟦ config_error ⟧
+      ⟦ c (OperatorGroupByHaving gb agg f o) ⟧ ⇓ ⟦ config_error ⟧
   | E_AggSchemaError: ∀ c c' db db' Γ Γ' β β' p p' s r gb agg o f,
       c = ⟨ db Γ β p ⟩ →
       ⟦ c o ⟧ ⇓ ⟦ c' ⟧ →
@@ -805,7 +792,7 @@ Inductive step_config: (config * operator) → config → Prop :=
       s ≠ nil ∧ r ≠ nil →
       ∀ (bounded: bounded_list s gb),
         None = determine_schema_agg s agg gb bounded →
-        ⟦ c (operator_groupby_having gb agg f o) ⟧ ⇓ ⟦ config_error ⟧
+        ⟦ c (OperatorGroupByHaving gb agg f o) ⟧ ⇓ ⟦ config_error ⟧
   | E_AggFail: ∀ c c' db db' Γ Γ' β β' p p' s s_agg r gb agg o f,
       c = ⟨ db Γ β p ⟩ →
       ⟦ c o ⟧ ⇓ ⟦ c' ⟧ →
@@ -814,7 +801,7 @@ Inductive step_config: (config * operator) → config → Prop :=
       ∀ (bounded: bounded_list s gb),
         Some s_agg = determine_schema_agg s agg gb bounded →
         eval_aggregate s s_agg gb bounded agg f Γ' β' p' r None →
-        ⟦ c (operator_groupby_having gb agg f o) ⟧ ⇓ ⟦ config_error ⟧
+        ⟦ c (OperatorGroupByHaving gb agg f o) ⟧ ⇓ ⟦ config_error ⟧
   | E_AggOk: ∀ c c' c'' db db' Γ Γ' Γ'' β β' β'' p p' p'' s s_agg r r' gb agg o f,
       c = ⟨ db Γ β p ⟩ →
       ⟦ c o ⟧ ⇓ ⟦ c' ⟧ →
@@ -824,29 +811,18 @@ Inductive step_config: (config * operator) → config → Prop :=
         Some s_agg = determine_schema_agg s agg gb bounded →
         eval_aggregate s s_agg gb bounded agg f Γ' β' p' r (Some (r', Γ'', β'', p'')) →
         c'' = config_output (RelationWrapped s_agg r') (⟨ db' Γ'' β'' p'' ⟩) →
-        ⟦ c (operator_groupby_having gb agg f o) ⟧ ⇓ ⟦ c'' ⟧
+        ⟦ c (OperatorGroupByHaving gb agg f o) ⟧ ⇓ ⟦ c'' ⟧
 where "'⟦' c op '⟧' '⇓' '⟦' c' '⟧'" := (step_config (c, op) c').
 Hint Constructors step_config: core.
 
 Section Facts.
 
-Inductive has_type: schema → ty_env → expression_lexed → expr_type → Prop :=
-  (* If variable is found in the typing environment, then we know its type. *)
-  | T_Var: ∀ s env x t,
-      List.nth_error env x = Some t →
-      has_type s env (expression_lexed_var x) t
+Inductive has_type: schema → ty_env → expression → expr_type → Prop :=
   | T_Const: ∀ s env bt c,
-      has_type s env (expression_lexed_const bt c) (expr_type_basic bt)
-  | T_Abs: ∀ s env t1 t2 body,
-      has_type s (t1 :: env) body t2 →
-      has_type s env (expression_lexed_abs t1 body) (expr_type_func t1 t2)
+      has_type s env (ExprConst bt c) (ExprTypeBasic bt)
   | T_Column: ∀ s env n t,
       find' (fun x y => (snd x) =? y) s n = Some t →
-      has_type s env (expression_lexed_column n) (expr_type_basic (fst t))
-  | T_App: ∀ s env t1 t2 e1 e2,
-      has_type s env e1 (expr_type_func t1 t2) →
-      has_type s env e2 t1 →
-      has_type s env (expression_lexed_app e1 e2) t2
+      has_type s env (ExprCol n) (ExprTypeBasic (fst t))
   (* TODO. *)
 .
 
@@ -856,28 +832,11 @@ Theorem determine_bt_from_expr_correct: ∀ s e env bt,
 Proof with eauto.
   intros s e.
   induction e; intros; try discriminate; inversion H.
-  - destruct (nth_error env n).
-    + inversion H1. subst. apply T_Var. assumption.
-    + discriminate.
   - inversion H1. subst. constructor.
   - destruct ((find' (λ (x : basic_type * nat) (y : nat), snd x =? y) s n)) eqn: Heq; simpl in *.
     + inversion H1. subst. apply T_Column. auto.
     + discriminate.
-  - destruct (determine_bt_from_expr_helper s e0 (e :: env)) eqn: Heq.
-    + simpl in H1. inversion H1. subst. apply T_Abs. apply IHe...
-    + discriminate.
-  - destruct (determine_bt_from_expr_helper s e1 env) eqn: Heq1;
-    destruct (determine_bt_from_expr_helper s e2 env) eqn: Heq2.
-    + destruct e.
-      * discriminate.
-      * destruct (expr_type_eqb e3 e0) eqn: Heq3.
-        -- inversion H1. subst. eapply T_App; eauto.
-           eapply IHe2. apply expr_type_eqb_eq_iff in Heq3. subst. assumption.
-        -- discriminate.
-    + destruct e; discriminate. 
-    + discriminate.
-    + discriminate.
-  
+
 Admitted.
 
 (* For Hongbo: can you help me prove this theorem? *)
@@ -1037,17 +996,17 @@ Proof.
     eapply E_Already with (r := r) (c := (config_output r c)) (c' := c). reflexivity.
   - exfalso. auto.
   - destruct d eqn: Hdb.
-    + exists config_error. eapply E_GetRelationDbEmpty with (o := operator_relation n); reflexivity.
+    + exists config_error. eapply E_GetRelationDbEmpty with (o := OperatorRel n); reflexivity.
     + destruct (database_get_contexts d n) as [ [ [ r' Γ' ] p' ] | ] eqn: Hget.
       * exists (config_output r' (⟨ d Γ' b p' ⟩)).
-        eapply E_GetRelation with (db := d) (o := operator_relation n) (Γ := c) (β := b) (p := p).
+        eapply E_GetRelation with (db := d) (o := OperatorRel n) (Γ := c) (β := b) (p := p).
         -- red. intros. subst. inversion H0.
         -- reflexivity.
         -- subst. reflexivity.
         -- eapply Hget.
         -- reflexivity.
       * exists config_error.
-        eapply E_GetRelationError with (db := d) (o := operator_relation n) (Γ := c) (β := b) (p := p).
+        eapply E_GetRelationError with (db := d) (o := OperatorRel n) (Γ := c) (β := b) (p := p).
         -- red. intros. subst. inversion H0.
         -- reflexivity.
         -- subst. reflexivity.
