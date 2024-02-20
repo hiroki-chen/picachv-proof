@@ -276,7 +276,7 @@ Admitted.
 
   The function works by iterating over the schema. For each attribute in the schema, it checks if the attribute's name is in the [join_by] list. If it is, it adds a tuple containing the current index [n] and the attribute to the result list. If it's not, it simply moves to the next attribute, incrementing the index [n].
 *)
-Fixpoint join_list_to_index (s: schema) (join_by: list nat) (n: nat): list (nat * Attribute) :=
+Fixpoint join_list_to_index (s: schema) (join_by: list nat) (n: nat): list (nat * attribute) :=
   match s with
   | nil => nil
   | h :: t =>
@@ -348,7 +348,7 @@ Hint Resolve join_list_to_index_bounded': core.
 
   The function works by iterating over the first list [lhs]. For each tuple in [lhs], it checks if there is a tuple in the second list [rhs] that has the same attribute name and type. If there is, it adds a new tuple to the result list that contains the pair of natural numbers from both tuples and the common attribute. If there isn't, it simply moves to the next tuple in [lhs].
 *)
-Fixpoint find_common (lhs rhs: list (nat * Attribute)): list ((nat * nat) * Attribute) :=
+Fixpoint find_common (lhs rhs: list (nat * attribute)): list ((nat * nat) * attribute) :=
   match lhs with
   | nil => nil
   | h :: t =>
@@ -431,7 +431,7 @@ Defined.
   and for every attribute [a] in [rhs], [ℙ2 a] holds, then for every triple [(x, y, z)]
   in the result of [find_common lhs rhs], either [ℙ1 (x, z)] or [ℙ2 (y, z)] holds.
 *)
-Lemma prop_find_common_holds: ∀ lhs rhs (ℙ1 ℙ2: (nat * Attribute) → Prop),
+Lemma prop_find_common_holds: ∀ lhs rhs (ℙ1 ℙ2: (nat * attribute) → Prop),
   (∀ a, List.In a lhs → ℙ1 a) ∧ (∀ a, List.In a rhs → ℙ2 a) →
   ∀ x y z, List.In (x, y, z) (find_common lhs rhs) → ℙ1 (x, z) ∧ ℙ2 (y, z).
 Proof.
@@ -465,7 +465,7 @@ Proof.
 Defined.
 
 Definition check_value s1 s2
-  (common_join_list: list ((nat * nat) * Attribute)) (join_by: list nat)
+  (common_join_list: list ((nat * nat) * attribute)) (join_by: list nat)
   (proof: ∀ elem, List.In elem common_join_list →
     List.In elem (find_common (join_list_to_index s1 join_by 0) 
       (join_list_to_index s2 join_by 0)))
@@ -674,7 +674,7 @@ Definition tuple_concat_by s1 s2 join_by
 
     (* Check value. *)
     pose (check_value (a :: s1) (a0 :: s2) common_join_list join_by) as check_value.
-    assert (∀ elem : nat * nat * Attribute, In elem common_join_list →
+    assert (∀ elem : nat * nat * attribute, In elem common_join_list →
       In elem (find_common (join_list_to_index (a :: s1) join_by 0)
                            (join_list_to_index (a0 :: s2) join_by 0)))
                            by auto.
@@ -830,11 +830,11 @@ Inductive relation_join_by_prv: ∀ s1 s2 join_by, relation s1 → relation s2 �
   | E_RelationJoinSchemaNil: ∀ s1 s2 join_by r1 r2 Γ1 Γ2 ε1 ε2 p1 p2,
       s1 = nil ∨ s2 = nil →
       relation_join_by_prv s1 s2 join_by r1 r2 Γ1 Γ2 ε1 ε2 p1 p2
-      (Some (nil, nil, nil, nil))
+      (Some (nil, nil, O, nil))
   | E_RelationJoinNil: ∀ s1 s2 join_by r1 r2 Γ1 Γ2 ε1 ε2 p1 p2,
       r1 = nil ∨ r2 = nil →
       relation_join_by_prv s1 s2 join_by r1 r2 Γ1 Γ2 ε1 ε2 p1 p2
-      (Some (nil, nil, nil, nil))
+      (Some (nil, nil, O, nil))
   | E_RelationJoinConsErr: ∀ s1 s2 join_by r1 r2 hd tl
                             Γ1 Γ2
                             (* TODO: Join budget? *)
@@ -870,13 +870,13 @@ Lemma relation_join_by_prv_terminate: ∀ s1 s2 join_by r1 r2 Γ1 Γ2 ε1 ε2 p1
   relation_join_by_prv s1 s2 join_by r1 r2 Γ1 Γ2 ε1 ε2 p1 p2 res.
 Proof.
   intros. destruct s1; destruct s2.
-  - exists (Some (nil, nil, nil, nil)). constructor; intuition.
-  - exists (Some (nil, nil, nil, nil)). constructor; intuition.
-  - exists (Some (nil, nil, nil, nil)). constructor; intuition.
+  - exists (Some (nil, nil, O, nil)). constructor; intuition.
+  - exists (Some (nil, nil, O, nil)). constructor; intuition.
+  - exists (Some (nil, nil, O, nil)). constructor; intuition.
   - induction r1; destruct r2.
-    + exists (Some (nil, nil, nil, nil)). apply E_RelationJoinNil. intuition.
-    + exists (Some (nil, nil, nil, nil)). apply E_RelationJoinNil. intuition.
-    + exists (Some (nil, nil, nil, nil)). apply E_RelationJoinNil. intuition.
+    + exists (Some (nil, nil, O, nil)). apply E_RelationJoinNil. intuition.
+    + exists (Some (nil, nil, O, nil)). apply E_RelationJoinNil. intuition.
+    + exists (Some (nil, nil, O, nil)). apply E_RelationJoinNil. intuition.
     + destruct (relation_join_by_prv_helper_terminate (a :: s1) (a0 :: s2) join_by a1 (t :: r2) Γ1 Γ2 ε1 ε2 p1 p2).
       destruct IHr1.
       destruct x; destruct x0.

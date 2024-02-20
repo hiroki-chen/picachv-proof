@@ -56,7 +56,7 @@ Fixpoint determine_bt_from_expr_helper (s: schema) (arg: expression) (env: ty_en
         match determine_bt_from_expr_helper s x env, determine_bt_from_expr_helper s y env with
           | Some τ1, Some τ2 =>
             match op with
-              | binary_function op _ _ =>
+              | BinFunc op _ _ =>
                 match op with
                 | Arithmetic _ =>
                   if expr_type_eqb τ1 (ExprTypeBasic IntegerType) then
@@ -80,7 +80,7 @@ Fixpoint determine_bt_from_expr_helper (s: schema) (arg: expression) (env: ty_en
         match determine_bt_from_expr_helper s x env with
           | Some τ =>
             match op with
-              | unary_function op ty _ =>
+              | UnaryFunc op ty _ =>
                 if expr_type_eqb τ (ExprTypeBasic ty) then
                   match op with
                   | Not =>
@@ -96,11 +96,11 @@ Fixpoint determine_bt_from_expr_helper (s: schema) (arg: expression) (env: ty_en
             end
           | _ => None
         end
-    | ExprAgg op x | ExprAggNoise op _ x =>
+    | ExprAgg op x =>
         match determine_bt_from_expr_helper s x env with
           | Some τ =>
             match op with
-            | aggregate_function _ _ τ _ _ => Some (ExprTypeBasic τ)
+            | AggFunc _ _ τ _ _ _ => Some (ExprTypeBasic τ)
             end
           | _ => None
         end
@@ -993,10 +993,10 @@ Proof.
   induction o; unfold not; intros; destruct c.
   - exfalso. auto.
   - (* Although we don't need `s`, we need to introduce this term into the context. *)
-    pose (s := @nil Attribute).
+    pose (s := @nil attribute).
     exists (config_output (RelationWrapped nil nil) (⟨ d c b p ⟩)).
     econstructor; reflexivity.
-  - pose (s := @nil Attribute). exists (config_output r c).
+  - pose (s := @nil attribute). exists (config_output r c).
     eapply E_Already with (r := r) (c := (config_output r c)) (c' := c). reflexivity.
   - exfalso. auto.
   - destruct d eqn: Hdb.
@@ -1016,7 +1016,7 @@ Proof.
         -- subst. reflexivity.
         -- assumption.
         -- reflexivity.
-  - pose (s := @nil Attribute). exists (config_output r c).
+  - pose (s := @nil attribute). exists (config_output r c).
     eapply E_Already with (r := r) (c := (config_output r c)) (c' := c). reflexivity.
   - contradiction.
   - (* We now introduce the existential variables into the context. *)

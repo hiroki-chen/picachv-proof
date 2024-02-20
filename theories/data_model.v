@@ -27,9 +27,9 @@ Inductive policy_label : Type :=
   | policy_bot: policy_label
   (* Should be something like `pred → policy_label` *)
   | policy_select: policy_label
-  | policy_transform: set TransOp → policy_label
-  | policy_agg: set AggOp → policy_label
-  | policy_noise: NoiseOp → policy_label
+  | policy_transform: set trans_op → policy_label
+  | policy_agg: set agg_op → policy_label
+  | policy_noise: noise_op → policy_label
   | policy_top : policy_label
 .
 

@@ -46,9 +46,8 @@ Inductive expression: Type :=
   | ExprBinary: binary_func → expression → expression → expression
   (* fold *)
   | ExprAgg: agg_func → expression → expression
-  (* fold with noise *)
-  | ExprAggNoise: agg_func → noise_gen → expression → expression
 .
+
 
 Inductive e_value: Type :=
   (*
@@ -61,10 +60,9 @@ Inductive e_value: Type :=
   | ValuePrimitiveList: ∀ bt, list (type_to_coq_type bt * option nat) → e_value
 .
 
-
 (* `groupby` list is just a list of indices of the original data frame that should be chosen as keys. *)
 Definition groupby_list := (list nat)%type.
-(* simple_agg_expression := (AggOp * agg_func * nat) *)
+(* simple_agg_expression := (agg_op * agg_func * nat) *)
 Definition agg_list := (list (expression * nat))%type.
 (* This represents a range of groups within the original data frame. *)
 Definition group := (list nat)%type.
@@ -157,13 +155,13 @@ Inductive eval_unary_expression_in_cell: ∀ bt,
       label_lookup p id = None →
       eval_unary_expression_in_cell bt f (arg, id) (c, tr, proxy) None
   | E_UnaryTypeError: ∀ bt bt' f op lambda (arg: type_to_coq_type bt) id c tr proxy,
-      f = unary_function op bt' lambda →
+      f = UnaryFunc op bt' lambda →
       bt ≠ bt' →
       eval_unary_expression_in_cell bt f (arg, id) (c, tr, proxy) None
   | E_UnaryPolicyError: ∀ bt bt' f op lambda (arg: type_to_coq_type bt) id db c tr proxy Γ β p p_cur,
       c = ⟨ db Γ β p ⟩ →
       label_lookup Γ id = Some p_cur →
-      f = unary_function op bt' lambda →
+      f = UnaryFunc op bt' lambda →
       bt = bt' → 
       let p_f := ∘ (Policy.policy_transform ((unary_trans_op op) :: nil)) in
         ¬ (p_cur ⪯ p_f) →
@@ -173,7 +171,7 @@ Inductive eval_unary_expression_in_cell: ∀ bt,
       c = ⟨ db Γ β p ⟩ →
       label_lookup Γ id = Some p_cur →
       label_lookup p id = Some prov_cur →
-      f = unary_function op bt' lambda →
+      f = UnaryFunc op bt' lambda →
       ∀ (eq: bt = bt'), let p_f := (Policy.policy_transform ((unary_trans_op op) :: nil)) in
         p_cur ⪯ (∘ p_f) →
           let p_new := get_new_policy p_cur p_f in
@@ -194,14 +192,14 @@ Inductive eval_unary_expression_prim:
     option (eval_env * e_value) → Prop :=
   | EvalUnaryValueTypeMismatch: ∀ f op env bt bt' v v' id lambda,
     v = (v', id) →
-    f = unary_function op bt' lambda →
+    f = UnaryFunc op bt' lambda →
     (* We cannot cast it. *)
     try_cast bt bt' v' = None →
     eval_unary_expression_prim bt f env v None
   (* If a value does not carry any id, then it is just a value without any policy. *)
   | EvalUnaryValue: ∀ f op env bt bt' v v' v'' lambda,
     v = (v', None) →
-    f = unary_function op bt' lambda →
+    f = UnaryFunc op bt' lambda →
     try_cast bt bt' v' = Some v'' →
     eval_unary_expression_prim bt f env v (Some (env, ValuePrimitive bt' (lambda v'', None)))
   | EvalUnaryValueWithId: ∀ f env bt v v' id res,
@@ -243,25 +241,25 @@ Inductive eval_binary_expression_list:
     → option (eval_env * e_value) → Prop :=
 .
 
-(* bt1: the input type; bt2: the output type. *)
+(* bt1: the input type; bt2: the output type; this evaluates the aggregation expression within a group. *)
 Inductive do_eval_agg:
   ∀ bt1 bt2, agg_func → Policy.context → prov_ctx → list (type_to_coq_type bt1 * option nat) →
     option (Policy.policy * prov * (type_to_coq_type bt2)) → Prop :=
   (* When the list being folded is empty, we shall return the initial value. *)
-  | EvalDoAggNil: ∀ f op bt1 bt2 f' init_val Γ p l,
+  | EvalDoAggNil: ∀ f op bt1 bt2 f' init_val noise Γ p l,
       l = nil →
-      f = aggregate_function op bt1 bt2 f' init_val →
+      f = AggFunc op bt1 bt2 f' init_val noise →
       do_eval_agg bt1 bt2 f Γ p l (Some (∎, ∅, init_val))
-  | EvalDoAggLabelNotFound: ∀ f op bt1 bt2 f' init_val Γ p l hd hd_v id tl,
+  | EvalDoAggLabelNotFound: ∀ f op bt1 bt2 f' init_val noise Γ p l hd hd_v id tl,
       l = hd :: tl →
-      f = aggregate_function op bt1 bt2 f' init_val →
+      f = AggFunc op bt1 bt2 f' init_val noise →
       hd = (hd_v, Some id) →
       label_lookup Γ id = None ∨
       label_lookup p id = None →
       do_eval_agg bt1 bt2 f Γ p l None
-  | EvalDoAggPolicyError: ∀ f op bt1 bt2 f' init_val Γ p l hd hd_v id tl p_cur p_f,
+  | EvalDoAggPolicyError: ∀ f op bt1 bt2 f' init_val noise Γ p l hd hd_v id tl p_cur p_f,
       l = hd :: tl →
-      f = aggregate_function op bt1 bt2 f' init_val →
+      f = AggFunc op bt1 bt2 f' init_val noise →
       hd = (hd_v, Some id) →
       label_lookup Γ id = Some p_cur →
       p_f = ∘ (Policy.policy_agg (op :: nil)) →
@@ -271,9 +269,9 @@ Inductive do_eval_agg:
       l = hd :: tl →
       do_eval_agg bt1 bt2 f Γ p tl None →
       do_eval_agg bt1 bt2 f Γ p l None
-  | EvalDoAggOk: ∀ f op bt1 bt2 f' init_val Γ p l hd hd_v id tl tl_v p_cur p_f prov_cur p_tl p_final prov_tl,
+  | EvalDoAggOk: ∀ f op bt1 bt2 f' init_val noise Γ p l hd hd_v id tl tl_v p_cur p_f prov_cur p_tl p_final prov_tl,
       l = hd :: tl →
-      f = aggregate_function op bt1 bt2 f' init_val →
+      f = AggFunc op bt1 bt2 f' init_val noise →
       hd = (hd_v, Some id) →
       label_lookup Γ id = Some p_cur →
       label_lookup p id = Some prov_cur →
@@ -287,6 +285,35 @@ Inductive do_eval_agg:
       do_eval_agg bt1 bt2 f Γ p l (Some (p_final, prov_new, res))
 .
 
+Inductive apply_noise:
+  ∀ bt, type_to_coq_type bt → budget → noise_gen → nat → Policy.policy →
+        prov → Policy.context → prov_ctx →
+    option (type_to_coq_type bt * Policy.context * budget * prov_ctx) → Prop :=
+  | ApplyNoiseTooWeak: ∀ bt v β ε δ 𝒩 oracle new_id policy provenance Γ p,
+      𝒩 = NoiseGen (ε, δ) oracle →
+      let p_f := (Policy.policy_noise (differential_privacy (ε, δ))) in
+      ¬ (policy ⪯ (∘ p_f)) →
+      apply_noise bt v β 𝒩 new_id policy provenance Γ p None
+  | ApplyNoiseNoBudget: ∀ bt v β ε δ 𝒩 oracle new_id policy provenance Γ p,
+      𝒩 = NoiseGen (ε, δ) oracle →
+      let p_f := (Policy.policy_noise (differential_privacy (ε, δ))) in
+      policy ⪯ (∘ p_f) →
+      β < ε →
+      apply_noise bt v β 𝒩 new_id policy provenance Γ p None
+  | ApplyNoiseOk: ∀ bt v β ε δ 𝒩 oracle new_id policy provenance Γ p,
+      𝒩 = NoiseGen (ε, δ) oracle →
+      let p_f := (Policy.policy_noise (differential_privacy (ε, δ))) in
+      (* The privacy requirement is satisfied. *)
+      policy ⪯ (∘ p_f) →
+      β ≥ ε →
+      let policy' := get_new_policy policy p_f in
+      let provenance' := prov_list (prov_noise (differential_privacy (ε, δ))) ((new_id, provenance) :: nil) in
+      let Γ' := (new_id, policy') :: Γ in
+      let β' := β - ε in
+      let p' := (new_id, provenance') :: p in
+      apply_noise bt v β 𝒩 new_id policy provenance Γ p (Some (oracle _ v, Γ', β', p'))
+.
+
 (*
   This is just a simple wrapper around `do_eval_agg` that does the policy job.
 *)
@@ -296,18 +323,34 @@ Inductive eval_agg: ∀ bt, agg_func → eval_env → list (type_to_coq_type bt 
       fst (fst env) = ⟨ db Γ β p ⟩ →
       do_eval_agg bt bt f Γ p l None →
       eval_agg bt f env l res
-  | EvalAggOk: ∀ bt f env c tr proxy db Γ β p l v policy provenance,
+  | EvalAggOkNoNoise: ∀ bt bt' f op f' init_val env c tr proxy db Γ β p l v policy provenance,
       env = (c, tr, proxy) →
       c = ⟨ db Γ β p ⟩ →
-      do_eval_agg bt bt f Γ p l (Some (policy, provenance, v)) →
+      f = AggFunc op bt bt' f' init_val None →
+      do_eval_agg bt bt' f Γ p l (Some (policy, provenance, v)) →
       let new_id := next_available_id Γ 0 in
       let Γ' := (new_id, policy) :: Γ in
       let p' := (new_id, provenance) :: p in
-      let v' := (ValuePrimitive bt (v, Some new_id)) in
+      let v' := (ValuePrimitive bt' (v, Some new_id)) in
         eval_agg bt f env l (Some ((⟨ db Γ' β p' ⟩, tr, proxy), v'))
+  | EvalAggOkNoBudget: ∀ bt bt'  f op f' init_val noise env c tr proxy db Γ β p l v policy provenance,
+      env = (c, tr, proxy) →
+      c = ⟨ db Γ β p ⟩ →
+      f = AggFunc op bt bt' f' init_val (Some noise) →
+      do_eval_agg bt bt' f Γ p l (Some (policy, provenance, v)) →
+      let new_id := next_available_id Γ 0 in
+      apply_noise bt' v β noise new_id policy provenance Γ p None →
+      eval_agg bt f env l None
+  | EvalAggOkNoise: ∀ bt bt' f op f' init_val noise env c tr proxy db Γ Γ' β β' p p' l v v' policy provenance res,
+      env = (c, tr, proxy) →
+      c = ⟨ db Γ β p ⟩ →
+      f = AggFunc op bt bt' f' init_val (Some noise) →
+      do_eval_agg bt bt' f Γ p l (Some (policy, provenance, v)) →
+      let new_id := next_available_id Γ 0 in
+      apply_noise bt' v β noise new_id policy provenance Γ p res →
+      res = Some (v', Γ', β', p') →
+      eval_agg bt f env l (Some ((⟨ db Γ' β' p' ⟩, tr, proxy), ValuePrimitive _ (v', Some new_id)))
 .
-
-(* TODO: Also add an inductive proposition for noised aggregation. *)
 
 (*
   Eval : (ℕ × Expr × 𝔹 × Γ) × Maybe (Γ' × Val) 

@@ -58,25 +58,22 @@ Definition nat_of_string (s: string) : nat :=
 *)
 Definition dp_param := (nat * nat)%type.
 
-(*
-  budgets are defined for each dataset.
-*)
-Definition budget := list (nat * dp_param).
+Definition budget := nat%type.
 
 (* We assume there is a well-defined mechanism for doing this. *)
 Definition calculate_budget (ε1 ε2: budget): budget. Admitted.
 
 (* Note that these operators are not designed to be exhaustive. *)
 (* Logical connections. *)
-Inductive LogOp: Type := And | Or.
+Inductive log_op: Type := And | Or.
 (* Comparison operators. *)
-Inductive ComOp: Type := Gt | Lt | Ge | Le | Eq | Neq.
+Inductive com_op: Type := Gt | Lt | Ge | Le | Eq | Neq.
 (* Some example binary arithmetic operators. *)
-Inductive BinArithOp: Type := Add | Sub | Mul | Div | Mod | Concat.
+Inductive bin_arith_op: Type := Add | Sub | Mul | Div | Mod | Concat.
 (* Some example unary arithmetic operators. *)
-Inductive UnOp: Type :=
+Inductive un_op: Type :=
   | Identity
-  | Redact: nat → UnOp
+  | Redact: nat → un_op
   | Ascii
   | Strlen
   | Lower
@@ -84,20 +81,20 @@ Inductive UnOp: Type :=
   | Not
 .
 
-Inductive BinOp: Type :=
-  | Logical: LogOp → BinOp
-  | Comparison: ComOp → BinOp
-  | Arithmetic: BinArithOp → BinOp
+Inductive bin_op: Type :=
+  | Logical: log_op → bin_op
+  | Comparison: com_op → bin_op
+  | Arithmetic: bin_arith_op → bin_op
 .
 
-Inductive TransOp: Type :=
-  | unary_trans_op: UnOp → TransOp
-  | binary_trans_op: BinOp → TransOp
+Inductive trans_op: Type :=
+  | unary_trans_op: un_op → trans_op
+  | binary_trans_op: bin_op → trans_op
 .
 
-Inductive AggOp: Type := Max | Min | Sum | Avg | Count.
-Inductive NoiseOp: Type :=
-  | differential_privacy: dp_param → NoiseOp
+Inductive agg_op: Type := Max | Min | Sum | Avg | Count.
+Inductive noise_op: Type :=
+  | differential_privacy: dp_param → noise_op
 .
 
 (* Basic types in our column types. *)
@@ -109,12 +106,12 @@ Inductive basic_type: Set :=
 
 (*
   For brevity, we assume that the noise generator for ensuring privacy is an "oracle" in a sense that
-  for any given budget it always generates a noise value. Verifying differential privacy is a separate
+  for any given DP param it always generates a noise value. Verifying differential privacy is a separate
   concern and is not addressed here.
  *)
 Inductive noise_gen: Type :=
-  (* The constructor which takes a certain value of budget and the raw value.  *)
-  | noise: ∀ (A: Type), budget → A → A → noise_gen
+  (* The constructor which takes a certain value of DP requirement and the raw value.  *)
+  | NoiseGen: dp_param → (∀ (A: Type), A → A) → noise_gen
 .
 
 Lemma basic_type_eq_dec: ∀ (t1 t2: basic_type), {t1 = t2} + {t1 ≠ t2}.
@@ -266,9 +263,9 @@ Defined.
   1. Not generic enough.
   2. May be duplicate (in the sense of string equality) and we want to avoid that.
 *)
-Definition Attribute := (basic_type * nat)%type.
+Definition attribute := (basic_type * nat)%type.
 
-Lemma attribute_eq_dec: ∀ (a1 a2: Attribute), {a1 = a2} + {a1 ≠ a2}.
+Lemma attribute_eq_dec: ∀ (a1 a2: attribute), {a1 = a2} + {a1 ≠ a2}.
 Proof.
   intros.
   destruct a1, a2.
@@ -294,30 +291,39 @@ Inductive func: Set :=
 Definition func_list: Set := list func%type.
 
 Inductive unary_func :=
-  (* UnOp is the "sort" signature of the function because function itself is opaque. *)
-  | unary_function: UnOp → ∀ ty, (type_to_coq_type ty → type_to_coq_type ty) → unary_func
+  (* un_op is the "sort" signature of the function because function itself is opaque. *)
+  | UnaryFunc: un_op → ∀ ty, (type_to_coq_type ty → type_to_coq_type ty) → unary_func
 .
 
 Inductive binary_func :=
-  (* BinOp is the "sort" signature of the function because function itself is opaque. *)
-  | binary_function: BinOp → ∀ ty,
+  (* bin_op is the "sort" signature of the function because function itself is opaque. *)
+  | BinFunc: bin_op → ∀ ty,
       (type_to_coq_type ty → type_to_coq_type ty → type_to_coq_type ty) → binary_func
 .
 
 Inductive agg_func :=
-  (* AggOp is the "sort" signature of the function because function itself is opaque. *)
+  (* agg_op is the "sort" signature of the function because function itself is opaque. *)
   (*
-    agg := op × (τ2 → τ1 → τ2) → τ2
+    agg := op × (τ2 → τ1 → τ2) → τ2 → 𝒩
                  ^^^^^^^^^^^^    ^^
                    folder      initial value
     where
       τ1 is the type of the input column.
       τ2 is the type of the output value.
   *)
-  | aggregate_function: AggOp → ∀ ty1 ty2,
+  | AggFunc: agg_op → ∀ ty1 ty2,
       (type_to_coq_type ty2 → type_to_coq_type ty1 → type_to_coq_type ty2)
-        → type_to_coq_type ty2 → agg_func
+        → type_to_coq_type ty2 → option noise_gen → agg_func
 .
+
+Definition agg_with_noise f: Prop :=
+  match f with
+  | AggFunc _ _ _ _ _ n =>
+    match n with
+    | Some _ => True
+    | None => False
+    end
+  end.
 
 (*
   A distinction is made between the database schema, which specifies the structure
@@ -326,7 +332,7 @@ Inductive agg_func :=
 *)
 
 (* A schema is a list of attributes. *)
-Definition schema: Type := (list Attribute).
+Definition schema: Type := (list attribute).
 Definition schema_no_name := (list basic_type).
 
 (* Transforms a schema into a list of pure basic types. *)
@@ -349,14 +355,14 @@ Proof.
   - simpl. destruct a. rewrite <- IHs. auto.
 Qed.
 
-Lemma unop_dec: ∀ (op1 op2: UnOp), {op1 = op2} + {op1 ≠ op2}.
+Lemma unop_dec: ∀ (op1 op2: un_op), {op1 = op2} + {op1 ≠ op2}.
 Proof.
   intros.
   destruct op1, op2; try (destruct (eq_nat_dec n n0)); try (right; discriminate); try (left; congruence).
   right. unfold not in *. intros. inversion H. exfalso. auto.
 Qed.
 
-Lemma binop_dec: ∀ (op1 op2: BinOp), {op1 = op2} + {op1 ≠ op2}.
+Lemma binop_dec: ∀ (op1 op2: bin_op), {op1 = op2} + {op1 ≠ op2}.
 Proof.
   intros.
   destruct op1, op2; try (right; discriminate); try (left; congruence).
@@ -365,7 +371,7 @@ Proof.
   - destruct b, b0; try (right; discriminate); try (left; congruence).
 Qed.
 
-Lemma transop_dec: ∀ (op1 op2: TransOp), {op1 = op2} + {op1 ≠ op2}.
+Lemma transop_dec: ∀ (op1 op2: trans_op), {op1 = op2} + {op1 ≠ op2}.
 Proof.
   intros.
   destruct op1, op2; try (destruct (unop_dec u u0)); try (destruct (binop_dec b b0));
@@ -373,7 +379,7 @@ Proof.
   unfold not in *; right; intros; apply n; inversion H; auto.
 Qed.
 
-Lemma aggop_dec: ∀ (op1 op2: AggOp), {op1 = op2} + {op1 ≠ op2}.
+Lemma aggop_dec: ∀ (op1 op2: agg_op), {op1 = op2} + {op1 ≠ op2}.
 Proof.
   intros.
   destruct op1, op2; try (right; discriminate); try (left; congruence).

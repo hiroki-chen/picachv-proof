@@ -6,10 +6,10 @@ Require Import types.
 Require Import util.
 
 Inductive prov_type: Set :=
-  | prov_trans_unary: UnOp → prov_type
-  | prov_trans_binary: BinOp → prov_type
-  | prov_agg: AggOp → prov_type
-  | prov_noise: NoiseOp → prov_type
+  | prov_trans_unary: un_op → prov_type
+  | prov_trans_binary: bin_op → prov_type
+  | prov_agg: agg_op → prov_type
+  | prov_noise: noise_op → prov_type
   | prov_join: prov_type
 .
 
