@@ -843,6 +843,12 @@ Proof with eauto.
 
 Admitted.
 
+Theorem apply_proj_in_relation_deterministic: ∀ s s' r pl Γ β p res1 res2,
+  apply_proj_in_relation s s' r pl Γ β p (Some res1) →
+  apply_proj_in_relation s s' r pl Γ β p (Some res2) →
+  res1 = res2.
+Proof. Admitted.
+
 (* For Hongbo: can you help me prove this theorem? *)
 Theorem operator_deterministic: ∀ c o c1 c2, 
   ⟦ c o ⟧ ⇓ ⟦ c1 ⟧ →
@@ -983,6 +989,50 @@ Proof.
       * assumption.
       * assumption.
   - inversion H0; inversion H; subst; intuition; auto; subst; try discriminate.
+    + apply IHo with (c1 := config_output (RelationWrapped s nil) (⟨ db' Γ' β' p' ⟩)) in H13.
+      inversion H12. subst. inversion H13. subst. apply inj_pair2_eq_dec in H6. subst.
+      * exfalso. apply H2. auto.
+      * apply list_eq_dec; apply attribute_eq_dec.
+      * assumption.
+    + apply IHo with (c1 := (config_output (RelationWrapped nil r) (⟨ db' Γ' β' p' ⟩))) in H13.
+      inversion H12. subst. inversion H13. subst. apply inj_pair2_eq_dec in H6. subst.
+      * exfalso. apply H1. auto.
+      * apply list_eq_dec; apply attribute_eq_dec.
+      * assumption.
+    + apply IHo with (c1 := (config_output (RelationWrapped s nil) (⟨ db' Γ' β' p' ⟩))) in H13.
+      inversion H12. subst. inversion H13. subst. apply inj_pair2_eq_dec in H6. subst.
+      * exfalso. apply H2. auto.
+      * apply list_eq_dec; apply attribute_eq_dec.
+      * assumption.
+    + apply IHo with (c1 :=(config_output (RelationWrapped nil r) (⟨ db' Γ' β' p' ⟩))) in H13.
+      inversion H12. subst. inversion H13. subst. apply inj_pair2_eq_dec in H6. subst.
+      * exfalso. apply H1. auto.
+      * apply list_eq_dec; apply attribute_eq_dec.
+      * assumption.
+    + apply IHo with (c1 := (config_output (RelationWrapped s nil) (⟨ db' Γ' β' p' ⟩))) in H13.
+      inversion H12. subst. inversion H13. subst. apply inj_pair2_eq_dec in H6. subst.
+      * exfalso. apply H2. auto.
+      * apply list_eq_dec; apply attribute_eq_dec.
+      * assumption.
+    + apply IHo with (c1 :=(config_output (RelationWrapped nil r) (⟨ db' Γ' β' p' ⟩))) in H13.
+      inversion H12. subst. inversion H13. subst. apply inj_pair2_eq_dec in H6. subst.
+      * exfalso. apply H1. auto.
+      * apply list_eq_dec; apply attribute_eq_dec.
+      * assumption.
+    + apply IHo with (c1 := (config_output (RelationWrapped s' r') (⟨ db' Γ' β' p' ⟩))) in H17.
+      inversion H16. subst. inversion H17. subst. apply inj_pair2_eq_dec in H6. subst.
+      * exfalso. apply H2. auto.
+      * apply list_eq_dec; apply attribute_eq_dec.
+      * assumption.
+    + apply IHo with (c1 :=(config_output (RelationWrapped s' r') (⟨ db' Γ' β' p' ⟩))) in H17.
+      inversion H16. subst. inversion H17. subst. apply inj_pair2_eq_dec in H6. subst.
+      * exfalso. apply H1. auto.
+      * apply list_eq_dec; apply attribute_eq_dec.
+      * assumption.
+    + apply IHo with (c1 := (config_output (RelationWrapped s' r') (⟨ db' Γ' β' p' ⟩))) in H17.
+      inversion H16. subst. inversion H17. subst. apply inj_pair2_eq_dec in H10. subst.
+      * 
+
 Admitted.
 
 (* This theorem ensures the "sanity" of the semantics to ensure that operators won't get stuck.
