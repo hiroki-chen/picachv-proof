@@ -664,7 +664,7 @@ Inductive step_config: (config * operator) → config → Prop :=
       project pl' = project_list_preprocess s' pl →
       Some s'' = determine_schema s' pl' →
         (* We then apply projection inside the environment. *)
-        apply_proj_in_relation s' s'' r' pl' Γ β p None →
+        apply_proj_in_relation s' s'' r' pl' Γ' β' p' None →
         ⟦ c (OperatorProject pl o) ⟧ ⇓ ⟦ config_error ⟧
   (*
      If the operator returns a valid environment, we can then apply projection. Then if the
@@ -844,8 +844,8 @@ Proof with eauto.
 Admitted.
 
 Theorem apply_proj_in_relation_deterministic: ∀ s s' r pl Γ β p res1 res2,
-  apply_proj_in_relation s s' r pl Γ β p (Some res1) →
-  apply_proj_in_relation s s' r pl Γ β p (Some res2) →
+  apply_proj_in_relation s s' r pl Γ β p res1 →
+  apply_proj_in_relation s s' r pl Γ β p res2 →
   res1 = res2.
 Proof. Admitted.
 
@@ -1031,8 +1031,85 @@ Proof.
       * assumption.
     + apply IHo with (c1 := (config_output (RelationWrapped s' r') (⟨ db' Γ' β' p' ⟩))) in H17.
       inversion H16. subst. inversion H17. subst. apply inj_pair2_eq_dec in H10. subst.
-      * 
-
+      (* Subsitute pl' and pl'0. *)
+      rewrite <- H8 in H20. inversion H20. subst.
+      (* Then we are able to substite schemas. *)
+      rewrite <- H9 in H21. inversion H21. subst.
+      * specialize apply_proj_in_relation_deterministic
+          with
+          (s := s'0) (s' := s'')
+          (r := r'0) (pl := pl')
+          (Γ := Γ'0) (β := β'0) (p := p'0)
+          (res1 := Some (r'', Γ'', β'', p'')) (res2 := Some (r''0, Γ''0, β''0, p''0)).
+          intros.
+        apply H6 in H11. inversion H11. subst.
+        reflexivity. assumption.
+      * apply list_eq_dec; apply attribute_eq_dec.
+      * assumption.
+    + apply IHo with (c1 := (config_output (RelationWrapped s' r') (⟨ db' Γ' β' p' ⟩))) in H17.
+      inversion H16. subst. inversion H17. subst. apply inj_pair2_eq_dec in H10. subst.
+      rewrite <- H8 in H20. inversion H20. subst.
+      rewrite <- H9 in H22. inversion H22. subst.
+      * specialize apply_proj_in_relation_deterministic
+          with
+          (s := s'0) (s' := s'')
+          (r := r'0) (pl := pl')
+          (Γ := Γ'0) (β := β'0) (p := p'0)
+          (res1 := Some (r'', Γ'', β'', p'')) (res2 := None).
+          intros.
+        apply H6 in H11. discriminate. assumption.
+      * apply list_eq_dec; apply attribute_eq_dec.
+      * assumption.
+    + apply IHo with (c1 := (config_output (RelationWrapped s' r') (⟨ db' Γ' β' p' ⟩))) in H18.
+      inversion H18. assumption.
+    + apply IHo with (c1 := (config_output (RelationWrapped s' r') (⟨ db' Γ' β' p' ⟩))) in H17.
+      inversion H16. subst. inversion H17. subst. apply inj_pair2_eq_dec in H10. subst.
+      rewrite <- H8 in H21. inversion H21. subst. rewrite <- H9 in H22.
+      * discriminate.
+      * apply list_eq_dec; apply attribute_eq_dec.
+      * assumption.
+    + apply IHo with (c1 := (config_output (RelationWrapped s' r') (⟨ db' Γ' β' p' ⟩))) in H16.
+      inversion H16. subst. inversion H15. subst. apply inj_pair2_eq_dec in H6. subst.
+      * exfalso. apply H2. reflexivity.
+      * apply list_eq_dec; apply attribute_eq_dec.
+      * assumption.
+    + apply IHo with (c1 := (config_output (RelationWrapped s' r') (⟨ db' Γ' β' p' ⟩))) in H16.
+      inversion H16. subst. inversion H15. subst. apply inj_pair2_eq_dec in H6. subst.
+      * exfalso. apply H1. reflexivity.
+      * apply list_eq_dec; apply attribute_eq_dec.
+      * assumption.
+    + apply IHo with (c1 := (config_output (RelationWrapped s' r') (⟨ db' Γ' β' p' ⟩))) in H16.
+      inversion H16. subst. inversion H15. subst. apply inj_pair2_eq_dec in H9. subst.
+      rewrite <- H8 in H19. inversion H19. subst.
+      rewrite <- H10 in H20. inversion H20. subst.
+      * specialize apply_proj_in_relation_deterministic
+          with
+          (s := s'0) (s' := s'')
+          (r := r'0) (pl := pl')
+          (Γ := Γ'0) (β := β'0) (p := p'0)
+          (res1 := None) (res2 := (Some (r'', Γ'', β'', p''))).
+          intros.
+        apply H6 in H11. inversion H11. assumption.
+      * apply list_eq_dec; apply attribute_eq_dec.
+      * assumption.
+    + apply IHo with (c1 := config_error) in H11. inversion H11. assumption.
+    + apply IHo with (c1 := (config_output (RelationWrapped s' r') (⟨ db' Γ' β' p' ⟩))) in H15.
+      inversion H15. subst. inversion H14. subst. apply inj_pair2_eq_dec in H6. subst.
+      * exfalso. apply H2. reflexivity.
+      * apply list_eq_dec; apply attribute_eq_dec.
+      * assumption.
+    + apply IHo with (c1 := (config_output (RelationWrapped s' r') (⟨ db' Γ' β' p' ⟩))) in H15.
+      inversion H15. subst. inversion H14. subst. apply inj_pair2_eq_dec in H6. subst.
+      * exfalso. apply H1. reflexivity.
+      * apply list_eq_dec; apply attribute_eq_dec.
+      * assumption.
+    + apply IHo with (c1 := (config_output (RelationWrapped s' r') (⟨ db' Γ' β' p' ⟩))) in H15.
+      inversion H15. subst. inversion H14. subst. apply inj_pair2_eq_dec in H8. subst.
+      rewrite <- H9 in H18. inversion H18. subst.
+      rewrite <- H10 in H19. inversion H19.
+      * apply list_eq_dec; apply attribute_eq_dec.
+      * assumption.
+  - 
 Admitted.
 
 (* This theorem ensures the "sanity" of the semantics to ensure that operators won't get stuck.
