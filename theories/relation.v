@@ -10,7 +10,7 @@ Require Import Unicode.Utf8.
 Require Import data_model.
 Require Import finite_bags.
 Require Import ordering.
-Require Import prov.
+Require Import trace.
 Require Import types.
 Require Import util.
 
@@ -44,6 +44,8 @@ Fixpoint dataframe (s: schema): Type :=
   | (bt, _) :: t => (fbag (type_to_coq_type bt * nat) * dataframe t)%type
   end.
 
+Definition db_entry s := (Tuple.tuple_np (♭ s) * Policy.policy_store (♭ s))%type.
+
 (*
   [database] represents an abstract database that consists of a collection of relations. This type is defined inductively
   because schemas are different, in which case we cannot use a list (type should be the smae) to represent a database.
@@ -54,13 +56,14 @@ Inductive database: Type :=
     A database entry that stores a list of tuples as relations; this is for assigning
     new UUIDs to each cell.
   *)
-  | database_relation: ∀ s, list (Tuple.tuple_np (♭ s) * Policy.policy_store (♭ s)) → database → database
+  | database_relation:
+      ∀ s, list (db_entry s) → budget → database → database
 .
 
 Fixpoint db_size (db: database): nat :=
   match db with
     | database_empty => 0
-    | database_relation _ _ db' => S (db_size db')
+    | database_relation _ _ _ db' => S (db_size db')
   end.
 
 Lemma schema_concat_eq: ∀ s1 s2,
@@ -730,52 +733,49 @@ Definition tuple_concat_by s1 s2 join_by
     exact (Some (result, (cell_id_lhs, cell_id_rhs, comid))).
 Defined.
 
-Inductive join_policy: list nat → list nat → list nat → Policy.context → Policy.context →
-  option Policy.context → Prop :=
-  | join_policy_nil_l: ∀ l com Γ1 Γ2, join_policy nil l com Γ1 Γ2 (Some (merge_env Γ1 Γ2))
-  | join_policy_nil_r: ∀ l com Γ1 Γ2, join_policy l nil com Γ1 Γ2 (Some (merge_env Γ1 Γ2))
-  | join_policy_no_com: ∀ l1 l2 Γ1 Γ2, join_policy l1 l2 nil Γ1 Γ2 (Some (merge_env Γ1 Γ2))
-  | join_policy_cons_err: ∀ l1 l2 com Γ1 Γ2 hd1 hd2 tl1 tl2,
+Inductive join_policy_and_trace:
+  list nat → list nat → list nat →
+  Policy.context → Policy.context →
+  trace → trace →
+  option (Policy.context * trace) → Prop :=
+  | join_policy_and_trace_nil_l: ∀ l com Γ1 Γ2 tr1 tr2,
+      join_policy_and_trace nil l com Γ1 Γ2 tr1 tr2 (Some ((merge_env Γ1 Γ2), merge_env tr1 tr2))
+  | join_policy_and_trace_nil_r: ∀ l com Γ1 Γ2 tr1 tr2,
+      join_policy_and_trace l nil com Γ1 Γ2 tr1 tr2 (Some ((merge_env Γ1 Γ2), merge_env tr1 tr2))
+  | join_policy_and_trace_no_com: ∀ l1 l2 Γ1 Γ2 tr1 tr2,
+      join_policy_and_trace l1 l2 nil Γ1 Γ2 tr1 tr2 (Some ((merge_env Γ1 Γ2), merge_env tr1 tr2))
+  | join_policy_and_trace_cons_err: ∀ l1 l2 com Γ1 Γ2 tr1 tr2 hd1 hd2 tl1 tl2,
       l1 = hd1 :: tl1 →
       l2 = hd2 :: tl2 →
-      label_lookup Γ1 hd1 = None ∨ label_lookup Γ2 hd2 = None →
-      join_policy l1 l2 com Γ1 Γ2 None
-  | join_policy_cons_ok: ∀ l1 l2 com Γ1 Γ2 Γ hd1 hd2 hd3 tl1 tl2 tl3 p1 p2 pjoin,
+      label_lookup Γ1 hd1 = None ∨ label_lookup Γ2 hd2 = None ∨
+      label_lookup tr1 hd1 = None ∨ label_lookup tr2 hd2 = None →
+      join_policy_and_trace l1 l2 com Γ1 Γ2 tr1 tr2 None
+  | join_policy_and_trace_cons_ok:
+      ∀ l1 l2 com Γ1 Γ2 Γ tr1 tr2 tr
+        hd1 hd2 hd3 hd4 hd5
+        tl1 tl2 tl3 tl4 tl5
+        p1 p2 pjoin
+        tr1' tr2'
+        ,
       l1 = hd1 :: tl1 →
       l2 = hd2 :: tl2 →
       com = hd3 :: tl3 →
+      tr1 = hd4 :: tl4 →
+      tr2 = hd5 :: tl5 →
       label_lookup Γ1 hd1 = Some p1 →
       label_lookup Γ2 hd2 = Some p2 →
+      label_lookup tr1 hd1 = Some tr1' →
+      label_lookup tr2 hd2 = Some tr2' →
       p1 ∪ p2 = pjoin →
-      join_policy tl1 tl2 tl3 Γ1 Γ2 (Some Γ) →
-      join_policy l1 l2 com Γ1 Γ2 (Some ((hd3, pjoin) :: Γ))
-.
-
-Inductive join_prov: list nat → list nat → list nat → prov_ctx → prov_ctx →
-  option prov_ctx → Prop :=
-  | join_prov_nil_l: ∀ l com p1 p2, join_prov nil l com p1 p2 (Some (merge_env p1 p2))
-  | join_prov_nil_r: ∀ l com p1 p2, join_prov l nil com p1 p2 (Some (merge_env p1 p2))
-  | join_prov_no_com: ∀ l1 l2 p1 p2, join_prov l1 l2 nil p1 p2 (Some (merge_env p1 p2))
-  | join_prov_cons_err: ∀ l1 l2 com p1 p2 hd1 hd2 tl1 tl2,
-      l1 = hd1 :: tl1 →
-      l2 = hd2 :: tl2 →
-      label_lookup p1 hd1 = None ∨ label_lookup p2 hd2 = None →
-      join_prov l1 l2 com p1 p2 None
-  | join_prov_cons_ok: ∀ l1 l2 com p1 p2 hd1 hd2 hd3 tl1 tl2 tl3 prov1 prov2 (provjoin: prov) prov_cons,
-      l1 = hd1 :: tl1 →
-      l2 = hd2 :: tl2 →
-      com = hd3 :: tl3 →
-      label_lookup p1 hd1 = Some prov1 →
-      label_lookup p2 hd2 = Some prov2 →
-      provjoin = prov_list prov_join ((hd1, prov1) :: (hd2, prov2) :: nil) →
-      join_prov tl1 tl2 tl3 p1 p2 (Some prov_cons) →
-      join_prov l1 l2 com p1 p2 (Some ((hd3, provjoin) :: prov_cons))
+      join_policy_and_trace tl1 tl2 tl3 Γ1 Γ2 tl4 tl5 (Some (Γ, tr)) →
+      let tr_join := TrBranch prov_join pjoin tr1' tr2' in
+      join_policy_and_trace l1 l2 com Γ1 Γ2 tr1 tr2 (Some ((hd3, pjoin) :: Γ, (hd3, tr_join) :: tr))
 .
 
 (* Coq cannot do "nested loop"; this performs one-time pass over rhs. *)
 Inductive relation_join_by_prv_helper: ∀ s1 s2 join_by, Tuple.tuple (♭ s1) → relation s2 →
-  Policy.context → Policy.context → budget → budget → prov_ctx → prov_ctx →
-  option (relation (output_schema_join_by s1 s2 join_by) * Policy.context * budget * prov_ctx) → Prop :=
+  Policy.context → Policy.context → budget → budget → trace → trace →
+  option (relation (output_schema_join_by s1 s2 join_by) * Policy.context * budget * trace) → Prop :=
   | E_JoinEmpty: ∀ s1 s2 join_by t Γ1 Γ2 Γ_out ε1 ε2 ε_out p1 p2 p_out,
       Γ_out = merge_env Γ1 Γ2 →
       ε_out = calculate_budget ε1 ε2 →
@@ -790,8 +790,7 @@ Inductive relation_join_by_prv_helper: ∀ s1 s2 join_by, Tuple.tuple (♭ s1) �
                         index_lhs index_rhs comid,
       r = t2 :: tl →
       Some(t', (index_lhs, index_rhs, comid)) = tuple_concat_by s1 s2 join_by t1 t2 →
-      join_policy index_lhs index_rhs comid Γ1 Γ2 None ∨
-      join_prov index_lhs index_rhs comid p1 p2 None →
+      join_policy_and_trace index_lhs index_rhs comid Γ1 Γ2 p1 p2 None →
       relation_join_by_prv_helper s1 s2 join_by t1 r Γ1 Γ2 ε1 ε2 p1 p2 None
   | E_JoinConsError3: ∀ s1 s2 join_by t1 t2 t' r tl Γ1 Γ2
                     Γ_merged
@@ -800,8 +799,7 @@ Inductive relation_join_by_prv_helper: ∀ s1 s2 join_by, Tuple.tuple (♭ s1) �
                     index_lhs index_rhs comid,
       r = t2 :: tl →
       Some(t', (index_lhs, index_rhs, comid)) = tuple_concat_by s1 s2 join_by t1 t2 →
-      join_policy index_lhs index_rhs comid Γ1 Γ2 (Some Γ_merged) →
-      join_prov index_lhs index_rhs comid p1 p2 (Some p_merged) →
+      join_policy_and_trace index_lhs index_rhs comid Γ1 Γ2 p1 p2 (Some (Γ_merged, p_merged)) →
       ε_merged = calculate_budget ε1 ε2 →
       relation_join_by_prv_helper s1 s2 join_by t1 tl Γ1 Γ2 ε1 ε2 p1 p2 None →
       relation_join_by_prv_helper s1 s2 join_by t1 r Γ1 Γ2 ε1 ε2 p1 p2 None
@@ -812,8 +810,7 @@ Inductive relation_join_by_prv_helper: ∀ s1 s2 join_by, Tuple.tuple (♭ s1) �
                     index_lhs index_rhs comid,
       r = t2 :: tl →
       Some(t', (index_lhs, index_rhs, comid)) = tuple_concat_by s1 s2 join_by t1 t2 →
-      join_policy index_lhs index_rhs comid Γ1 Γ2 (Some Γ_merged) →
-      join_prov index_lhs index_rhs comid p1 p2 (Some p_merged) →
+      join_policy_and_trace index_lhs index_rhs comid Γ1 Γ2 p1 p2 (Some (Γ_merged, p_merged)) →
       ε_merged = calculate_budget ε1 ε2 →
       relation_join_by_prv_helper s1 s2 join_by t1 tl Γ1 Γ2 ε1 ε2 p1 p2
       (Some (r_cons, Γ_cons, ε_cons, p_cons)) →
@@ -825,8 +822,8 @@ Inductive relation_join_by_prv_helper: ∀ s1 s2 join_by, Tuple.tuple (♭ s1) �
 .
 
 Inductive relation_join_by_prv: ∀ s1 s2 join_by, relation s1 → relation s2 →
-  Policy.context → Policy.context → budget → budget → prov_ctx → prov_ctx →
-  option (relation (output_schema_join_by s1 s2 join_by) * Policy.context * budget * prov_ctx) → Prop :=
+  Policy.context → Policy.context → budget → budget → trace → trace →
+  option (relation (output_schema_join_by s1 s2 join_by) * Policy.context * budget * trace) → Prop :=
   | E_RelationJoinSchemaNil: ∀ s1 s2 join_by r1 r2 Γ1 Γ2 ε1 ε2 p1 p2,
       s1 = nil ∨ s2 = nil →
       relation_join_by_prv s1 s2 join_by r1 r2 Γ1 Γ2 ε1 ε2 p1 p2
@@ -926,7 +923,7 @@ Defined.
   identifiers are injected starting with the identifier `id_start`. The function returns a tuple containing the
   relation with injected identifiers and the policy context.
 *)
-Fixpoint inject_id_helper s (r: list (Tuple.tuple_np (♭ s) * Policy.policy_store (♭ s))) (id_start: nat)
+Fixpoint inject_id_helper s (r: list (db_entry s)) (id_start: nat)
   : (relation s * Policy.context) :=
   match r with
     | nil => (nil, nil)
@@ -938,15 +935,15 @@ Fixpoint inject_id_helper s (r: list (Tuple.tuple_np (♭ s) * Policy.policy_sto
   end.
 
 Fixpoint database_get_contexts (db: database) (idx: nat)
-  : option (relation_wrapped * Policy.context * prov_ctx) :=
+  : option (relation_wrapped * Policy.context * trace * budget) :=
   match db with
     | database_empty => None
-    | database_relation s r db' =>
+    | database_relation s r β db' =>
         if Nat.eqb idx O then
                 match inject_id_helper s r 10 with
-                | (r', Γ') => 
-                  let p := empty_prov_from_pctx Γ' in
-                  Some (RelationWrapped s r', Γ', p)
+                | (r', Γ') =>
+                  let p := empty_trace_from_pctx Γ' in
+                    Some (RelationWrapped s r', Γ', p, β)
                 end
         else database_get_contexts db' (idx - 1)
   end.

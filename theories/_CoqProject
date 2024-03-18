@@ -5,9 +5,9 @@ expression.v
 finite_bags.v
 lattice.v
 ordering.v
-prov.v
 relation.v
 security.v
 semantics.v
+trace.v
 types.v
 util.v
