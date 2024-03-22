@@ -199,6 +199,21 @@ Definition project_list_preprocess (s: schema) (pl: project_list): project_list 
     | _ => pl
   end.
 
+Theorem project_list_preprocess_neq_star:
+  ∀ s pl, ∃ pl', project_list_preprocess s pl = project pl'.
+Proof.
+  destruct pl.
+  - simpl.
+    exists (let f := fix f s n :=
+      match s with
+      | nil => nil
+      | hd :: tl => (ExprCol n, snd hd) :: f tl (S n)
+      end
+    in (f s 0)).
+    reflexivity.
+  - exists l. reflexivity.
+Qed.
+
 (* This first creates for each tuple a `GroupbyProxy` which can later be `gathered` for our convenience. *)
 Definition get_group_proxy_helper s (r: relation s) (gb_keys: groupby_list) (bounded: bounded_list s gb_keys):
   list groupby :=
@@ -600,14 +615,12 @@ Inductive step_config: (database * operator) → config → Prop :=
       ⟦ db operator_empty ⟧ ⇓ ⟦ c ⟧
   (* Getting the relation is an identity operation w.r.t. configurations. *)
   | E_GetRelation: ∀ c db o n r Γ β p,
-      db ≠ database_empty →
       o = OperatorRel n →
       database_get_contexts db n = Some (r, Γ, p, β) →
       c = ConfigOut r (Γ, β) p →
       ⟦ db (OperatorRel n) ⟧ ⇓ ⟦ c ⟧
   (* The given relation index is not found in the database. *)
   | E_GetRelationError: ∀ c db o n,
-      db ≠ database_empty →
       o = OperatorRel n →
       database_get_contexts db n = None →
       c = ConfigError →
@@ -819,7 +832,8 @@ Proof.
   induction o; intros.
   - inversion H0; inversion H; subst; auto; try discriminate.
   - inversion H0; inversion H; subst; auto; try discriminate;
-    try (rewrite H5 in H12; inversion H12); auto.
+    try (rewrite H5 in H12; inversion H12); auto;
+    (rewrite H4 in H10; inversion H10; subst); auto.
   - destruct c1; destruct c2.
     + reflexivity.
     (* + inversion H0; subst; try discriminate.
