@@ -139,6 +139,18 @@ Fixpoint bounded_list {A: Type} (l: list A) (idx: list nat): Prop :=
   | h :: t => h < List.length l ∧ bounded_list l t
   end.
 
+Lemma bounded_list_dec: ∀ (A: Type) (l: list A) (idx: list nat),
+  {bounded_list l idx} + {~bounded_list l idx}.
+Proof.
+  induction idx.
+  - left. simpl. trivial.
+  - destruct (Compare_dec.lt_dec a (Datatypes.length l)).
+    + destruct IHidx.
+      * left. simpl. split; assumption.
+      * right. red. intros. destruct H. apply n. assumption.
+    + right. red. intros. destruct H. apply n. assumption.
+Qed.
+
 Definition nth {A: Type} (l: list A) (n: nat): n < List.length l → A.
 refine (
   (fix nth l n :=

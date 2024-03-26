@@ -1,3 +1,4 @@
+Require Import Arith.
 Require Import List.
 Require Import Logic.Eqdep_dec Logic.EqdepFacts.
 Require Import Unicode.Utf8.
@@ -11,27 +12,26 @@ Require Import trace.
 Require Import types.
 Require Import util.
 
+Definition valid_prov (τ: prov_type) (p1 p2: Policy.policy): Prop :=
+  p1 ⪯ p2 ∧
+  match τ with
+    | prov_trans_unary op => (∘ (Policy.policy_transform ((unary_trans_op op) :: nil))) ⪯ p1
+    | prov_trans_binary op => (∘ (Policy.policy_transform ((binary_trans_op op) :: nil))) ⪯ p1
+    | prov_agg op => (∘ (Policy.policy_agg (op :: nil))) ⪯ p1
+    | prov_noise op => (∘ (Policy.policy_noise op)) ⪯ p1
+    | prov_join => True
+  end.
+
 (*
-  For a cell to be released (i.e., it can be shared freely), it must be the case that all policies are satisfied.
-  Fortunately, we have `policy_clean`. This means that we can just check whether the policy is clean.
-*)
+ * For a cell to be released (i.e., it can be shared freely), it must be the case that all policies are satisfied.
+ * Fortunately, we have `policy_clean`. This means that we can just check whether the policy is clean.
+ *)
 Definition can_release p: Prop := p = ∎.
 
 (* TODO: Define this. *)
 Definition budget_bounded (β: budget): Prop := True.
 
-(*
- * Rules for the valid label transition.
- *)
-Inductive downgrade_ok: prov_type → Policy.policy → Policy.policy → Prop :=
-  | DowngradeUnary: ∀ prov op p1 p2,
-      p2 ⪯ p1 →
-      prov = prov_trans_unary op →
-      downgrade_ok prov p1 p2
-.
-
-(* TODO: Implement this. *)
-Notation "p1 '=[' p ']=>' p2" := (downgrade_ok p p1 p2)
+Notation "p1 '=[' p ']=>' p2" := (valid_prov p p1 p2)
   (at level 10, p at next level, p2 at next level).
 
 Inductive join_ok: Policy.policy → trace_ty → trace_ty → Prop :=
@@ -100,13 +100,83 @@ Inductive trace_ok: trace → Prop :=
       trace_ok (hd :: tl)
 .
 
-(*
-    ∀Γ, Γ′.Γ −→ Γ′ =⇒ ∀c′ ∈ Γ′.ℓ′1 ⊑ ℓ =⇒
-      ∃C = {c1, · · · cn} −→ c′ =⇒
-        ∀c ∈ C.(ℓ1, ℓ2) = Γ(c) ∧ ℓ1 ⊑ ℓ2 =⇒ Ok(ℓ1 ⇝o ℓ′1)
+Lemma database_get_contexts_trace_ok: ∀ db s r n Γ β tr,
+  database_get_contexts db n = Some (RelationWrapped s r, Γ, tr, β) →
+  trace_ok tr.
+Proof.
+  induction db; intros.
+  - simpl in *. discriminate.
+  - destruct (Nat.eqb n 0) eqn: Hn0.
+    + apply Nat.eqb_eq in Hn0. subst.
+      simpl in H. destruct (inject_id_helper s l 10).
+      inversion H. subst. apply inj_pair2_eq_dec in H2. subst.
+      induction Γ.
+      * simpl. constructor.
+      * simpl. destruct a. econstructor.
+        -- reflexivity.
+        -- constructor.
+        -- apply IHΓ. reflexivity.
+      * apply list_eq_dec. apply attribute_eq_dec.
+    + simpl in H. rewrite Hn0 in H. apply IHdb in H. auto.
+Qed.
 
-    Should we start from empty environment? Or this condition is unnecessary?
- *)
+Lemma trace_ok_dedup_ok: ∀ tr,
+  trace_ok tr →
+  trace_ok (dedup tr).
+Proof.
+  induction tr; intros.
+  - constructor.
+  - simpl. destruct (existsb (λ x : nat * trace_ty, fst x =? fst a) tr).
+    + apply IHtr. inversion H. assumption.
+    + inversion H. subst. econstructor.
+      * reflexivity.
+      * assumption.
+      * apply IHtr. assumption.
+Qed.
+
+Lemma trace_ok_merge_ok: ∀ tr1 tr2,
+  trace_ok tr1 →
+  trace_ok tr2 →
+  trace_ok (tr1 ⊍ tr2).
+Proof.
+  induction tr1; intros; unfold merge_env in *; simpl.
+  - apply trace_ok_dedup_ok. assumption.
+  - destruct (existsb (λ x : nat * trace_ty, fst x =? fst a) (tr1 ++ tr2)).
+    + apply IHtr1. inversion H. assumption. assumption.
+    + inversion H. subst. econstructor.
+      * reflexivity.
+      * assumption.
+      * apply IHtr1. assumption. assumption.
+Qed.
+
+Lemma trace_ok_join_ok: ∀ s1 s2 join_by r1 r2 r Γ1 Γ2 Γ β1 β2 β tr1 tr2 tr,
+  trace_ok tr1 →
+  trace_ok tr2 →
+  relation_join_by_prv s1 s2 join_by r2 r1 Γ2 Γ1 β2 β1 tr2 tr1 (Some (r, Γ, β, tr)) →
+  trace_ok tr.
+Proof.
+Admitted.
+
+Lemma trace_ok_proj_ok: ∀ s s' r r' Γ Γ' β β' t t' pl,
+  trace_ok t →
+  apply_proj_in_relation s s' r pl Γ β t (Some (r', Γ', β', t')) →
+  trace_ok t'.
+Proof.
+Admitted.
+
+Lemma eval_predicate_in_relation_ok: ∀ s r Γ β t e r' Γ' β' t',
+  trace_ok t →
+  eval_predicate_in_relation s r Γ β t e (Some (r', Γ', β', t')) →
+  trace_ok t'.
+Proof.
+Admitted.
+
+Lemma eval_aggregate_ok: ∀ s s' g b a expr r Γ β t r' Γ' β' t',
+  trace_ok t →
+  eval_aggregate s s' g b a expr Γ β t r (Some (r', Γ', β', t')) →
+  trace_ok t'.
+Proof.
+Admitted.
 
 (*
  * This theorem is the main security theorem that states the following fact:
@@ -133,89 +203,227 @@ Theorem secure_query:
       (* The transition of the trace is also valid. *)
       trace_ok tr ∧ budget_bounded (snd σ)).
 Proof.
-  (* induction o; intros; destruct H.
+  induction o; intros.
   - right.
-    exists nil, (ConfigOut (RelationWrapped nil nil) c), db, Γ, β, p, nil. split.
-    + specialize E_Empty with
-      (c := c) (c' := ConfigOut (RelationWrapped nil nil) c) (db := db) (Γ := Γ) (β := β) (p := p).
-      intros. intuition. subst. auto.
-    + split.
-      * subst. apply E_Empty with (c := ⟨ db Γ β p ⟩); auto.
-      * split; constructor.
+    exists nil, (ConfigOut (RelationWrapped nil nil) (nil, 0) nil), nil, (nil, 0), nil.
+    split.
+    + reflexivity.
+    + split; constructor.
+      * reflexivity.
+      * constructor.
+      * constructor.
+
   - destruct db eqn: Hdb.
-    + left. eapply E_GetRelationDbEmpty; subst; eauto.
-    + destruct (database_get_contexts db n) as [ [ [ r' Γ' ] p' ] | ] eqn: Hget.
-      * destruct r'. right.
-        exists s0, (ConfigOut (RelationWrapped s0 r) (⟨ db Γ' β p' ⟩)), db, Γ', β, p', r.
-        split; split; auto.
-        -- eapply E_GetRelation with (db := db) (o := OperatorRel n).
-          ++ red. intros. rewrite Hdb in H1. inversion H1.
-          ++ reflexivity.
-          ++ rewrite <- Hdb in H. eapply H.
-          ++ eapply Hget.
-          ++ auto.
-        -- split; simpl.
-          ++ destruct s0.
-            ** constructor. reflexivity.
-            ** 
-          ++ inversion H1.
-      * left. eapply E_GetRelationError with (db := db) (Γ := Γ) (β := β) (p := p); eauto.
-        -- red. intros. subst. inversion H1.
-        -- intuition. subst. reflexivity.
-  - specialize (operator_always_terminate c o2).
-    specialize (operator_always_terminate c o1).
-    intros. intuition. subst.
+    + left. eapply E_GetRelationError; eauto.
+    + destruct (database_get_contexts db n) as [ [ [ [ r Γ] ] β ] | ] eqn: Hget.
+      * subst. destruct r. right.
+        exists s0, (ConfigOut (RelationWrapped s0 r) (Γ, β) t), r, (Γ, β), t.
+        intuition.
+        -- econstructor; eauto.
+        -- eapply database_get_contexts_trace_ok. eapply Hget.
+        -- red. auto.
+      * left. subst. eapply E_GetRelationError; eauto.
+  - specialize (operator_always_terminate db o1).
+    specialize (operator_always_terminate db o2).
     (*
       We need to introduce this existential variable *before* each sub-case to avoid
       scoping issues; otherwise, Coq will complain that it cannot find the variable.
     *)
-    destruct H2 as [x H2]; destruct H1 as [x' H1]; try discriminate.
+    intros.
+    destruct H as [c H]. destruct H0 as [c' H0].
+    intuition.
+    + left. eapply E_UnionError; eauto.
     + left. eapply E_UnionError.
+      -- eapply H1.
+      -- eapply H.
+      -- left. reflexivity.
+    + left. eapply E_UnionError.
+      -- eapply H0.
+      -- eapply H2.
+      -- right. reflexivity.
+    + destruct H1 as [ s1 [ c1 [r1 [ σ1 [ tr1 H1 ] ] ] ] ].
+      destruct H2 as [ s2 [ c2 [r2 [ σ2 [ tr2 H2 ] ] ] ] ].
+      intuition. subst.
+      (* Now we need to discuss the equality of two schemas. *)
+      destruct (list_eq_dec attribute_eq_dec s1 s2) eqn: Hs.
+      * right. subst.
+        rename s2 into s.
+        destruct σ1 as [Γ1 β1], σ2 as [Γ2 β2].
+        pose (merged_Γ := merge_env Γ1 Γ2).
+        pose (merged_β := calculate_budget β1 β2).
+        pose (merged_tr := merge_env tr1 tr2).
+        exists s, (ConfigOut (RelationWrapped s (r1 ++ r2)) (merged_Γ, merged_β) merged_tr),
+               (r1 ++ r2), (merged_Γ, merged_β), merged_tr.
+        intuition.
+        -- eapply E_UnionOk; eauto.
+        -- eapply trace_ok_merge_ok; eauto. 
+      * left. destruct σ1 as [Γ1 β1], σ2 as [Γ2 β2].
+        eapply E_UnionSchemaError; eauto.
+  - intuition.
+    + left. econstructor; eauto.
+    + destruct H0 as [s [c [r [σ [tr [H1 [ H2 H3 ] ] ] ] ] ] ]. 
+      left. eapply E_JoinError.
+      * eapply H.
+      * eapply H2.
+      * left. reflexivity.
+    + destruct H as [s [c [r [σ [tr [H1 [ H2 H3 ] ] ] ] ] ] ].
+      left. eapply E_JoinError.
+      * eapply H2.
+      * eapply H0.
+      * right. reflexivity.
+    + destruct H0 as [s1 [c1 [r1 [σ1 [tr1 [H1 [ H2 H3 ] ] ] ] ] ] ].
+      destruct H  as [s2 [c2 [r2 [σ2 [tr2 [H4 [ H5 H6 ] ] ] ] ] ] ].
+      intuition. destruct σ1 as [Γ1 β1], σ2 as [Γ2 β2]. simpl in *.
+
+      (* Now we are going to discuss over `relation_join_by_prv`. *)
+      destruct s1; destruct s2.
+      * right.
+        exists nil, (ConfigOut (RelationWrapped nil nil) (nil, 0) nil), nil, (nil, 0), nil.
+        split.
+        -- reflexivity.
+        -- split.
+          ++ econstructor; eauto. subst.
+             constructor. intuition.
+          ++ split; constructor.
+      * right.
+        pose (s := (output_schema_join_by (a :: s2) nil (natural_join_list (a :: s2) nil))).
+        exists s,
+          (ConfigOut
+            (RelationWrapped s nil) (nil, 0) nil), nil, (nil, 0), nil.
+        intuition.
+        -- econstructor; eauto.
+           econstructor. right. reflexivity.
+        -- constructor.
+      * right.
+        pose (s := (output_schema_join_by nil (a :: s1) (natural_join_list (a :: s1) nil))).
+        exists s,
+          (ConfigOut
+            (RelationWrapped s nil) (nil, 0) nil), nil, (nil, 0), nil.
+        intuition.
+        -- econstructor; eauto.
+           econstructor. left. reflexivity.
+        -- constructor.
+      * pose (s := (output_schema_join_by (a0 :: s2) (a :: s1) (natural_join_list (a0 :: s2) (a :: s1)))).
+        specialize
+          (relation_join_by_prv_terminate
+            (a0 :: s2) (a :: s1)
+            (natural_join_list (a0 :: s2) (a :: s1) )
+            r2 r1 Γ2 Γ1 β2 β1 tr2 tr1
+          ).
+        intros.
+        destruct H3 as [res H3].
+        destruct res as [ [ [ [ r Γ ] β ] tr ] |].
+        -- (* Some *)
+           right.
+           exists s, (ConfigOut (RelationWrapped s r) (Γ, β) tr), r, (Γ, β), tr.
+           intuition.
+           ++ econstructor.
+              ** eapply H5.
+              ** eapply H4.
+              ** eapply H2.
+              ** eapply H1.
+              ** eapply H3.
+              ** reflexivity.
+           ++ eapply trace_ok_join_ok.
+              ** eapply H6.
+              ** eapply H.
+              ** eapply H3.
+        -- left. eapply E_JoinError2.
+           ++ eapply H5.
+           ++ eapply H4.
+           ++ eapply H2.
+           ++ eapply H1.
+           ++ eapply H3.
+
+  - intuition.
+    destruct H as [s [ c [r [σ [tr H] ] ] ] ].
+    intuition. subst. destruct σ as [Γ β]. simpl in *.
+
+    (* Now we discuss the projection semantics case by case. *)
+    destruct s; destruct r.
+    + right. exists nil, (ConfigOut (RelationWrapped nil nil) (Γ, β) tr), nil, (Γ, β), tr.
+      split.
       * reflexivity.
-      * eapply H4.
-      * eapply H5.
-      * intuition.
-    + assert (c ≠ ConfigError) by (subst; try discriminate). intuition. destruct H1.
-      left. eapply E_UnionError; eauto.
-    + assert (c ≠ ConfigError) by (subst; try discriminate). intuition. destruct H6.
-      left. eapply E_UnionError; eauto.
-    + assert (c ≠ ConfigError) by (subst; try discriminate). intuition.
-      destruct H1; destruct H6; destruct x0; destruct x; subst; try discriminate; intuition.
-      * left. eapply E_UnionError; eauto.
-      * left. eapply E_UnionError; eauto.
-      * left. eapply E_UnionError; eauto.
-      * left. eapply E_UnionError; eauto.
-      * inversion H1; subst; try discriminate.
-      * inversion H2; subst; try discriminate.
-      * left. eapply E_UnionError; eauto.
-      * inversion H1; subst; try discriminate.
-      * destruct r; destruct r0; destruct x0; destruct x.
-        -- inversion H1; subst; try discriminate.
-        -- inversion H2; subst; try discriminate.
-        -- inversion H2; subst; try discriminate.
-        -- inversion H1; subst; try discriminate.
-        -- right.
-          (* Now we need to discuss the equality of two schemas. *)
-          destruct (list_eq_dec attribute_eq_dec s s0).
-          ++ subst.
-            pose (merged_p := merge_env p0 p1).
-            pose (merged_Γ := merge_env c c0).
-            pose (merged_β := calculate_budget b b0).
-            exists s0, (ConfigOut (RelationWrapped _ (r ++ r0)) (⟨ d0 merged_Γ merged_β merged_p ⟩)),
-                   d0, merged_Γ, merged_β, merged_p, (r ++ r0).
-            intros. split.
-            ** econstructor; eauto.
-            ** split.
-              --- destruct s0 eqn: Hs0; destruct (r ++ r0) eqn: Hr.
-                +++ constructor. auto.
-                +++ constructor. auto.
-                +++ eapply valid_env.
-                  *** intuition. discriminate.
-                  *** eauto.
-                  *** constructor.
-                +++ 
-                  (* Introduce the existential variable from hypothesis. *)
-                  destruct H5 as [s'1 [c'1 [db'1 [Γ'1 [β'1 [p'1 [r'1 H5'] ] ] ] ] ] ].
-                  destruct H4 as [s'2 [c'2 [db'2 [Γ'2 [β'2 [p'2 [r'2 H4'] ] ] ] ] ] ]. *)
-                  
-Admitted.
+      * split.
+        -- econstructor; eauto.
+        -- split; intuition.
+    + right. exists nil, (ConfigOut (RelationWrapped nil (t :: r)) (Γ, β) tr), (t :: r), (Γ, β), tr.
+      split.
+      * reflexivity.
+      * split.
+        -- econstructor; eauto. 
+        -- split; intuition.
+    + right. exists (a :: s), (ConfigOut (RelationWrapped (a :: s) nil) (Γ, β) tr), nil, (Γ, β), tr.
+      split.
+      * reflexivity.
+      * split.
+        -- econstructor; eauto. 
+        -- split; intuition.
+    + destruct (project_list_preprocess_neq_star (a :: s) p) as [pl' Hpl]. subst.
+      destruct (determine_schema (a :: s) pl') as [s'|] eqn: Hdet.
+      * (* Some *)
+        specialize apply_proj_in_relation_terminate with
+          (s := (a :: s)) (s' := s') (r := (t :: r)) (pl := pl') (Γ := Γ) (β := β) (p := tr) as Hterm.
+        intros. destruct Hterm as [res Hterm].
+        destruct res as  [ [ [ [ r' Γ' ] β' ] tr' ] |].
+        -- (* Some *)
+           right. exists s', (ConfigOut (RelationWrapped s' r') (Γ', β') tr'), r', (Γ', β'), tr'.
+           intuition.
+           ++ eapply E_ProjOk.
+              ** eapply H.
+              ** reflexivity.
+              ** intuition; discriminate.
+              ** eauto.
+              ** eauto.
+              ** eapply Hterm.
+              ** reflexivity.
+           ++ eapply trace_ok_proj_ok; eauto.
+        -- left. eapply E_ProjError; eauto. intuition; discriminate.
+      * left. eapply E_ProjError3; eauto. intuition; discriminate.
+  - intuition.
+    destruct H as [s [ c [r [σ [tr H] ] ] ] ]. intuition. subst.
+    destruct σ as [Γ β]. simpl in *.
+    destruct (eval_predicate_in_relation_terminate s r Γ β tr e) as [res Hterm].
+    destruct res as [ [ [ [r' Γ' ] β' ] tr' ] |].
+    + (* Some *)
+      right.
+      exists s, (ConfigOut (RelationWrapped s r') (Γ', β') tr'), r', (Γ', β'), tr'.
+      intuition.
+      * econstructor; eauto.
+      * eapply eval_predicate_in_relation_ok; eauto.
+    + left. eapply E_SelectError; eauto.
+  - intuition.
+    destruct H as [s [ c [r [σ [tr H] ] ] ] ]. intuition. subst.
+    destruct σ as [Γ β]. simpl in *.
+    + destruct s; destruct r.
+      * right. exists nil, (ConfigOut (RelationWrapped nil nil) (Γ, β) tr), nil, (Γ, β), tr.
+        split.
+        -- reflexivity.
+        -- split.
+          ++ econstructor; eauto.
+          ++ split; intuition.
+      * right. exists nil, (ConfigOut (RelationWrapped nil (t :: r)) (Γ, β) tr), (t :: r), (Γ, β), tr.
+        split.
+        -- reflexivity.
+        -- split.
+          ++ econstructor; eauto.
+          ++ split; intuition.
+      * right. exists (a0 :: s), (ConfigOut (RelationWrapped (a0 :: s) nil) (Γ, β) tr), nil, (Γ, β), tr.
+        split.
+        -- reflexivity.
+        -- split.
+          ++ econstructor; eauto.
+          ++ split; intuition.
+      * destruct (bounded_list_dec _ (a0 :: s) g).
+        -- destruct (determine_schema_agg (a0 :: s) a g b) as [s_agg|] eqn: Hdet.
+           ++ destruct (eval_aggregate_terminate (a0 :: s) s_agg g b a e Γ β tr (t :: r)) as [res Hterm].
+              destruct res as [ [ [ [ r' Γ' ] β' ] tr' ] |].
+              ** right.
+                 exists s_agg, (ConfigOut (RelationWrapped s_agg r') (Γ', β') tr'), r', (Γ', β'), tr'.
+                 intuition. eapply E_AggOk; eauto.
+                 --- intuition; discriminate.
+                 --- eapply eval_aggregate_ok; eauto.
+              ** left. eapply E_AggFail; eauto. intuition; discriminate.
+            ++ left. eapply E_AggSchemaError; eauto. intuition; discriminate.
+        -- left. eapply E_AggNotBounded; eauto. intuition; discriminate.
+Qed.

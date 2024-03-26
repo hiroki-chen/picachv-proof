@@ -1324,6 +1324,17 @@ Section Facts.
   Notation "a <<~ b":= (Tuple.tuple_total_lt ty a b) (at level 70, no associativity):
     type_scope.
 
+  Theorem bounded_list_dec: ∀ l1 l2, Tuple.bounded_list l1 l2 ∨ ¬ (Tuple.bounded_list l1 l2).
+  Proof.
+    induction l1; intros.
+    - left. simpl. auto.
+    - destruct IHl1 with (l2 := l2).
+      + destruct (Compare_dec.lt_dec a (Datatypes.length l2)).
+        * left. simpl. auto.
+        * right. simpl. auto.
+          red. intros. destruct H0. contradiction.
+      + right. simpl. red. intros. destruct H0. contradiction.
+  Qed.
 End Facts.
 
 Notation "'<<' x '>>'" := (x, 0) (at level 0, x at next level).

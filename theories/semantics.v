@@ -439,6 +439,11 @@ Inductive eval_predicate_in_relation (s: schema) (r: relation s):
       eval_predicate_in_relation s r Γ β p e None
 .
 
+Theorem eval_predicate_in_relation_terminate:
+  ∀ s r Γ β p e, ∃ res, eval_predicate_in_relation s r Γ β p e res.
+Proof.
+Admitted.
+
 (*
   @param bt The basic type of the elements in the resulting list of tuples.
   @param Policy.context The policy context in which the operation is performed.
@@ -592,6 +597,11 @@ Inductive eval_aggregate:
         eval_aggregate s s_agg gb bounded agg f Γ β p r None
 .
 
+Theorem eval_aggregate_terminate:
+  ∀ s s_agg gb b agg expr Γ β tr r, ∃ res, eval_aggregate s s_agg gb b agg expr Γ β tr r res.
+Proof.
+Admitted.
+
 (*
   `step_config` is an inductive type representing the transition rules for configurations. 
   It defines how a configuration changes from one state to another by the query.
@@ -643,8 +653,7 @@ Inductive step_config: (database * operator) → config → Prop :=
       project pl' = project_list_preprocess s pl →
       Some s' = determine_schema s pl' →
         (* We then apply projection inside the environment. *)
-        let ep := empty_trace_from_pctx Γ in
-          apply_proj_in_relation s s' r pl' Γ β ep (Some (r', Γ', β', t')) →
+          apply_proj_in_relation s s' r pl' Γ β t (Some (r', Γ', β', t')) →
           c' = ConfigOut (RelationWrapped _ r') (Γ', β') t' →
           ⟦ db (OperatorProject pl o) ⟧ ⇓ ⟦ c' ⟧
   (*
@@ -821,6 +830,10 @@ Theorem apply_proj_in_relation_deterministic: ∀ s s' r pl Γ β p res1 res2,
   apply_proj_in_relation s s' r pl Γ β p res1 →
   apply_proj_in_relation s s' r pl Γ β p res2 →
   res1 = res2.
+Proof. Admitted.
+
+Theorem apply_proj_in_relation_terminate: ∀ s s' r pl Γ β p,
+  ∃ res, apply_proj_in_relation s s' r pl Γ β p res.
 Proof. Admitted.
 
 (* For Hongbo: can you help me prove this theorem? *)
