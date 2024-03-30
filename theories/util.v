@@ -9,6 +9,10 @@ Require Import SetoidClass.
 Require Import String.
 Require Import Unicode.Utf8.
 
+Axiom cheating : forall A, A.
+
+Tactic Notation "cheat" := apply cheating.
+
 CoInductive Stream : Set :=
   | Cons : nat -> Stream -> Stream
 .

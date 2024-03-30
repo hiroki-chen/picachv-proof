@@ -509,13 +509,15 @@ Inductive eval: nat → expression → bool → eval_env → option (eval_env * 
 
     - Type coercion.
     - Scalar value + vector value -> This means we need to propagate to lists.
+    - Not implemented yet??
    *)
-  | EvalBinary: ∀ step step' bt1 bt2 b e f e1 e2 env v1 v1' v2 v2' res tr Γ β p proxy,
+  | EvalBinary: ∀ step step' bt1 bt2 b e f e1 e2 env1 env2 env v1 v1' v2 v2' res tr Γ β p proxy,
       step = S step' →
       e = ExprBinary f e1 e2 →
       b = false →
-      eval step' e1 b ((Γ, β, p), tr, proxy) (Some (env, v1)) →
-      eval step' e2 b ((Γ, β, p), tr, proxy) (Some (env, v2)) →
+      eval step' e1 b ((Γ, β, p), tr, proxy) (Some (env1, v1)) →
+      eval step' e2 b ((Γ, β, p), tr, proxy) (Some (env2, v2)) →
+      (* Need to merge env1 and env2 *)
       v1 = ValuePrimitive bt1 v1' →
       v2 = ValuePrimitive bt2 v2' →
       eval_binary_expression_prim bt1 bt2 f env v1' v2' res →
@@ -571,8 +573,8 @@ Inductive eval: nat → expression → bool → eval_env → option (eval_env * 
 
 Inductive eval_expr:
   bool → (σ * trace) → tuple_wrapped → option groupby → expression → option (eval_env * e_value) → Prop :=
-  | EvalExpr: ∀ b tr proxy st e env,
-    eval 100 e b (st, tr, proxy) env → eval_expr b st tr proxy e env
+  | EvalExpr: ∀ b tp proxy st e env,
+    eval 100 e b (st, tp, proxy) env → eval_expr b st tp proxy e env
 .
 
 Section Facts.

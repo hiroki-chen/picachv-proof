@@ -738,12 +738,18 @@ Inductive join_policy_and_trace:
   Policy.context → Policy.context →
   trace → trace →
   option (Policy.context * trace) → Prop :=
-  | join_policy_and_trace_nil_l: ∀ l com Γ1 Γ2 tr1 tr2,
-      join_policy_and_trace nil l com Γ1 Γ2 tr1 tr2 (Some ((merge_env Γ1 Γ2), merge_env tr1 tr2))
-  | join_policy_and_trace_nil_r: ∀ l com Γ1 Γ2 tr1 tr2,
-      join_policy_and_trace l nil com Γ1 Γ2 tr1 tr2 (Some ((merge_env Γ1 Γ2), merge_env tr1 tr2))
-  | join_policy_and_trace_no_com: ∀ l1 l2 Γ1 Γ2 tr1 tr2,
-      join_policy_and_trace l1 l2 nil Γ1 Γ2 tr1 tr2 (Some ((merge_env Γ1 Γ2), merge_env tr1 tr2))
+  | join_policy_and_trace_nil_l: ∀ l com Γ1 Γ2 Γ3 tr1 tr2 tr3,
+      tr1 ⊍ tr2 = tr3 →
+      Γ1 ⊍ Γ2 = Γ3 →
+      join_policy_and_trace nil l com Γ1 Γ2 tr1 tr2 (Some (Γ3, tr3))
+  | join_policy_and_trace_nil_r: ∀ l com Γ1 Γ2 Γ3 tr1 tr2 tr3,
+      tr1 ⊍ tr2 = tr3 →
+      Γ1 ⊍ Γ2 = Γ3 →
+      join_policy_and_trace l nil com Γ1 Γ2 tr1 tr2 (Some (Γ3, tr3))
+  | join_policy_and_trace_no_com: ∀ l1 l2 Γ1 Γ2 Γ3 tr1 tr2 tr3,
+      tr1 ⊍ tr2 = tr3 →
+      Γ1 ⊍ Γ2 = Γ3 →
+      join_policy_and_trace l1 l2 nil Γ1 Γ2 tr1 tr2 (Some (Γ3, tr3))
   | join_policy_and_trace_cons_err: ∀ l1 l2 com Γ1 Γ2 tr1 tr2 hd1 hd2 tl1 tl2,
       l1 = hd1 :: tl1 →
       l2 = hd2 :: tl2 →
@@ -767,6 +773,7 @@ Inductive join_policy_and_trace:
       label_lookup tr1 hd1 = Some tr1' →
       label_lookup tr2 hd2 = Some tr2' →
       p1 ∪ p2 = pjoin →
+      (extract_policy tr1') ⪯ pjoin ∧ (extract_policy tr2') ⪯ pjoin →
       join_policy_and_trace tl1 tl2 tl3 Γ1 Γ2 tl4 tl5 (Some (Γ, tr)) →
       let tr_join := TrBranch prov_join pjoin tr1' tr2' in
       join_policy_and_trace l1 l2 com Γ1 Γ2 tr1 tr2 (Some ((hd3, pjoin) :: Γ, (hd3, tr_join) :: tr))
@@ -777,9 +784,9 @@ Inductive relation_join_by_prv_helper: ∀ s1 s2 join_by, Tuple.tuple (♭ s1) �
   Policy.context → Policy.context → budget → budget → trace → trace →
   option (relation (output_schema_join_by s1 s2 join_by) * Policy.context * budget * trace) → Prop :=
   | E_JoinEmpty: ∀ s1 s2 join_by t Γ1 Γ2 Γ_out ε1 ε2 ε_out p1 p2 p_out,
-      Γ_out = merge_env Γ1 Γ2 →
+      Γ1 ⊍ Γ2 = Γ_out →
       ε_out = calculate_budget ε1 ε2 →
-      p_out = merge_env p1 p2 →
+      p1 ⊍ p2 = p_out →
       relation_join_by_prv_helper s1 s2 join_by t nil Γ1 Γ2 ε1 ε2 p1 p2
       (Some (nil, Γ_out, ε_out, p_out))
   | E_JoinConsError1: ∀ s1 s2 join_by t1 t2 r tl Γ1 Γ2 ε1 ε2 p1 p2,
@@ -814,9 +821,9 @@ Inductive relation_join_by_prv_helper: ∀ s1 s2 join_by, Tuple.tuple (♭ s1) �
       ε_merged = calculate_budget ε1 ε2 →
       relation_join_by_prv_helper s1 s2 join_by t1 tl Γ1 Γ2 ε1 ε2 p1 p2
       (Some (r_cons, Γ_cons, ε_cons, p_cons)) →
-      Γ_out = merge_env Γ_merged Γ_cons →
+      Γ_merged ⊍ Γ_cons = Γ_out →
       ε_out = calculate_budget ε_merged ε_cons →
-      p_out = merge_env p_merged p_cons →
+      p_merged ⊍ p_cons = p_out →
       relation_join_by_prv_helper s1 s2 join_by t1 r Γ1 Γ2 ε1 ε2 p1 p2
       (Some (t' :: r_cons, Γ_out, ε_out, p_out))
 .
@@ -832,27 +839,33 @@ Inductive relation_join_by_prv: ∀ s1 s2 join_by, relation s1 → relation s2 �
       r1 = nil ∨ r2 = nil →
       relation_join_by_prv s1 s2 join_by r1 r2 Γ1 Γ2 ε1 ε2 p1 p2
       (Some (nil, nil, O, nil))
-  | E_RelationJoinConsErr: ∀ s1 s2 join_by r1 r2 hd tl
+  | E_RelationJoinHeadErr: ∀ s1 s2 join_by r1 r2 hd tl
                             Γ1 Γ2
-                            (* TODO: Join budget? *)
                             ε1 ε2
                             p1 p2, 
       s1 ≠ nil ∧ s2 ≠ nil →
       r1 = hd :: tl →
-      relation_join_by_prv_helper s1 s2 join_by hd r2 Γ1 Γ2 ε1 ε2 p1 p2 None ∨
+      relation_join_by_prv_helper s1 s2 join_by hd r2 Γ1 Γ2 ε1 ε2 p1 p2 None →
+      relation_join_by_prv s1 s2 join_by r1 r2 Γ1 Γ2 ε1 ε2 p1 p2 None
+  | E_RelationJoinConsErr: ∀ s1 s2 join_by r1 r2 r_hd hd tl
+                            Γ1 Γ2 Γ_hd
+                            ε1 ε2 ε_hd
+                            p1 p2 p_hd,
+      s1 ≠ nil ∧ s2 ≠ nil →
+      r1 = hd :: tl →
+      relation_join_by_prv_helper s1 s2 join_by hd r2 Γ1 Γ2 ε1 ε2 p1 p2 (Some (r_hd, Γ_hd, ε_hd, p_hd)) →
       relation_join_by_prv s1 s2 join_by tl r2 Γ1 Γ2 ε1 ε2 p1 p2 None →
       relation_join_by_prv s1 s2 join_by r1 r2 Γ1 Γ2 ε1 ε2 p1 p2 None
   | E_RelationJoinConsOk: ∀ s1 s2 join_by r1 r2 r_hd r_cons r_out hd tl
                             Γ1 Γ2 Γ_hd Γ_cons Γ_out
-                            (* TODO: Join budget? *)
                             ε1 ε2 ε_hd ε_cons ε_out
                             p1 p2 p_hd p_cons p_out,
       s1 ≠ nil ∧ s2 ≠ nil →
       r1 = hd :: tl →
       relation_join_by_prv_helper s1 s2 join_by hd r2 Γ1 Γ2 ε1 ε2 p1 p2 (Some (r_hd, Γ_hd, ε_hd, p_hd)) →
       relation_join_by_prv s1 s2 join_by tl r2 Γ1 Γ2 ε1 ε2 p1 p2 (Some (r_cons, Γ_cons, ε_cons, p_cons)) →
-      Γ_out = merge_env Γ_hd Γ_cons →
-      p_out = merge_env p_hd p_cons →
+      Γ_hd ⊍ Γ_cons = Γ_out →
+      p_hd ⊍ p_cons = p_out →
       ε_out = calculate_budget ε_hd ε_cons →
       r_out = r_hd ++ r_cons →
       relation_join_by_prv s1 s2 join_by r1 r2 Γ1 Γ2 ε1 ε2 p1 p2 (Some (r_out, Γ_out, ε_out, p_out))
@@ -879,12 +892,13 @@ Proof.
       destruct x; destruct x0.
       * destruct p as[ [ [ r_hd Γ_hd ] β_hd ] p_hd ].
         destruct p0 as[ [ [ r_cons Γ_cons ] β_cons ] p_cons ].
-        pose (merge_env Γ_hd Γ_cons) as Γ_out.
-        pose (merge_env p_hd p_cons) as p_out.
+        destruct (merge_env_terminate _ Γ_hd Γ_cons) as [Γ_out].
+        destruct (merge_env_terminate _ p_hd p_cons) as [p_out].
         pose (calculate_budget β_hd β_cons) as β_out.
         exists (Some (r_hd ++ r_cons, Γ_out, β_out, p_out)).
-        eapply E_RelationJoinConsOk; intuition; try discriminate; auto.
-      * exists None. econstructor; intuition; try discriminate; auto.
+        eapply E_RelationJoinConsOk; intuition; try discriminate; eauto.
+      * exists None. destruct p as[ [ [ r_hd Γ_hd ] β_hd ] p_hd ].
+        eapply E_RelationJoinConsErr; intuition; try discriminate; eauto.
       * exists None. econstructor; intuition; try discriminate; auto.
       * exists None. econstructor; intuition; try discriminate; auto.
 Qed.

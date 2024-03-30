@@ -331,9 +331,10 @@ Inductive eval_expr_in_relation (s: schema) (r: relation s) ty:
       r = hd :: tl →
       eval_expr_in_relation s tl ty Γ β p e None →
       eval_expr_in_relation s r ty Γ β p e None
-  | E_EvalExprInRelationOk: ∀ bt' Γ Γ' β β' p p' hd hd' id tl tl' e e' Γ'' β'' p'',
+  | E_EvalExprInRelationOk: ∀ bt' Γ Γ' Γ'' β β'  β'' p p' p'' hd hd' id tl tl' e env' tp gb,
       r = hd :: tl →
-      eval_expr false (Γ, β, p) (TupleWrapped s hd) None e (Some (e', ValuePrimitive bt' (hd', id))) →
+      eval_expr false (Γ, β, p) (TupleWrapped s hd) None e (Some (env', ValuePrimitive bt' (hd', id))) →
+      env' = ((Γ', β'), p', tp, gb) →
       ∀ (eq: bt' = (fst ty)),
       eval_expr_in_relation s tl ty Γ' β' p' e (Some (tl', Γ'', β'', p'')) →
       let res := (eq ♯ hd', (unwrap_or_default id 0), tt) :: ((tuple_single_eq (ty :: nil) ty eq_refl) ♯ tl') in
@@ -724,20 +725,20 @@ Inductive step_config: (database * operator) → config → Prop :=
       c' = ConfigOut (RelationWrapped s2 r') (Γ', β') t' →
       s1 ≠ s2 →
       ⟦ db (OperatorUnion o1 o2) ⟧ ⇓ ⟦ ConfigError ⟧
-  | E_UnionOk: ∀ c c'  db Γ Γ' β β' s r r' t t' o1 o2,
+  | E_UnionOk: ∀ c c'  db Γ Γ' merged_Γ β β' s r r' t t' merged_t o1 o2,
       ⟦ db o1 ⟧ ⇓ ⟦ c ⟧ →
       c = ConfigOut (RelationWrapped s r) (Γ, β) t →
       ⟦ db o2 ⟧ ⇓ ⟦ c' ⟧ →
       c' = ConfigOut (RelationWrapped s r') (Γ', β') t' →
+      Γ ⊍ Γ' = merged_Γ →
+      t ⊍ t' = merged_t →
       (*
         We ensure that cells are always assigned new ids;
         so it is safe for us to just append them together.
       *)
-      let merged_t := merge_env t t' in
-        let merged_Γ := merge_env Γ Γ' in
-          let merged_β := calculate_budget β β' in
-          ⟦ db (OperatorUnion o1 o2) ⟧ ⇓
-          ⟦ ConfigOut (RelationWrapped s (r ++ r')) (merged_Γ, merged_β) merged_t ⟧
+      let merged_β := calculate_budget β β' in
+      ⟦ db (OperatorUnion o1 o2) ⟧ ⇓
+      ⟦ ConfigOut (RelationWrapped s (r ++ r')) (merged_Γ, merged_β) merged_t ⟧
   | E_JoinError: ∀ c c' db o1 o2,
       ⟦ db o1 ⟧ ⇓ ⟦ c ⟧ →
       ⟦ db o2 ⟧ ⇓ ⟦ c' ⟧ →
