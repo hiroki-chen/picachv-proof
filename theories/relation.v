@@ -892,8 +892,8 @@ Proof.
       destruct x; destruct x0.
       * destruct p as[ [ [ r_hd Γ_hd ] β_hd ] p_hd ].
         destruct p0 as[ [ [ r_cons Γ_cons ] β_cons ] p_cons ].
-        destruct (merge_env_terminate _ Γ_hd Γ_cons) as [Γ_out].
-        destruct (merge_env_terminate _ p_hd p_cons) as [p_out].
+        pose (merge_env Γ_hd Γ_cons) as Γ_out.
+        pose (merge_env p_hd p_cons) as p_out.
         pose (calculate_budget β_hd β_cons) as β_out.
         exists (Some (r_hd ++ r_cons, Γ_out, β_out, p_out)).
         eapply E_RelationJoinConsOk; intuition; try discriminate; eauto.

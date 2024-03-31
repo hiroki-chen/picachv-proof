@@ -56,6 +56,19 @@ valid_transition: prov_type → Policy.policy → trace_ty → Prop :=
       valid_transition prov lbl tr
 .
 
+(*
+ * Checks against the list element, can it be released via the current label?
+ *)
+Inductive
+label_transition_valid_impl: prov_type → Policy.policy → list (trace_ty) → Prop :=
+  | LabelTransitionImplNil: ∀ prov lbl, label_transition_valid_impl prov lbl nil
+  | LabelTransitionImplCons: ∀ prov lbl tr hd tl,
+      tr = hd :: tl →
+      label_transition_valid_impl prov lbl tl →
+      valid_transition prov lbl hd →
+      label_transition_valid_impl prov lbl tr
+.
+
 Inductive label_transition_valid: trace_ty → Prop :=
   | LabelTransitionTrEmpty: label_transition_valid ∅
   | LabelTransitionTrLinear: ∀ tr prov lbl l,
@@ -68,17 +81,6 @@ Inductive label_transition_valid: trace_ty → Prop :=
       label_transition_valid tr2 →
       join_ok lbl tr1 tr2 →
       label_transition_valid tr
-(*
- * Checks against the list element, can it be released via the current label?
- *)
-with
-label_transition_valid_impl: prov_type → Policy.policy → list (trace_ty) → Prop :=
-  | LabelTransitionImplNil: ∀ prov lbl, label_transition_valid_impl prov lbl nil
-  | LabelTransitionImplCons: ∀ prov lbl tr hd tl,
-      tr = hd :: tl →
-      label_transition_valid_impl prov lbl tl →
-      valid_transition prov lbl hd →
-      label_transition_valid_impl prov lbl (hd :: tl)
 .
 
 (*
@@ -94,6 +96,55 @@ Inductive trace_ok: trace → Prop :=
       trace_ok tl →
       trace_ok (hd :: tl)
 .
+
+Lemma label_transition_valid_merge_app: ∀ p l body1 body2,
+  label_transition_valid (TrLinear p l body1) ∧
+  label_transition_valid (TrLinear p l body2) →
+  label_transition_valid (TrLinear p l (body1 ++ body2)).
+Proof.
+Admitted.
+
+Lemma transition_ok_merge_trace_ty: ∀ tr1 tr2 tr,
+  label_transition_valid tr1 →
+  label_transition_valid tr2 →
+  merge_trace_ty tr1 tr2 tr →
+  label_transition_valid tr.
+Proof.
+  intros. inversion H1; subst; intuition; subst; try discriminate.
+  eapply label_transition_valid_merge_app; eauto.
+Qed.
+
+Lemma trace_ok_app_cons_tail: ∀ a tr1 tr2,
+   trace_ok (tr1 ++ tr2) ∧ label_transition_valid (snd a) →
+    trace_ok (tr1 ++ a :: tr2).
+Proof.
+  induction tr1; intros; simpl in *; intuition; (econstructor; eauto); inversion H0.
+  - assumption.
+  - subst. apply IHtr1. econstructor; eauto.
+Qed.
+
+Lemma trace_ok_app_comm: ∀ tr1 tr2,
+  trace_ok (tr1 ++ tr2) →
+  trace_ok (tr2 ++ tr1).
+Proof.
+  induction tr1; intros; simpl in *.
+  - rewrite app_nil_r. assumption.
+  - inversion H. subst. apply IHtr1 in H4.
+    apply trace_ok_app_cons_tail. intuition.
+Qed.
+
+Lemma update_label_trace_ok_spec: ∀ tr id tr_new,
+  trace_ok tr ∧ label_transition_valid tr_new →
+  trace_ok (update_label tr id tr_new).
+Proof.
+  induction tr; intros; intuition.
+  simpl. destruct a. destruct (Nat.eqb id n) eqn: Hn.
+  - apply Nat.eqb_eq in Hn. subst.
+    inversion H0. subst.
+    econstructor; eauto. apply trace_ok_app_comm.
+    econstructor; eauto.
+  - inversion H0. subst. simpl. econstructor; eauto.
+Qed.
 
 Lemma label_lookup_no_effect: ∀ tr id item,
   trace_ok tr →
@@ -156,12 +207,92 @@ Proof.
       * apply IHtr1. assumption. assumption.
 Qed.
 
-Lemma eval_ok: ∀ n in_agg Γ Γ' β β' tr tr' tp tp' gb gb' expr v,
+Lemma eval_unary_expression_list_ok: ∀ bt l f Γ Γ' β β' tr tr' tp tp' gb gb' n,
+  trace_ok tr →
+  eval_unary_expression_list bt f (Γ, β, tr, tp, gb) l
+    (Some ((Γ', β', tr', tp', gb'), n)) →
+  trace_ok tr'.
+Proof.
+  induction l; intros; inversion H0; subst; try discriminate; auto.
+  apply inj_pair2_eq_dec in H1; try (apply basic_type_eq_dec).
+  inversion H1. subst.
+  destruct env' as [ [ [ [ Γ'' β'' ] tr'' ] tp'' ] gb'' ].
+  eapply IHl.
+  - cut (trace_ok tr''). intros. eapply H2.
+    inversion H8; subst; intuition.
+    apply inj_pair2_eq_dec in H2; subst; try (apply basic_type_eq_dec).
+    clear H1. inversion H7; subst; intuition.
+  - eapply H9.
+Qed.
+
+Lemma do_eval_agg_transition_ok: ∀ bt bt' func Γ tr l policy tr' res,
+  trace_ok tr →
+  do_eval_agg bt bt' func Γ tr l (Some (policy, tr', res)) →
+  label_transition_valid tr'.
+Proof.
+  induction l; intros; inversion H0; subst; try discriminate; auto.
+  apply inj_pair2_eq_dec in H1; try (apply basic_type_eq_dec).
+  inversion H1. subst.
+  - constructor.
+  - apply inj_pair2_eq_dec in H1, H5; try (apply basic_type_eq_dec). inversion H1. subst.
+    apply transition_ok_merge_trace_ty with (tr1 := tr_cur) (tr2 := tr_tl).
+    + apply label_lookup_no_effect in H10; assumption.
+    + eapply IHl; eauto.
+    + assumption.
+Qed.
+
+Lemma apply_noise_ok: ∀ bt v β ng n policy tr_ty Γ v' Γ' β' tr tr',
+  label_transition_valid tr_ty →
+  trace_ok tr →
+  apply_noise bt v β ng n policy tr_ty Γ tr (Some (v', Γ', β', tr')) →
+  trace_ok tr'.
+Proof.
+Admitted.
+
+Lemma eval_agg_ok: ∀ bt l f Γ Γ' β β' tr tr' tp tp' gb gb' n,
+  trace_ok tr →
+  eval_agg bt f (Γ, β, tr, tp, gb) l
+    (Some ((Γ', β', tr', tp', gb'), n)) →
+  trace_ok tr'.
+Proof.
+  intros. inversion H0; subst.
+  - inversion H8. subst. econstructor; eauto; simpl. eapply do_eval_agg_transition_ok; eauto.
+  - inversion H10. subst. inversion H13; subst.
+    + apply inj_pair2_eq_dec in H1, H2, H12; try (apply basic_type_eq_dec). subst. 
+      inversion H14. subst.
+      apply inj_pair2_eq_dec in H1, H2; try (apply basic_type_eq_dec). subst.
+      econstructor; eauto.
+      simpl. econstructor.
+      * reflexivity.
+      * econstructor; eauto; constructor.
+    + apply inj_pair2_eq_dec in H1, H2, H6; try (apply basic_type_eq_dec). subst.
+      inversion H8. subst.
+      apply inj_pair2_eq_dec in H4, H4, H5; try (apply basic_type_eq_dec). subst.
+      eapply apply_noise_ok; eauto. eapply do_eval_agg_transition_ok; eauto.
+Qed.
+
+Lemma eval_ok: ∀ expr n in_agg Γ Γ' β β' tr tr' tp tp' gb gb' v,
   trace_ok tr →
   eval n expr in_agg ((Γ, β), tr, tp, gb) (Some (((Γ', β'), tr', tp', gb', v))) →
   trace_ok tr'.
 Proof.
-Admitted.
+  induction expr; intros; inversion H0; subst; try discriminate; intuition.
+  - inversion H10. subst.
+    inversion H15; subst.
+    + apply inj_pair2_eq_dec in H1. subst.
+      * eapply IHexpr; eauto.
+      * apply basic_type_eq_dec.
+    + apply inj_pair2_eq_dec in H1; subst; try (apply basic_type_eq_dec).
+      clear H10. inversion H6. subst.
+      apply inj_pair2_eq_dec in H1; subst; try (apply basic_type_eq_dec).
+      * eapply IHexpr; eauto.
+  - inversion H10. subst.
+    destruct env as [ [ [ [ Γ'' β''] tr'' ] tp'' ] gb'' ].
+    eapply eval_unary_expression_list_ok with (tr := tr''); eauto.
+  - cheat. (* Let us do it later. *)
+  - cheat. (* Let us do it later. *)
+  - eapply eval_agg_ok; eauto.
+Qed.
 
 Lemma eval_expr_in_relation_ok: ∀ s r ty r' Γ Γ' β β' tr tr' expr,
   trace_ok tr →

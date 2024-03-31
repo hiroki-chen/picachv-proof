@@ -129,18 +129,6 @@ Definition get_new_policy cur op: Policy.policy :=
     end
   end.
 
-Inductive merge_trace: trace_ty → trace_ty → trace_ty → Prop :=
-  | MergeTraceEmpty: ∀ tr,
-      merge_trace tr TrEmpty tr
-  | MergeTraceEmptyR: ∀ tr,
-      merge_trace TrEmpty tr tr
-  | MergeTraceList: ∀ tr1 tr2 p1 p2 l1 l2 body1 body2,
-      tr1 = TrLinear p1 l1 body1 →
-      tr2 = TrLinear p2 l2 body2 →
-      p1 = p2 ∧ l1 = l2 →
-      merge_trace tr1 tr2 (TrLinear p1 l1 (body1 ++ body2))
-.
-
 Inductive eval_unary_expression_in_cell: ∀ bt,
   unary_func → (type_to_coq_type bt * nat) → eval_env →
     option (eval_env * e_value) → Prop :=
@@ -170,7 +158,7 @@ Inductive eval_unary_expression_in_cell: ∀ bt,
             let tr_new := TrLinear (prov_trans_unary op) p_new (tr_cur :: nil) in
               Γ' = update_label Γ id p_new →
               p' = update_label p id tr_new →
-              eval_unary_expression_in_cell bt f (arg, id) ((Γ, β, p), tr, proxy)
+              eval_unary_expression_in_cell bt f (arg, id) ((Γ', β, p'), tr, proxy)
                 (Some (((Γ', β', p'), tr, proxy), ValuePrimitive bt' (lambda (eq ♯ arg), Some id)))
 .
 
@@ -261,7 +249,7 @@ Inductive eval_binary_expression_in_cell: ∀ bt,
       p_f = ∘ (Policy.policy_agg (f :: nil)) →
       p1 ⪯ p_f →
       p2 ⪯ p_f →
-      tr_cur = merge_trace (prov_agg f) (id1', prov1) (id2', prov2) →
+      tr_cur = merge_trace_ty (prov_agg f) (id1', prov1) (id2', prov2) →
       eval_binary_expression_in_cell bt f (v1, id1) (v2, id2) (c, tr, proxy) (Some (c, tr, proxy, ValuePrimitive bt res)) *)
       eval_binary_expression_in_cell bt f (v1, id1) (v2, id2) (c, tr, proxy) None *)
 
@@ -353,7 +341,7 @@ Inductive do_eval_agg:
       do_eval_agg bt1 bt2 f Γ p tl (Some (p_tl, tr_tl, tl_v)) →
       let p_new := get_new_policy p_cur (Policy.policy_agg (op :: nil)) in
       let res := f' tl_v hd_v in
-        merge_trace tr_cur tr_tl tr_new →
+        merge_trace_ty tr_cur tr_tl tr_new →
         p_new ∪ p_tl = p_final →
         do_eval_agg bt1 bt2 f Γ p l (Some (p_final, tr_new, res))
 .
@@ -392,10 +380,10 @@ Inductive apply_noise:
 *)
 Inductive eval_agg: ∀ bt, agg_func → eval_env → list (type_to_coq_type bt * option nat) →
   option (eval_env * e_value) → Prop :=
-  | EvalAggErr: ∀ bt f env Γ β p l res,
+  | EvalAggErr: ∀ bt f env Γ β p l,
       fst (fst env) = (Γ, β, p) →
       do_eval_agg bt bt f Γ p l None →
-      eval_agg bt f env l res
+      eval_agg bt f env l None
   | EvalAggOkNoNoise: ∀ bt bt' f op f' init_val env  tr proxy Γ β p l v policy trace,
       env = ((Γ, β, p), tr, proxy) →
       f = AggFunc op bt bt' f' init_val None →
