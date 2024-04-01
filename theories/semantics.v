@@ -299,16 +299,6 @@ match n with
   | S n' => t :: tuple_of_length_n s n' t
   end.
 
-Definition get_new_policy cur op: Policy.policy :=
-  match cur with
-  | ∎ => cur
-  | ℓ ⇝ p =>
-    match Policy.can_declassify_dec ℓ op with
-    | left _ => p
-    | right _ => cur
-    end
-  end.
-
 (*
   Apply *one* expression on the relation.
 
@@ -577,14 +567,14 @@ Inductive eval_groupby_having:
 Inductive eval_aggregate:
   ∀ s s_agg gb, bounded_list s gb → agg_list → expression → Policy.context → budget → trace → relation s →
     option (relation s_agg * Policy.context * budget * trace) → Prop :=
-  | E_EvalAggregate: ∀ s s_agg Γ Γ' β β' p p' gb (bounded: bounded_list s gb)
+  | E_EvalAggregate: ∀ s s_agg Γ Γ' Γ'' β β' β'' p p' p'' gb (bounded: bounded_list s gb)
                       gb_proxy agg f r r' res,
       let gb_proxy_raw := get_group_proxy s r gb bounded in
         (* We do a filtering here. *)
         eval_groupby_having gb_proxy_raw f Γ β p (Some (gb_proxy, Γ', β', p')) →
         apply_fold_on_groups s Γ' β' p' gb_proxy agg res →
-        res = Some (RelationWrapped s_agg r', Γ', β', p') →
-        eval_aggregate s s_agg gb bounded agg f Γ β p r (Some (r', Γ', β', p'))
+        res = Some (RelationWrapped s_agg r', Γ'', β'', p'') →
+        eval_aggregate s s_agg gb bounded agg f Γ β p r (Some (r', Γ'', β'', p''))
   | E_EvalAggregateError: ∀ s s_agg Γ Γ' β β' p p' gb (bounded: bounded_list s gb)
                       gb_proxy agg r f,
       let gb_proxy_raw := get_group_proxy s r gb bounded in
@@ -628,8 +618,15 @@ Inductive step_config: (database * operator) → config → Prop :=
   | E_GetRelation: ∀ c db o n r Γ β p,
       o = OperatorRel n →
       database_get_contexts db n = Some (r, Γ, p, β) →
+      Policy.policy_context_valid Γ →
       c = ConfigOut r (Γ, β) p →
       ⟦ db (OperatorRel n) ⟧ ⇓ ⟦ c ⟧
+  | E_GetRelationNotValid: ∀ c db o n r Γ β p,
+      o = OperatorRel n →
+      database_get_contexts db n = Some (r, Γ, p, β) →
+      ¬ Policy.policy_context_valid Γ →
+      c = ConfigOut r (Γ, β) p →
+      ⟦ db (OperatorRel n) ⟧ ⇓ ⟦ ConfigError ⟧
   (* The given relation index is not found in the database. *)
   | E_GetRelationError: ∀ c db o n,
       o = OperatorRel n →
@@ -846,8 +843,12 @@ Proof.
   induction o; intros.
   - inversion H0; inversion H; subst; auto; try discriminate.
   - inversion H0; inversion H; subst; auto; try discriminate;
-    try (rewrite H5 in H12; inversion H12); auto;
-    (rewrite H4 in H10; inversion H10; subst); auto.
+    try (rewrite H5 in H12; inversion H12); auto; 
+    try (rewrite H4 in H11; inversion H11; subst); auto.
+    try (rewrite H4 in H10; inversion H10; subst); auto.
+    + contradiction.
+    + contradiction.
+    + rewrite H4 in H10. discriminate.
   - destruct c1; destruct c2.
     + reflexivity.
     (* + inversion H0; subst; try discriminate.

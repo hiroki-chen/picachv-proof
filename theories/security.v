@@ -13,6 +13,15 @@ Require Import trace.
 Require Import types.
 Require Import util.
 
+Section Consistency.
+
+Theorem trace_policy_consistent: ∀ A, A.
+Admitted.
+
+End Consistency.
+
+Section SecurityMain.
+
 Definition valid_prov (τ: prov_type) (p1 p2: Policy.policy): Prop :=
   p1 ⪯ p2 ∧
   match τ with
@@ -87,6 +96,14 @@ Inductive label_transition_valid: trace_ty → Prop :=
  * We iterate over the trace information and checks for each cell id if its
  * corresponding policy transition is indeed valid and enforced in the course of
  * the query execution trace.
+ *
+ * This somehow resembles the following Fixpoint function:
+ *
+ * Fixpoint trace_ok tr :=
+ *  match tr with
+ *  | nil => True
+ *  | hd :: tl => label_transition_valid (snd hd) ∧ trace_ok tl
+ *  end.
  *)
 Inductive trace_ok: trace → Prop :=
   | TraceEmpty: trace_ok nil
@@ -97,12 +114,32 @@ Inductive trace_ok: trace → Prop :=
       trace_ok (hd :: tl)
 .
 
+Lemma label_transition_valid_impl_merge_app: ∀ body1 body2 prov lbl,
+  label_transition_valid_impl prov lbl body1 ∧
+  label_transition_valid_impl prov lbl body2 →
+  label_transition_valid_impl prov lbl (body1 ++ body2).
+Proof.
+  induction body1; intros; simpl in *; intuition.
+  induction body2.
+  - rewrite app_nil_r. auto.
+  - econstructor; eauto.
+    + eapply IHbody1. split.
+      * inversion H0. subst. inversion H. subst. assumption.
+      * assumption.
+    + inversion H0. subst. inversion H. subst. assumption.
+Qed.
+
 Lemma label_transition_valid_merge_app: ∀ p l body1 body2,
   label_transition_valid (TrLinear p l body1) ∧
   label_transition_valid (TrLinear p l body2) →
   label_transition_valid (TrLinear p l (body1 ++ body2)).
 Proof.
-Admitted.
+  intros. destruct H.
+  inversion H; inversion H0; subst; try discriminate.
+  inversion H1. inversion H4. subst.
+  clear H1. clear H4. econstructor; eauto.
+  apply label_transition_valid_impl_merge_app; auto.
+Qed.
 
 Lemma transition_ok_merge_trace_ty: ∀ tr1 tr2 tr,
   label_transition_valid tr1 →
@@ -116,7 +153,7 @@ Qed.
 
 Lemma trace_ok_app_cons_tail: ∀ a tr1 tr2,
    trace_ok (tr1 ++ tr2) ∧ label_transition_valid (snd a) →
-    trace_ok (tr1 ++ a :: tr2).
+   trace_ok (tr1 ++ a :: tr2).
 Proof.
   induction tr1; intros; simpl in *; intuition; (econstructor; eauto); inversion H0.
   - assumption.
@@ -247,6 +284,31 @@ Lemma apply_noise_ok: ∀ bt v β ng n policy tr_ty Γ v' Γ' β' tr tr',
   apply_noise bt v β ng n policy tr_ty Γ tr (Some (v', Γ', β', tr')) →
   trace_ok tr'.
 Proof.
+  intros. inversion H1; subst; try discriminate.
+  apply inj_pair2_eq_dec in H2, H3; try (apply basic_type_eq_dec). subst.
+  econstructor; eauto. simpl.
+  econstructor.
+  - reflexivity.
+  - econstructor; eauto; econstructor; eauto.
+    constructor.
+    + unfold policy'. simpl.
+      (*
+       * In order to prove the following
+       *
+       * (get_new_policy policy p_f) ⪯ (extract_policy tr_ty),
+       *
+       * we will need to reason about whether policy ⪯ extract_policy tr_ty. Since this
+       * is the prerequisite of the `apply_noise` here, we need to ensure the following
+       *
+       * ∀ Γ tr id, Γ(id) = Some p ∧ tr(id) = Some (tr_ty) →
+       *            p ⪯ extract_policy tr_ty
+       *
+       * always holds.
+       *
+       * In fact, we can make it stronger: the semantics ensures that p = extract_policy tr_ty.
+       * if one inspects the rules for `eval`.
+       *)
+
 Admitted.
 
 Lemma eval_agg_ok: ∀ bt l f Γ Γ' β β' tr tr' tp tp' gb gb' n,
@@ -406,14 +468,74 @@ Lemma eval_predicate_in_relation_ok: ∀ s r Γ β t e r' Γ' β' t',
   eval_predicate_in_relation s r Γ β t e (Some (r', Γ', β', t')) →
   trace_ok t'.
 Proof.
-Admitted.
+  induction r; intros; inversion H0; subst; try discriminate; intuition;
+  inversion H9; subst; destruct env as [ [ [ [ Γ'' β'' ] tr'' ] tp'' ] gb'' ].
+  - inversion H11. subst. clear H11. clear H9.
+    inversion H10. subst.
+    assert (trace_ok p') by (eapply eval_ok; eauto).
+    eapply IHr with (t := p'); eauto.
+  - inversion H11. subst. clear H11. clear H9.
+    inversion H10. subst.
+    assert (trace_ok p') by (eapply eval_ok; eauto).
+    eapply IHr with (t := p'); eauto.
+Qed.
+
+Lemma eval_groupby_having_ok: ∀ gb expr Γ β tr gb' Γ' β' tr',
+  trace_ok tr →
+  eval_groupby_having gb expr Γ β tr (Some (gb', Γ', β', tr')) →
+  trace_ok tr'.
+Proof.
+  induction gb; intros; inversion H0; subst; try discriminate; intuition;
+  destruct env as [ [ [ [ Γ'' β'' ] tr'' ] tp'' ] gb'' ].
+  - inversion H1. subst. clear H1.
+    inversion H2. subst.
+    inversion H3. subst.
+    apply eval_ok in H1. eapply IHgb with (tr := p'); eauto.
+    assumption.
+  - inversion H10. subst. clear H10.
+    inversion H12. subst. clear H12.
+    inversion H11. subst.
+    apply eval_ok in H1. eapply IHgb with (tr := p'); eauto.
+    assumption.
+Qed.
+
+Lemma apply_fold_on_groups_once_ok: ∀ gb s r Γ β agg tr Γ' β' tr',
+  trace_ok tr →
+  apply_fold_on_groups_once s Γ β tr gb agg (Some (r, Γ', β', tr')) →
+  trace_ok tr'.
+Proof.
+  induction gb; intros; inversion H0; subst; try discriminate; intuition.
+  inversion H5. subst. clear H5.
+  apply inj_pair2_eq_dec in H1; subst; try (apply basic_type_eq_dec).
+  destruct env as [ [ [ [ Γ'' β'' ] tr'' ] tp'' ] gb'' ].
+  inversion H13. subst. clear H13.
+  inversion H12. subst.
+  assert (trace_ok p') by (eapply eval_ok; eauto).
+  eapply IHgb with (tr := p'); eauto.
+Qed.
+
+Lemma apply_fold_on_groups_ok: ∀ s r Γ β gb agg tr Γ' β' tr',
+  trace_ok tr →
+  apply_fold_on_groups s Γ β tr gb agg (Some (r, Γ', β', tr')) →
+  trace_ok tr'.
+Proof.
+  induction agg; induction s; intros; inversion H0; subst; try discriminate;
+  intuition. inversion H11. inversion H12. subst. clear H11. clear H12.
+  eapply apply_fold_on_groups_once_ok; eauto.
+Qed.
 
 Lemma eval_aggregate_ok: ∀ s s' g b a expr r Γ β t r' Γ' β' t',
   trace_ok t →
   eval_aggregate s s' g b a expr Γ β t r (Some (r', Γ', β', t')) →
   trace_ok t'.
 Proof.
-Admitted.
+  intros; inversion H0; subst; try discriminate.
+  apply inj_pair2_eq_dec in H2, H3; subst.
+  - apply eval_groupby_having_ok in H14; try assumption.
+    apply apply_fold_on_groups_ok in H16; try assumption.
+  - apply list_eq_dec. apply attribute_eq_dec.
+  - apply list_eq_dec. apply attribute_eq_dec.
+Qed.
 
 (*
  * This theorem is the main security theorem that states the following fact:
@@ -424,7 +546,7 @@ Admitted.
  *   and the label transition is valid with regard to the cell provenance information, and that
  *   the budget is bounded.
  *
- * The proof is by induction on `o`.
+ * The proof is by induction on `o` which mimics the structure of the semantics.
  *
  * Note here we do not enforce how the data should be released, we only ensure that all the valid
  * transitions are enforced and that the budget is bounded. The release of data can be trivally
@@ -453,12 +575,14 @@ Proof.
   - destruct db eqn: Hdb.
     + left. eapply E_GetRelationError; eauto.
     + destruct (database_get_contexts db n) as [ [ [ [ r Γ] ] β ] | ] eqn: Hget.
-      * subst. destruct r. right.
-        exists s0, (ConfigOut (RelationWrapped s0 r) (Γ, β) t), r, (Γ, β), t.
-        intuition.
-        -- econstructor; eauto.
-        -- eapply database_get_contexts_trace_ok. eapply Hget.
-        -- red. auto.
+      * subst. destruct r.
+        destruct (Policy.policy_context_valid_dec Γ).
+        -- right. exists s0, (ConfigOut (RelationWrapped s0 r) (Γ, β) t), r, (Γ, β), t.
+           intuition.
+           ++ econstructor; eauto.
+           ++ eapply database_get_contexts_trace_ok. eapply Hget.
+           ++ red. auto.
+        -- left. eapply E_GetRelationNotValid; eauto.
       * left. subst. eapply E_GetRelationError; eauto.
   - specialize (operator_always_terminate db o1).
     specialize (operator_always_terminate db o2).
@@ -664,3 +788,5 @@ Proof.
             ++ left. eapply E_AggSchemaError; eauto. intuition; discriminate.
         -- left. eapply E_AggNotBounded; eauto. intuition; discriminate.
 Qed.
+
+End SecurityMain.

@@ -569,6 +569,21 @@ Section Facts.
 
 Import Bool.
 
+Lemma get_new_policy_lower: ∀ p1 p2 op,
+  Policy.valid_policy p1 ∧ Policy.valid_policy p2 →
+  p1 ⪯ p2 →
+  get_new_policy p1 op ⪯ p2.
+Proof.
+  intros; intuition; inversion H0; subst.
+  - simpl. assumption.
+  - destruct p1; simpl.
+    + destruct H. discriminate.
+    + destruct H, H3. inversion H. subst.
+      destruct Policy.can_declassify_dec.
+      * apply Policy.preceq_implies in H0. assumption.
+      * assumption.
+Qed.
+
 Lemma expr_type_eqb_refl: ∀ τ, expr_type_eqb τ τ = true.
 Proof.
   induction τ; simpl; try easy.

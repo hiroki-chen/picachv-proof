@@ -649,17 +649,27 @@ Inductive policy_ordering: policy → policy → Prop :=
      ∎ ⪯ p
   *)
   | policy_ordering_trivial: ∀ p, valid_policy p → ∎ ⪯ p
-  (*
-    ℓ1 ⊑ ℓ2 p1 ⪯ p2
-    -------------- = policy_ordering_label
-    ℓ1 ⇝ p1 ⪯ ℓ2 ⇝ p2
-  *)
-  | policy_ordering_spec: ∀ ℓ ℓ' p p', ℓ ⊑ ℓ' → valid_policy p → valid_policy p' →
-                          p ⪯ p' → (ℓ ⇝ p) ⪯ (ℓ' ⇝ p')
+
+  | policy_ordering_spec: ∀ p1 p1' p2 p2' ℓ1 ℓ2,
+      p1 = ℓ1 ⇝ p1' ∧ p2 = ℓ2 ⇝ p2' →
+      valid_policy p1 ∧ valid_policy p2 →
+      ℓ1 ⊑ ℓ2 →
+   (* ---------- *)
+      p1' ⪯ p2' → p1 ⪯ p2
 where "x ⪯ y" := (policy_ordering x y).
 
 Definition policy_eq (lhs rhs: policy): Prop := lhs ⪯ rhs ∧ rhs ⪯ lhs.
 Notation "x ≡ y" := (policy_eq x y) (at level 10, no associativity).
+
+Lemma preceq_implies: ∀ ℓ1 p1 p,
+  (ℓ1 ⇝ p1) ⪯ p → p1 ⪯ p.
+Proof.
+  intros ℓ1 p1. generalize dependent ℓ1.
+  induction p1; intros; inversion H; intuition; subst.
+  - constructor. assumption.
+  - inversion H6. subst.
+    inversion H0. subst. econstructor; eauto. etransitivity; eauto.
+Qed.
 
 Reserved Notation "x '∪' y '=' z" (at level 10, y at next level, z at next level, no associativity).
 Inductive policy_join: policy → policy → policy → Prop :=
@@ -697,25 +707,41 @@ where "x '∪' y '=' z" := (policy_join x y z).
 *)
 Lemma policy_ord_dec: ∀ (lhs rhs: policy), valid_policy lhs → valid_policy rhs → { lhs ⪯ rhs } + { ~ (lhs ⪯ rhs) }.
 Proof.
-  induction lhs; induction rhs; intros; try specialize IHlhs with (rhs := rhs).
+  induction lhs; induction rhs; intros; try specialize IHlhs with (rhs := rhs); intuition; subst.
   - left. subst. constructor. assumption.
   - left. subst. constructor. assumption.
-  - right. unfold not. subst. intros. inversion H1. 
-  - destruct IHlhs, IHrhs; try assumption;
+  - right. unfold not. intros. inversion H1. subst. intuition. discriminate.
+  - destruct IHlhs; try assumption;
     try (apply valid_policy_implies in H0; assumption); try (apply valid_policy_implies in H; assumption).
     + destruct (flowsto_dec _ policy_lattice policy_eq_dec' p p0).
-      * left. constructor; try assumption; try eapply valid_policy_implies; eauto.
-      * right. unfold not in *. intros. apply n. inversion H1; subst; auto.
+      * left. econstructor; try assumption; try eapply valid_policy_implies; eauto.
+      * right. unfold not in *. intros. apply n. inversion H2. subst. intuition.
+        inversion H7. inversion H8. subst. assumption. 
     + destruct (flowsto_dec _ policy_lattice policy_eq_dec' p p0).
-      * left. constructor; try assumption; try eapply valid_policy_implies; eauto.
-      * right. unfold not in *. intros. apply n0. inversion H1; subst; auto.
-    + right. unfold not in *. intros. apply n. inversion H1; subst; auto.
-    + destruct (flowsto_dec _ policy_lattice policy_eq_dec' p p0).
-      * right. red. intros. apply n. inversion H1. assumption.
-      * right. unfold not in *. intros.  inversion H1; subst. apply n1. assumption.
+      * right. unfold not in *. intros. apply f. inversion H2. subst. intuition.
+        inversion H7. inversion H8. subst. assumption. 
+      * right. unfold not in *. intros. apply f. inversion H2. subst. intuition.
+        inversion H7. inversion H8. subst. assumption. 
 Qed.
 
 Definition context := ctx policy.
+
+Fixpoint policy_context_valid (Γ: ctx policy): Prop :=
+  match Γ with
+  | nil => True
+  | (_, p) :: Γ' => valid_policy p ∧ policy_context_valid Γ'
+  end.
+
+Theorem policy_context_valid_dec: ∀ Γ, {policy_context_valid Γ} + {~ policy_context_valid Γ}.
+Proof.
+  induction Γ.
+  - left. constructor.
+  - destruct IHΓ.
+    + destruct a. destruct (valid_policy_dec p0).
+      * left. constructor; auto.
+      * right. unfold not. intros. inversion H. subst. intuition.
+    + right. unfold not. intros. apply n. simpl in H. destruct a. intuition.
+Qed.
 
 Section Tests.
 
