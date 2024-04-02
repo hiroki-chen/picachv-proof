@@ -125,6 +125,11 @@ Proof.
   repeat rewrite meet_absorp. reflexivity.
 Qed.
 
+Global Instance flowsto_refl: Reflexive flowsto.
+  unfold Reflexive. intros.
+  red. rewrite join_idem. reflexivity.
+Defined.
+
 Global Instance flowsto_trans: Transitive flowsto.
   unfold Transitive. intros.
   unfold flowsto in *.  rewrite <- H1. rewrite <- H0.

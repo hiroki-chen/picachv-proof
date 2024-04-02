@@ -2,7 +2,7 @@ Require Import Utf8.
 
 Require Import relation.
 Require Import trace.
-
+Require Import types.
 
 (*
   `config` is an inductive type that defines a configuration for the query evaluation.
@@ -14,5 +14,5 @@ Require Import trace.
 *)
 Inductive config: Type :=
   | ConfigError: config
-  | ConfigOut: relation_wrapped → σ → trace → config
+  | ConfigOut: relation_wrapped → budget → trace → config
 .

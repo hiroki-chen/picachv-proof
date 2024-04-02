@@ -25,19 +25,14 @@ Definition prov_type_eqb τ1 τ2: bool :=
 
 Inductive trace_ty: Type :=
   (* ⊥ *)
-  | TrEmpty: trace_ty
+  | TrEmpty: Policy.policy → trace_ty
   (* Linear trace: op → current policy → predecessors *)
   | TrLinear: prov_type → Policy.policy → list trace_ty → trace_ty
   (* Branching trace. *)
   | TrBranch: prov_type → Policy.policy → trace_ty → trace_ty → trace_ty
 .
 
-
 Inductive merge_trace_ty: trace_ty → trace_ty → trace_ty → Prop :=
-  | MergeTraceEmpty: ∀ tr,
-      merge_trace_ty tr TrEmpty tr
-  | MergeTraceEmptyR: ∀ tr,
-      merge_trace_ty TrEmpty tr tr
   | MergeTraceList: ∀ tr1 tr2 p1 p2 l1 l2 body1 body2,
       tr1 = TrLinear p1 l1 body1 →
       tr2 = TrLinear p2 l2 body2 →
@@ -47,7 +42,7 @@ Inductive merge_trace_ty: trace_ty → trace_ty → trace_ty → Prop :=
 
 Definition extract_policy tr :=
   match tr with
-  | TrEmpty => ∎
+  | TrEmpty p => p
   | TrLinear _ p _ => p
   | TrBranch _ p _ _ => p
   end.
@@ -58,13 +53,5 @@ Definition extract_policy tr :=
  *)
 Definition trace := ctx trace_ty.
 
-Fixpoint empty_trace_from_pctx (Γ: Policy.context): trace :=
-  match Γ with
-  | nil => nil
-  | (n, _) :: Γ' => (n, TrEmpty) :: empty_trace_from_pctx Γ'
-  end.
-
 (* σ ::= ⟨ Γ, β ⟩; the program state. *)
 Definition σ := (Policy.context * budget)%type.
-
-Notation "∅" := TrEmpty.

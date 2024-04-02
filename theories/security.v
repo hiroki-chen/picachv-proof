@@ -13,18 +13,18 @@ Require Import trace.
 Require Import types.
 Require Import util.
 
-Section Consistency.
-
-Theorem trace_policy_consistent: ∀ A, A.
-Admitted.
-
-End Consistency.
-
 Section SecurityMain.
 
+(*
+ * Checks whether a policy p1 can be downgraded to p2 using op.
+ *)
 Definition valid_prov (τ: prov_type) (p1 p2: Policy.policy): Prop :=
-  p1 ⪯ p2 ∧
+  p2 ⪯ p1 ∧
   match τ with
+    (*
+     * Adding `∘ op` ⪯ p should be enough for the condition as this is equivalent to
+     * op ⊑ (first label p), the proof of which is trivial and intuitive.
+     *)
     | prov_trans_unary op => (∘ (Policy.policy_transform ((unary_trans_op op) :: nil))) ⪯ p1
     | prov_trans_binary op => (∘ (Policy.policy_transform ((binary_trans_op op) :: nil))) ⪯ p1
     | prov_agg op => (∘ (Policy.policy_agg (op :: nil))) ⪯ p1
@@ -41,9 +41,26 @@ Definition can_release p: Prop := p = ∎.
 (* TODO: Define this. *)
 Definition budget_bounded (β: budget): Prop := True.
 
+Fixpoint trace_mirrors_policy (tr: trace) (Γ: Policy.context) :=
+  match tr with
+  | nil => True
+  | (id, tr_ty) :: tl =>
+    match label_lookup Γ id with
+    | Some p => p = extract_policy tr_ty ∧ trace_mirrors_policy tl Γ
+    | None => False
+    end
+  end.
+
 Notation "p1 '=[' p ']=>' p2" := (valid_prov p p1 p2)
   (at level 10, p at next level, p2 at next level).
 
+(* 
+ *                    ----< tr1
+ *                   /
+ * trace: join --< lbl 
+ *                  \
+ *                   ----< tr2 
+ *)
 Inductive join_ok: Policy.policy → trace_ty → trace_ty → Prop :=
   | JoinOk: ∀ lbl lbl1 lbl2 tr1 tr2,
       lbl1 = extract_policy tr1 →
@@ -58,7 +75,6 @@ Inductive join_ok: Policy.policy → trace_ty → trace_ty → Prop :=
  *)
 Inductive
 valid_transition: prov_type → Policy.policy → trace_ty → Prop :=
-  | ValidEmpty: ∀ prov lbl, valid_transition prov lbl ∅
   | ValidTransition: ∀ prov lbl lbl' tr,
       lbl' = extract_policy tr →
       lbl =[ prov ]=> lbl' →
@@ -79,7 +95,7 @@ label_transition_valid_impl: prov_type → Policy.policy → list (trace_ty) →
 .
 
 Inductive label_transition_valid: trace_ty → Prop :=
-  | LabelTransitionTrEmpty: label_transition_valid ∅
+  | LabelTransitionTrEmpty: ∀ p, label_transition_valid (TrEmpty p)
   | LabelTransitionTrLinear: ∀ tr prov lbl l,
       tr = TrLinear prov lbl l →
       label_transition_valid_impl prov lbl l →
@@ -113,6 +129,21 @@ Inductive trace_ok: trace → Prop :=
       trace_ok tl →
       trace_ok (hd :: tl)
 .
+
+(*
+ * Checks if the trace faithfully "mirror"s the policy context.
+ *)
+Definition trace_consistent (tr: ctx trace_ty) (Γ: ctx Policy.policy): Prop :=
+  match tr with
+  | nil => True
+  | (id, tr_ty) :: tl =>
+    match label_lookup Γ id with
+    | Some p => p ⪯ (extract_policy tr_ty)
+    | None => False
+    end
+  end.
+
+(* Definition trace_valid tr Γ := *)
 
 Lemma label_transition_valid_impl_merge_app: ∀ body1 body2 prov lbl,
   label_transition_valid_impl prov lbl body1 ∧
@@ -195,8 +226,8 @@ Proof.
     + eapply IHtr; eauto. inversion H; subst. auto.
 Qed.
 
-Lemma database_get_contexts_trace_ok: ∀ db s r n Γ β tr,
-  database_get_contexts db n = Some (RelationWrapped s r, Γ, tr, β) →
+Lemma database_get_contexts_trace_ok: ∀ db s r n β tr,
+  database_get_contexts db n = Some (RelationWrapped s r, tr, β) →
   trace_ok tr.
 Proof.
   induction db; intros.
@@ -205,12 +236,12 @@ Proof.
     + apply Nat.eqb_eq in Hn0. subst.
       simpl in H. destruct (inject_id_helper s l 10).
       inversion H. subst. apply inj_pair2_eq_dec in H2. subst.
-      induction Γ.
+      induction c.
       * simpl. constructor.
       * simpl. destruct a. econstructor.
         -- reflexivity.
         -- constructor.
-        -- apply IHΓ. reflexivity.
+        -- apply IHc. reflexivity.
       * apply list_eq_dec. apply attribute_eq_dec.
     + simpl in H. rewrite Hn0 in H. apply IHdb in H. auto.
 Qed.
@@ -244,16 +275,16 @@ Proof.
       * apply IHtr1. assumption. assumption.
 Qed.
 
-Lemma eval_unary_expression_list_ok: ∀ bt l f Γ Γ' β β' tr tr' tp tp' gb gb' n,
+Lemma eval_unary_expression_list_ok: ∀ bt l f β β' tr tr' tp tp' gb gb' n,
   trace_ok tr →
-  eval_unary_expression_list bt f (Γ, β, tr, tp, gb) l
-    (Some ((Γ', β', tr', tp', gb'), n)) →
+  eval_unary_expression_list bt f (β, tr, tp, gb) l
+    (Some ((β', tr', tp', gb'), n)) →
   trace_ok tr'.
 Proof.
   induction l; intros; inversion H0; subst; try discriminate; auto.
   apply inj_pair2_eq_dec in H1; try (apply basic_type_eq_dec).
   inversion H1. subst.
-  destruct env' as [ [ [ [ Γ'' β'' ] tr'' ] tp'' ] gb'' ].
+  destruct env' as [ [ [ β'' tr'' ] tp'' ] gb'' ].
   eapply IHl.
   - cut (trace_ok tr''). intros. eapply H2.
     inversion H8; subst; intuition.
@@ -262,9 +293,9 @@ Proof.
   - eapply H9.
 Qed.
 
-Lemma do_eval_agg_transition_ok: ∀ bt bt' func Γ tr l policy tr' res,
+Lemma do_eval_agg_transition_ok: ∀ bt bt' func tr l policy tr' res,
   trace_ok tr →
-  do_eval_agg bt bt' func Γ tr l (Some (policy, tr', res)) →
+  do_eval_agg bt bt' func tr l (Some (policy, tr', res)) →
   label_transition_valid tr'.
 Proof.
   induction l; intros; inversion H0; subst; try discriminate; auto.
@@ -273,15 +304,15 @@ Proof.
   - constructor.
   - apply inj_pair2_eq_dec in H1, H5; try (apply basic_type_eq_dec). inversion H1. subst.
     apply transition_ok_merge_trace_ty with (tr1 := tr_cur) (tr2 := tr_tl).
-    + apply label_lookup_no_effect in H10; assumption.
+    + apply label_lookup_no_effect in H9; assumption.
     + eapply IHl; eauto.
     + assumption.
 Qed.
 
-Lemma apply_noise_ok: ∀ bt v β ng n policy tr_ty Γ v' Γ' β' tr tr',
+Lemma apply_noise_ok: ∀ bt v β ng n policy tr_ty v' β' tr tr',
   label_transition_valid tr_ty →
   trace_ok tr →
-  apply_noise bt v β ng n policy tr_ty Γ tr (Some (v', Γ', β', tr')) →
+  apply_noise bt v β ng n policy tr_ty tr (Some (v', β', tr')) →
   trace_ok tr'.
 Proof.
   intros. inversion H1; subst; try discriminate.
@@ -292,113 +323,87 @@ Proof.
   - econstructor; eauto; econstructor; eauto.
     constructor.
     + unfold policy'. simpl.
-      (*
-       * In order to prove the following
-       *
-       * (get_new_policy policy p_f) ⪯ (extract_policy tr_ty),
-       *
-       * we will need to reason about whether policy ⪯ extract_policy tr_ty. Since this
-       * is the prerequisite of the `apply_noise` here, we need to ensure the following
-       *
-       * ∀ Γ tr id, Γ(id) = Some p ∧ tr(id) = Some (tr_ty) →
-       *            p ⪯ extract_policy tr_ty
-       *
-       * always holds.
-       *
-       * In fact, we can make it stronger: the semantics ensures that p = extract_policy tr_ty.
-       * if one inspects the rules for `eval`.
-       *)
-
+      
 Admitted.
 
-Lemma eval_agg_ok: ∀ bt l f Γ Γ' β β' tr tr' tp tp' gb gb' n,
+Lemma eval_agg_ok: ∀ bt l f β β' tr tr' tp tp' gb gb' n,
   trace_ok tr →
-  eval_agg bt f (Γ, β, tr, tp, gb) l
-    (Some ((Γ', β', tr', tp', gb'), n)) →
+  eval_agg bt f (β, tr, tp, gb) l
+    (Some ((β', tr', tp', gb'), n)) →
   trace_ok tr'.
 Proof.
   intros. inversion H0; subst.
   - inversion H8. subst. econstructor; eauto; simpl. eapply do_eval_agg_transition_ok; eauto.
   - inversion H10. subst. inversion H13; subst.
-    + apply inj_pair2_eq_dec in H1, H2, H12; try (apply basic_type_eq_dec). subst. 
-      inversion H14. subst.
-      apply inj_pair2_eq_dec in H1, H2; try (apply basic_type_eq_dec). subst.
-      econstructor; eauto.
-      simpl. econstructor.
-      * reflexivity.
-      * econstructor; eauto; constructor.
-    + apply inj_pair2_eq_dec in H1, H2, H6; try (apply basic_type_eq_dec). subst.
-      inversion H8. subst.
-      apply inj_pair2_eq_dec in H4, H4, H5; try (apply basic_type_eq_dec). subst.
-      eapply apply_noise_ok; eauto. eapply do_eval_agg_transition_ok; eauto.
+    apply inj_pair2_eq_dec in H1, H2, H3; try (apply basic_type_eq_dec). subst.
+    eapply apply_noise_ok; eauto. eapply do_eval_agg_transition_ok; eauto.
 Qed.
 
-Lemma eval_ok: ∀ expr n in_agg Γ Γ' β β' tr tr' tp tp' gb gb' v,
+Lemma eval_ok: ∀ expr n in_agg β β' tr tr' tp tp' gb gb' v,
   trace_ok tr →
-  eval n expr in_agg ((Γ, β), tr, tp, gb) (Some (((Γ', β'), tr', tp', gb', v))) →
+  eval n expr in_agg (β, tr, tp, gb) (Some ((β', tr', tp', gb', v))) →
   trace_ok tr'.
 Proof.
   induction expr; intros; inversion H0; subst; try discriminate; intuition.
-  - inversion H10. subst.
-    inversion H15; subst.
+  - inversion H6. subst.
+    inversion H14; subst.
     + apply inj_pair2_eq_dec in H1. subst.
       * eapply IHexpr; eauto.
       * apply basic_type_eq_dec.
-    + apply inj_pair2_eq_dec in H1; subst; try (apply basic_type_eq_dec).
-      clear H10. inversion H6. subst.
-      apply inj_pair2_eq_dec in H1; subst; try (apply basic_type_eq_dec).
-      * eapply IHexpr; eauto.
+    (* + apply inj_pair2_eq_dec in H1; subst; try (apply basic_type_eq_dec).
+      inversion H6. subst.
+      (* * eapply IHexpr; eauto. *)
   - inversion H10. subst.
     destruct env as [ [ [ [ Γ'' β''] tr'' ] tp'' ] gb'' ].
     eapply eval_unary_expression_list_ok with (tr := tr''); eauto.
   - cheat. (* Let us do it later. *)
   - cheat. (* Let us do it later. *)
-  - eapply eval_agg_ok; eauto.
-Qed.
+  - eapply eval_agg_ok; eauto. *)
+Admitted.
 
-Lemma eval_expr_in_relation_ok: ∀ s r ty r' Γ Γ' β β' tr tr' expr,
+Lemma eval_expr_in_relation_ok: ∀ s r ty r' β β' tr tr' expr,
   trace_ok tr →
-  eval_expr_in_relation s r ty Γ β tr expr (Some (r', Γ', β', tr')) →
+  eval_expr_in_relation s r ty β tr expr (Some (r', β', tr')) →
   trace_ok tr'.
 Proof.
   induction r; intros; inversion H0; subst;
   try discriminate; intuition;
   inversion H10; try inversion H1; subst; try discriminate.
-  - inversion H9. subst. apply inj_pair2_eq_dec in H26. subst.
+  (* - inversion H9. subst. apply inj_pair2_eq_dec in H26. subst.
     + eapply IHr; eauto.
     + apply basic_type_eq_dec.
   - inversion H9. inversion H29. subst. eapply IHr; eauto.
   - inversion H9. subst. eapply IHr.
     + apply eval_ok in H1. eapply H1. assumption.
     + eauto.
-  - cheat. (* Let us do it later. *)
-Qed.
+  - cheat. *)
+  (* Let us do it later. *)
+Admitted.
 
-Lemma join_policy_and_trace_ok: ∀ l1 l2 com Γ1 Γ2 Γ tr1 tr2 tr,
+Lemma join_policy_and_trace_ok: ∀ l1 l2 com tr1 tr2 tr,
   trace_ok tr1 →
   trace_ok tr2 →
-  join_policy_and_trace l1 l2 com Γ1 Γ2 tr1 tr2 (Some (Γ, tr)) →
+  join_policy_and_trace l1 l2 com tr1 tr2 (Some tr) →
   trace_ok tr.
 Proof.
   induction l1; intros; inversion H1; subst;
   try discriminate; try (apply trace_ok_merge_ok; auto).
-  inversion H4. inversion H5. subst. clear H4.
+  inversion H3. subst. clear H3.
   econstructor; eauto; simpl.
-  - inversion H21; subst. intuition.
-    eapply LabelTransitionTrBranch with (tr1 := tr1') (tr2 := tr2'); eauto.
-    + reflexivity.
-    + apply label_lookup_no_effect in H11; auto.
-    + apply label_lookup_no_effect in H12; auto.
-    + econstructor; eauto. 
+  - unfold tr_join. eapply LabelTransitionTrBranch; eauto.
+    + apply label_lookup_no_effect in H8; assumption.
+    + apply label_lookup_no_effect in H9; assumption.
+    + econstructor; eauto.
+      * 
   - assert (trace_ok tl4) by (inversion H; subst; auto).
     assert (trace_ok tl5) by (inversion H0; subst; auto).
     eapply IHl1 with (tr1 := tl4) (tr2 := tl5); eauto.
-Qed.
+Admitted.
 
-Lemma trace_ok_join_ok_aux: ∀ s1 s2 join_by t r rout Γ1 Γ2 Γ β1 β2 β tr1 tr2 tr,
+Lemma trace_ok_join_ok_aux: ∀ s1 s2 join_by t r rout β1 β2 β tr1 tr2 tr,
   trace_ok tr1 →
   trace_ok tr2 →
-  relation_join_by_prv_helper s1 s2 join_by t r Γ1 Γ2 β1 β2 tr1 tr2 (Some (rout, Γ, β, tr)) →
+  relation_join_by_prv_helper s1 s2 join_by t r β1 β2 tr1 tr2 (Some (rout, β, tr)) →
   trace_ok tr.
 Proof.
   (* Induction follows the pattern of the inductive relation. *)
@@ -413,8 +418,8 @@ Proof.
     + apply list_eq_dec. apply attribute_eq_dec.
   - apply inj_pair2_eq_dec in H2, H3, H4, H4, H4; subst.
     + inversion H3; subst.
-      assert (trace_ok p_cons) by (eapply IHr with (tr1 := tr1) (tr2 := tr2); eauto).
-      eapply trace_ok_merge_ok with (tr1 := p_merged) (tr2 := p_cons); eauto.
+      assert (trace_ok tr_cons) by (eapply IHr with (tr1 := tr1) (tr2 := tr2); eauto).
+      eapply trace_ok_merge_ok with (tr1 := tr_merged) (tr2 := tr_cons); eauto.
       eapply join_policy_and_trace_ok with (tr1 := tr1) (tr2 := tr2); eauto.
     + apply list_eq_dec. apply Nat.eq_dec.
     + apply list_eq_dec. apply attribute_eq_dec.
@@ -423,10 +428,10 @@ Proof.
     + apply list_eq_dec. apply attribute_eq_dec.
 Qed.
 
-Lemma trace_ok_join_ok: ∀ s1 s2 join_by r1 r2 r Γ1 Γ2 Γ β1 β2 β tr1 tr2 tr,
+Lemma trace_ok_join_ok: ∀ s1 s2 join_by r1 r2 r β1 β2 β tr1 tr2 tr,
   trace_ok tr1 →
   trace_ok tr2 →
-  relation_join_by_prv s1 s2 join_by r1 r2 Γ1 Γ2 β1 β2 tr1 tr2 (Some (r, Γ, β, tr)) →
+  relation_join_by_prv s1 s2 join_by r1 r2 β1 β2 tr1 tr2 (Some (r, β, tr)) →
   trace_ok tr.
 Proof.
   induction r1; intros.
@@ -437,9 +442,9 @@ Proof.
   - inversion H1; subst; try constructor.
     apply inj_pair2_eq_dec in H2, H3, H4, H4, H4; subst.
     + inversion H2; subst.
-      assert (trace_ok p_cons) by (eapply IHr1 with (tr1 := tr1) (tr2 := tr2); eauto).
-      eapply trace_ok_merge_ok with (tr1 := p_hd) (tr2 := p_cons).
-      * apply trace_ok_join_ok_aux in H13; auto.
+      assert (trace_ok tr_cons) by (eapply IHr1 with (tr1 := tr1) (tr2 := tr2); eauto).
+      eapply trace_ok_merge_ok with (tr1 := tr_hd) (tr2 := tr_cons).
+      *apply trace_ok_join_ok_aux in H12; auto.
       * assumption.
     + apply list_eq_dec. apply Nat.eq_dec.
     + apply list_eq_dec. apply attribute_eq_dec.
@@ -448,91 +453,92 @@ Proof.
     + apply list_eq_dec. apply attribute_eq_dec.
 Qed.
 
-Lemma trace_ok_proj_ok: ∀ s s' r r' Γ Γ' β β' t t' pl,
+Lemma trace_ok_proj_ok: ∀ s s' r r' β β' t t' pl,
   trace_ok t →
-  apply_proj_in_relation s s' r pl Γ β t (Some (r', Γ', β', t')) →
+  apply_proj_in_relation s s' r pl β t (Some (r', β', t')) →
   trace_ok t'.
 Proof.
   induction s'; intros; inversion H0; subst; intuition.
   - discriminate.
   - inversion s_case. subst.
-    apply eval_expr_in_relation_ok in H9.
+    apply eval_expr_in_relation_ok in H7.
     eapply IHs'.
-    + eapply H9.
+    + eapply H7.
     + eauto.
     + assumption.
 Qed.
 
-Lemma eval_predicate_in_relation_ok: ∀ s r Γ β t e r' Γ' β' t',
-  trace_ok t →
-  eval_predicate_in_relation s r Γ β t e (Some (r', Γ', β', t')) →
-  trace_ok t'.
+Lemma eval_predicate_in_relation_ok: ∀ s r β tr e r' β' tr',
+  trace_ok tr →
+  eval_predicate_in_relation s r β tr e (Some (r', β', tr')) →
+  trace_ok tr'.
 Proof.
-  induction r; intros; inversion H0; subst; try discriminate; intuition;
-  inversion H9; subst; destruct env as [ [ [ [ Γ'' β'' ] tr'' ] tp'' ] gb'' ].
-  - inversion H11. subst. clear H11. clear H9.
-    inversion H10. subst.
-    assert (trace_ok p') by (eapply eval_ok; eauto).
-    eapply IHr with (t := p'); eauto.
-  - inversion H11. subst. clear H11. clear H9.
-    inversion H10. subst.
-    assert (trace_ok p') by (eapply eval_ok; eauto).
-    eapply IHr with (t := p'); eauto.
+  induction r; intros; inversion H0; subst; try discriminate; intuition
+  inversion H9; subst; destruct env as [ [ [ β'' tr'' ] tp'' ] gb'' ].
+  - inversion H4. subst. clear H4.
+    inversion H8. subst.
+    inversion H2. subst.
+    assert (trace_ok tr'0) by (eapply eval_ok; eauto).
+    eapply IHr with (tr := tr'0); eauto.
+  - inversion H4. subst. clear H4. 
+    inversion H2. subst. inversion H8. subst.
+    assert (trace_ok tr'0) by (eapply eval_ok; eauto).
+    eapply IHr with (tr := tr'0); eauto.
 Qed.
 
-Lemma eval_groupby_having_ok: ∀ gb expr Γ β tr gb' Γ' β' tr',
+Lemma eval_groupby_having_ok: ∀ gb expr β tr gb' β' tr',
   trace_ok tr →
-  eval_groupby_having gb expr Γ β tr (Some (gb', Γ', β', tr')) →
+  eval_groupby_having gb expr β tr (Some (gb', β', tr')) →
   trace_ok tr'.
 Proof.
   induction gb; intros; inversion H0; subst; try discriminate; intuition;
-  destruct env as [ [ [ [ Γ'' β'' ] tr'' ] tp'' ] gb'' ].
+  destruct env as [ [ [ β'' tr'' ] tp'' ] gb'' ].
   - inversion H1. subst. clear H1.
     inversion H2. subst.
     inversion H3. subst.
-    apply eval_ok in H1. eapply IHgb with (tr := p'); eauto.
+    apply eval_ok in H1. eapply IHgb with (tr := tr'0); eauto.
     assumption.
-  - inversion H10. subst. clear H10.
-    inversion H12. subst. clear H12.
-    inversion H11. subst.
-    apply eval_ok in H1. eapply IHgb with (tr := p'); eauto.
+  - inversion H4. subst. clear H4.
+    inversion H10. subst. clear H10.
+    inversion H9. subst.
+    apply eval_ok in H1. eapply IHgb with (tr := tr'0); eauto.
     assumption.
 Qed.
 
-Lemma apply_fold_on_groups_once_ok: ∀ gb s r Γ β agg tr Γ' β' tr',
+Lemma apply_fold_on_groups_once_ok: ∀ gb s r β agg tr β' tr',
   trace_ok tr →
-  apply_fold_on_groups_once s Γ β tr gb agg (Some (r, Γ', β', tr')) →
+  apply_fold_on_groups_once s β tr gb agg (Some (r, β', tr')) →
   trace_ok tr'.
 Proof.
   induction gb; intros; inversion H0; subst; try discriminate; intuition.
-  inversion H5. subst. clear H5.
+  inversion H4. subst. clear H4.
   apply inj_pair2_eq_dec in H1; subst; try (apply basic_type_eq_dec).
-  destruct env as [ [ [ [ Γ'' β'' ] tr'' ] tp'' ] gb'' ].
-  inversion H13. subst. clear H13.
-  inversion H12. subst.
-  assert (trace_ok p') by (eapply eval_ok; eauto).
-  eapply IHgb with (tr := p'); eauto.
+  destruct env as [ [ [ β'' tr'' ] tp'' ] gb'' ].
+  inversion H11. subst. clear H11.
+  inversion H5. subst.
+  assert (trace_ok tr'0) by (eapply eval_ok; eauto).
+  eapply IHgb with (tr := tr'0); eauto.
 Qed.
 
-Lemma apply_fold_on_groups_ok: ∀ s r Γ β gb agg tr Γ' β' tr',
+Lemma apply_fold_on_groups_ok: ∀ s r β gb agg tr β' tr',
   trace_ok tr →
-  apply_fold_on_groups s Γ β tr gb agg (Some (r, Γ', β', tr')) →
+  apply_fold_on_groups s β tr gb agg (Some (r, β', tr')) →
   trace_ok tr'.
 Proof.
   induction agg; induction s; intros; inversion H0; subst; try discriminate;
-  intuition. inversion H11. inversion H12. subst. clear H11. clear H12.
+  intuition. inversion H4. inversion H10. subst.
   eapply apply_fold_on_groups_once_ok; eauto.
 Qed.
 
-Lemma eval_aggregate_ok: ∀ s s' g b a expr r Γ β t r' Γ' β' t',
-  trace_ok t →
-  eval_aggregate s s' g b a expr Γ β t r (Some (r', Γ', β', t')) →
-  trace_ok t'.
+Lemma eval_aggregate_ok: ∀ s s' g b a expr r β tr r' β' tr',
+  trace_ok tr →
+  eval_aggregate s s' g b a expr β tr r (Some (r', β', tr')) →
+  trace_ok tr'.
 Proof.
   intros; inversion H0; subst; try discriminate.
   apply inj_pair2_eq_dec in H2, H3; subst.
-  - apply eval_groupby_having_ok in H14; try assumption.
-    apply apply_fold_on_groups_ok in H16; try assumption.
+  - apply eval_groupby_having_ok in H13; try assumption.
+    apply apply_fold_on_groups_ok in H14; try assumption.
   - apply list_eq_dec. apply attribute_eq_dec.
   - apply list_eq_dec. apply attribute_eq_dec.
 Qed.
@@ -554,30 +560,33 @@ Qed.
  *)
 Theorem secure_query:
   ∀ db o, ⟦ db o ⟧ ⇓ ⟦ ConfigError ⟧ ∨
-    (∃ s c r σ tr,
+    (∃ s c r β tr,
       (* The output is valid. *)
-      c = ConfigOut (RelationWrapped s r) σ tr ∧
+      c = ConfigOut (RelationWrapped s r) β tr ∧
       (* The evalaution goes to c. *)
       ⟦ db o ⟧ ⇓ ⟦ c ⟧ ∧
-      (* The transition of the trace is also valid. *)
-      trace_ok tr ∧ budget_bounded (snd σ)).
+      (* 
+       * The transition of the trace is also valid and the trace faithfully reflects the
+       * policy context's information.
+       *)
+      trace_ok tr ∧ budget_bounded β).
 Proof.
   induction o; intros.
   - right.
-    exists nil, (ConfigOut (RelationWrapped nil nil) (nil, 0) nil), nil, (nil, 0), nil.
+    exists nil, (ConfigOut (RelationWrapped nil nil) 0 nil), nil, 0, nil.
     split.
     + reflexivity.
     + split; constructor.
       * reflexivity.
       * constructor.
       * constructor.
-
   - destruct db eqn: Hdb.
     + left. eapply E_GetRelationError; eauto.
-    + destruct (database_get_contexts db n) as [ [ [ [ r Γ] ] β ] | ] eqn: Hget.
+    + destruct (database_get_contexts db n) as [ [ [ r ] β ] | ] eqn: Hget.
       * subst. destruct r.
+        pose (Γ := List.map (λ x, (fst x, extract_policy (snd x))) t).
         destruct (Policy.policy_context_valid_dec Γ).
-        -- right. exists s0, (ConfigOut (RelationWrapped s0 r) (Γ, β) t), r, (Γ, β), t.
+        -- right. exists s0, (ConfigOut (RelationWrapped s0 r) β t), r, β, t.
            intuition.
            ++ econstructor; eauto.
            ++ eapply database_get_contexts_trace_ok. eapply Hget.
@@ -602,44 +611,41 @@ Proof.
       -- eapply H0.
       -- eapply H2.
       -- right. reflexivity.
-    + destruct H1 as [ s1 [ c1 [r1 [ σ1 [ tr1 H1 ] ] ] ] ].
-      destruct H2 as [ s2 [ c2 [r2 [ σ2 [ tr2 H2 ] ] ] ] ].
+    + destruct H1 as [ s1 [ c1 [r1 [ β1 [ tr1 H1 ] ] ] ] ].
+      destruct H2 as [ s2 [ c2 [r2 [ β2 [ tr2 H2 ] ] ] ] ].
       intuition. subst.
       (* Now we need to discuss the equality of two schemas. *)
       destruct (list_eq_dec attribute_eq_dec s1 s2) eqn: Hs.
       * right. subst.
         rename s2 into s.
-        destruct σ1 as [Γ1 β1], σ2 as [Γ2 β2].
-        pose (merged_Γ := merge_env Γ1 Γ2).
         pose (merged_β := calculate_budget β1 β2).
         pose (merged_tr := merge_env tr1 tr2).
-        exists s, (ConfigOut (RelationWrapped s (r1 ++ r2)) (merged_Γ, merged_β) merged_tr),
-               (r1 ++ r2), (merged_Γ, merged_β), merged_tr.
+        exists s, (ConfigOut (RelationWrapped s (r1 ++ r2)) merged_β merged_tr),
+               (r1 ++ r2), merged_β, merged_tr.
         intuition.
         -- eapply E_UnionOk; eauto.
         -- eapply trace_ok_merge_ok; eauto. 
-      * left. destruct σ1 as [Γ1 β1], σ2 as [Γ2 β2].
-        eapply E_UnionSchemaError; eauto.
+      * left. eapply E_UnionSchemaError; eauto.
   - intuition.
     + left. econstructor; eauto.
-    + destruct H0 as [s [c [r [σ [tr [H1 [ H2 H3 ] ] ] ] ] ] ]. 
+    + destruct H0 as [s [c [r [β [tr [H1 [ H2 H3 ] ] ] ] ] ] ]. 
       left. eapply E_JoinError.
       * eapply H.
       * eapply H2.
       * left. reflexivity.
-    + destruct H as [s [c [r [σ [tr [H1 [ H2 H3 ] ] ] ] ] ] ].
+    + destruct H as [s [c [r [β [tr [H1 [ H2 H3 ] ] ] ] ] ] ].
       left. eapply E_JoinError.
       * eapply H2.
       * eapply H0.
       * right. reflexivity.
-    + destruct H0 as [s1 [c1 [r1 [σ1 [tr1 [H1 [ H2 H3 ] ] ] ] ] ] ].
-      destruct H  as [s2 [c2 [r2 [σ2 [tr2 [H4 [ H5 H6 ] ] ] ] ] ] ].
-      intuition. destruct σ1 as [Γ1 β1], σ2 as [Γ2 β2]. simpl in *.
+    + destruct H0 as [s1 [c1 [r1 [β1 [tr1 [H1 [ H2 H3 ] ] ] ] ] ] ].
+      destruct H  as [s2 [c2 [r2 [β2 [tr2 [H4 [ H5 H6 ] ] ] ] ] ] ].
+      intuition. simpl in *.
 
       (* Now we are going to discuss over `relation_join_by_prv`. *)
       destruct s1; destruct s2.
       * right.
-        exists nil, (ConfigOut (RelationWrapped nil nil) (nil, 0) nil), nil, (nil, 0), nil.
+        exists nil, (ConfigOut (RelationWrapped nil nil) 0 nil), nil, 0, nil.
         split.
         -- reflexivity.
         -- split.
@@ -650,7 +656,7 @@ Proof.
         pose (s := (output_schema_join_by (a :: s2) nil (natural_join_list (a :: s2) nil))).
         exists s,
           (ConfigOut
-            (RelationWrapped s nil) (nil, 0) nil), nil, (nil, 0), nil.
+            (RelationWrapped s nil) 0 nil), nil, 0, nil.
         intuition.
         -- econstructor; eauto.
            econstructor. right. reflexivity.
@@ -659,7 +665,7 @@ Proof.
         pose (s := (output_schema_join_by nil (a :: s1) (natural_join_list (a :: s1) nil))).
         exists s,
           (ConfigOut
-            (RelationWrapped s nil) (nil, 0) nil), nil, (nil, 0), nil.
+            (RelationWrapped s nil) 0 nil), nil, 0, nil.
         intuition.
         -- econstructor; eauto.
            econstructor. left. reflexivity.
@@ -669,14 +675,14 @@ Proof.
           (relation_join_by_prv_terminate
             (a0 :: s2) (a :: s1)
             (natural_join_list (a0 :: s2) (a :: s1) )
-            r2 r1 Γ2 Γ1 β2 β1 tr2 tr1
+            r2 r1 β2 β1 tr2 tr1
           ).
         intros.
         destruct H3 as [res H3].
-        destruct res as [ [ [ [ r Γ ] β ] tr ] |].
+        destruct res as [ [ [ r β ] tr ] |].
         -- (* Some *)
            right.
-           exists s, (ConfigOut (RelationWrapped s r) (Γ, β) tr), r, (Γ, β), tr.
+           exists s, (ConfigOut (RelationWrapped s r) β tr), r, β, tr.
            intuition.
            ++ econstructor.
               ** eapply H5.
@@ -697,24 +703,24 @@ Proof.
            ++ eapply H3.
 
   - intuition.
-    destruct H as [s [ c [r [σ [tr H] ] ] ] ].
-    intuition. subst. destruct σ as [Γ β]. simpl in *.
+    destruct H as [s [ c [r [ β [tr H] ] ] ] ].
+    intuition. subst. simpl in *.
 
     (* Now we discuss the projection semantics case by case. *)
     destruct s; destruct r.
-    + right. exists nil, (ConfigOut (RelationWrapped nil nil) (Γ, β) tr), nil, (Γ, β), tr.
+    + right. exists nil, (ConfigOut (RelationWrapped nil nil) β tr), nil, β, tr.
       split.
       * reflexivity.
       * split.
         -- econstructor; eauto.
         -- split; intuition.
-    + right. exists nil, (ConfigOut (RelationWrapped nil (t :: r)) (Γ, β) tr), (t :: r), (Γ, β), tr.
+    + right. exists nil, (ConfigOut (RelationWrapped nil (t :: r)) β tr), (t :: r), β, tr.
       split.
       * reflexivity.
       * split.
         -- econstructor; eauto. 
         -- split; intuition.
-    + right. exists (a :: s), (ConfigOut (RelationWrapped (a :: s) nil) (Γ, β) tr), nil, (Γ, β), tr.
+    + right. exists (a :: s), (ConfigOut (RelationWrapped (a :: s) nil) β tr), nil, β, tr.
       split.
       * reflexivity.
       * split.
@@ -724,11 +730,11 @@ Proof.
       destruct (determine_schema (a :: s) pl') as [s'|] eqn: Hdet.
       * (* Some *)
         specialize apply_proj_in_relation_terminate with
-          (s := (a :: s)) (s' := s') (r := (t :: r)) (pl := pl') (Γ := Γ) (β := β) (p := tr) as Hterm.
+          (s := (a :: s)) (s' := s') (r := (t :: r)) (pl := pl') (β := β) (tr := tr) as Hterm.
         intros. destruct Hterm as [res Hterm].
-        destruct res as  [ [ [ [ r' Γ' ] β' ] tr' ] |].
+        destruct res as  [ [ [ r'  β' ] tr' ] |].
         -- (* Some *)
-           right. exists s', (ConfigOut (RelationWrapped s' r') (Γ', β') tr'), r', (Γ', β'), tr'.
+           right. exists s', (ConfigOut (RelationWrapped s' r') β' tr'), r', β', tr'.
            intuition.
            ++ eapply E_ProjOk.
               ** eapply H.
@@ -742,34 +748,34 @@ Proof.
         -- left. eapply E_ProjError; eauto. intuition; discriminate.
       * left. eapply E_ProjError3; eauto. intuition; discriminate.
   - intuition.
-    destruct H as [s [ c [r [σ [tr H] ] ] ] ]. intuition. subst.
-    destruct σ as [Γ β]. simpl in *.
-    destruct (eval_predicate_in_relation_terminate s r Γ β tr e) as [res Hterm].
-    destruct res as [ [ [ [r' Γ' ] β' ] tr' ] |].
+    destruct H as [s [ c [r [ β [tr H] ] ] ] ]. intuition. subst.
+    simpl in *.
+    destruct (eval_predicate_in_relation_terminate s r β tr e) as [res Hterm].
+    destruct res as [ [ [ r' β' ] tr' ] |].
     + (* Some *)
       right.
-      exists s, (ConfigOut (RelationWrapped s r') (Γ', β') tr'), r', (Γ', β'), tr'.
+      exists s, (ConfigOut (RelationWrapped s r') β' tr'), r', β', tr'.
       intuition.
       * econstructor; eauto.
       * eapply eval_predicate_in_relation_ok; eauto.
     + left. eapply E_SelectError; eauto.
   - intuition.
-    destruct H as [s [ c [r [σ [tr H] ] ] ] ]. intuition. subst.
-    destruct σ as [Γ β]. simpl in *.
+    destruct H as [s [ c [r [β [tr H] ] ] ] ]. intuition. subst.
+    simpl in *.
     + destruct s; destruct r.
-      * right. exists nil, (ConfigOut (RelationWrapped nil nil) (Γ, β) tr), nil, (Γ, β), tr.
+      * right. exists nil, (ConfigOut (RelationWrapped nil nil) β tr), nil, β, tr.
         split.
         -- reflexivity.
         -- split.
           ++ econstructor; eauto.
           ++ split; intuition.
-      * right. exists nil, (ConfigOut (RelationWrapped nil (t :: r)) (Γ, β) tr), (t :: r), (Γ, β), tr.
+      * right. exists nil, (ConfigOut (RelationWrapped nil (t :: r)) β tr), (t :: r), β, tr.
         split.
         -- reflexivity.
         -- split.
           ++ econstructor; eauto.
           ++ split; intuition.
-      * right. exists (a0 :: s), (ConfigOut (RelationWrapped (a0 :: s) nil) (Γ, β) tr), nil, (Γ, β), tr.
+      * right. exists (a0 :: s), (ConfigOut (RelationWrapped (a0 :: s) nil) β tr), nil, β, tr.
         split.
         -- reflexivity.
         -- split.
@@ -777,10 +783,10 @@ Proof.
           ++ split; intuition.
       * destruct (bounded_list_dec _ (a0 :: s) g).
         -- destruct (determine_schema_agg (a0 :: s) a g b) as [s_agg|] eqn: Hdet.
-           ++ destruct (eval_aggregate_terminate (a0 :: s) s_agg g b a e Γ β tr (t :: r)) as [res Hterm].
-              destruct res as [ [ [ [ r' Γ' ] β' ] tr' ] |].
+           ++ destruct (eval_aggregate_terminate (a0 :: s) s_agg g b a e β tr (t :: r)) as [res Hterm].
+              destruct res as [ [ [ r' β' ] tr' ] |].
               ** right.
-                 exists s_agg, (ConfigOut (RelationWrapped s_agg r') (Γ', β') tr'), r', (Γ', β'), tr'.
+                 exists s_agg, (ConfigOut (RelationWrapped s_agg r') β' tr'), r', β', tr'.
                  intuition. eapply E_AggOk; eauto.
                  --- intuition; discriminate.
                  --- eapply eval_aggregate_ok; eauto.

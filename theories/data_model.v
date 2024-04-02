@@ -671,9 +671,20 @@ Proof.
     inversion H0. subst. econstructor; eauto. etransitivity; eauto.
 Qed.
 
+Lemma preceq_refl: ∀ p, valid_policy p → p ⪯ p.
+Proof.
+  induction p; intros.
+  - repeat constructor.
+  - econstructor; eauto.
+    + reflexivity.
+    + apply IHp. inversion H; subst.
+      * constructor.
+      * assumption.
+Qed.
+
 Reserved Notation "x '∪' y '=' z" (at level 10, y at next level, z at next level, no associativity).
 Inductive policy_join: policy → policy → policy → Prop :=
-  | policy_join_bot: ∀ p, ∎ ∪ p = p
+  | policy_join_bot: ∀ p, valid_policy p → ∎ ∪ p = p
   | policy_join_spec1: ∀ ℓ1 ℓ2 p1 p2 p3, ℓ2 ⊑ ℓ1 → ¬ (ℓ2 ≃ ℓ1) →
       p1 ∪ p2 = p3 → valid_policy (ℓ1 ⇝ p1) → valid_policy (ℓ2 ⇝ p2) →
       (ℓ1 ⇝ p1) ∪ (ℓ2 ⇝ p2) = (ℓ1 ⇝ (ℓ2 ⇝ p3))
@@ -695,6 +706,16 @@ Inductive policy_join: policy → policy → policy → Prop :=
   | policy_join_symmetry: ∀ p1 p2 p3, p1 ∪ p2 = p3 → p2 ∪ p1 = p3 
 where "x '∪' y '=' z" := (policy_join x y z).
 
+Lemma policy_join_stronger: ∀ p1 p2 p3,
+  p1 ∪ p2 = p3 → p1 ⪯ p3 ∧ p2 ⪯ p3.
+Proof.
+  intros. induction H; split; intuition.
+  - constructor; auto.
+  - apply preceq_refl. assumption.
+  - econstructor; eauto.
+    + split; auto. econstructor; eauto.
+      
+Admitted.
 (*
   The `policy_ord_dec` lemma provides a decision procedure for the policy ordering.
 

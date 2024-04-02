@@ -734,30 +734,23 @@ Definition tuple_concat_by s1 s2 join_by
 Defined.
 
 Inductive join_policy_and_trace:
-  list nat → list nat → list nat →
-  Policy.context → Policy.context →
-  trace → trace →
-  option (Policy.context * trace) → Prop :=
-  | join_policy_and_trace_nil_l: ∀ l com Γ1 Γ2 Γ3 tr1 tr2 tr3,
+  list nat → list nat → list nat → trace → trace → option trace → Prop :=
+  | join_policy_and_trace_nil_l: ∀ l com tr1 tr2 tr3,
       tr1 ⊍ tr2 = tr3 →
-      Γ1 ⊍ Γ2 = Γ3 →
-      join_policy_and_trace nil l com Γ1 Γ2 tr1 tr2 (Some (Γ3, tr3))
-  | join_policy_and_trace_nil_r: ∀ l com Γ1 Γ2 Γ3 tr1 tr2 tr3,
+      join_policy_and_trace nil l com tr1 tr2 (Some tr3)
+  | join_policy_and_trace_nil_r: ∀ l com tr1 tr2 tr3,
       tr1 ⊍ tr2 = tr3 →
-      Γ1 ⊍ Γ2 = Γ3 →
-      join_policy_and_trace l nil com Γ1 Γ2 tr1 tr2 (Some (Γ3, tr3))
-  | join_policy_and_trace_no_com: ∀ l1 l2 Γ1 Γ2 Γ3 tr1 tr2 tr3,
+      join_policy_and_trace l nil com tr1 tr2 (Some tr3)
+  | join_policy_and_trace_no_com: ∀ l1 l2 tr1 tr2 tr3,
       tr1 ⊍ tr2 = tr3 →
-      Γ1 ⊍ Γ2 = Γ3 →
-      join_policy_and_trace l1 l2 nil Γ1 Γ2 tr1 tr2 (Some (Γ3, tr3))
-  | join_policy_and_trace_cons_err: ∀ l1 l2 com Γ1 Γ2 tr1 tr2 hd1 hd2 tl1 tl2,
+      join_policy_and_trace l1 l2 nil tr1 tr2 (Some tr3)
+  | join_policy_and_trace_cons_err: ∀ l1 l2 com tr1 tr2 hd1 hd2 tl1 tl2,
       l1 = hd1 :: tl1 →
       l2 = hd2 :: tl2 →
-      label_lookup Γ1 hd1 = None ∨ label_lookup Γ2 hd2 = None ∨
       label_lookup tr1 hd1 = None ∨ label_lookup tr2 hd2 = None →
-      join_policy_and_trace l1 l2 com Γ1 Γ2 tr1 tr2 None
+      join_policy_and_trace l1 l2 com tr1 tr2 None
   | join_policy_and_trace_cons_ok:
-      ∀ l1 l2 com Γ1 Γ2 Γ tr1 tr2 tr
+      ∀ l1 l2 com tr1 tr2 tr
         hd1 hd2 hd3 hd4 hd5
         tl1 tl2 tl3 tl4 tl5
         p1 p2 pjoin
@@ -768,144 +761,135 @@ Inductive join_policy_and_trace:
       com = hd3 :: tl3 →
       tr1 = hd4 :: tl4 →
       tr2 = hd5 :: tl5 →
-      label_lookup Γ1 hd1 = Some p1 →
-      label_lookup Γ2 hd2 = Some p2 →
       label_lookup tr1 hd1 = Some tr1' →
       label_lookup tr2 hd2 = Some tr2' →
+      extract_policy tr1' = p1 →
+      extract_policy tr2' = p2 →
       p1 ∪ p2 = pjoin →
-      (extract_policy tr1') ⪯ pjoin ∧ (extract_policy tr2') ⪯ pjoin →
-      join_policy_and_trace tl1 tl2 tl3 Γ1 Γ2 tl4 tl5 (Some (Γ, tr)) →
+      join_policy_and_trace tl1 tl2 tl3 tl4 tl5 (Some tr) →
       let tr_join := TrBranch prov_join pjoin tr1' tr2' in
-      join_policy_and_trace l1 l2 com Γ1 Γ2 tr1 tr2 (Some ((hd3, pjoin) :: Γ, (hd3, tr_join) :: tr))
+      join_policy_and_trace l1 l2 com tr1 tr2 (Some ((hd3, tr_join) :: tr))
 .
 
 (* Coq cannot do "nested loop"; this performs one-time pass over rhs. *)
-Inductive relation_join_by_prv_helper: ∀ s1 s2 join_by, Tuple.tuple (♭ s1) → relation s2 →
-  Policy.context → Policy.context → budget → budget → trace → trace →
-  option (relation (output_schema_join_by s1 s2 join_by) * Policy.context * budget * trace) → Prop :=
-  | E_JoinEmpty: ∀ s1 s2 join_by t Γ1 Γ2 Γ_out ε1 ε2 ε_out p1 p2 p_out,
-      Γ1 ⊍ Γ2 = Γ_out →
+Inductive relation_join_by_prv_helper: ∀ s1 s2 join_by,
+  Tuple.tuple (♭ s1) → relation s2 → budget → budget → trace → trace →
+    option (relation (output_schema_join_by s1 s2 join_by) * budget * trace) → Prop :=
+  | E_JoinEmpty: ∀ s1 s2 join_by t ε1 ε2 ε_out tr1 tr2 tr_out,
       ε_out = calculate_budget ε1 ε2 →
-      p1 ⊍ p2 = p_out →
-      relation_join_by_prv_helper s1 s2 join_by t nil Γ1 Γ2 ε1 ε2 p1 p2
-      (Some (nil, Γ_out, ε_out, p_out))
-  | E_JoinConsError1: ∀ s1 s2 join_by t1 t2 r tl Γ1 Γ2 ε1 ε2 p1 p2,
+      tr1 ⊍ tr2 = tr_out →
+      relation_join_by_prv_helper s1 s2 join_by t nil ε1 ε2 tr1 tr2
+      (Some (nil, ε_out, tr_out))
+  | E_JoinConsError1: ∀ s1 s2 join_by t1 t2 r tl ε1 ε2 p1 p2,
       r = t2 :: tl →
       None = tuple_concat_by s1 s2 join_by t1 t2 →
-      relation_join_by_prv_helper s1 s2 join_by t1 r Γ1 Γ2 ε1 ε2 p1 p2 None
-  | E_JoinConsError2: ∀ s1 s2 join_by t1 t2 t' r tl Γ1 Γ2 ε1 ε2 p1 p2
+      relation_join_by_prv_helper s1 s2 join_by t1 r ε1 ε2 p1 p2 None
+  | E_JoinConsError2: ∀ s1 s2 join_by t1 t2 t' r tl ε1 ε2 p1 p2
                         index_lhs index_rhs comid,
       r = t2 :: tl →
       Some(t', (index_lhs, index_rhs, comid)) = tuple_concat_by s1 s2 join_by t1 t2 →
-      join_policy_and_trace index_lhs index_rhs comid Γ1 Γ2 p1 p2 None →
-      relation_join_by_prv_helper s1 s2 join_by t1 r Γ1 Γ2 ε1 ε2 p1 p2 None
-  | E_JoinConsError3: ∀ s1 s2 join_by t1 t2 t' r tl Γ1 Γ2
-                    Γ_merged
+      join_policy_and_trace index_lhs index_rhs comid p1 p2 None →
+      relation_join_by_prv_helper s1 s2 join_by t1 r ε1 ε2 p1 p2 None
+  | E_JoinConsError3: ∀ s1 s2 join_by t1 t2 t' r tl
                     ε1 ε2 ε_merged
-                    p1 p2 p_merged
+                    tr1 tr2 tr_merged
                     index_lhs index_rhs comid,
       r = t2 :: tl →
       Some(t', (index_lhs, index_rhs, comid)) = tuple_concat_by s1 s2 join_by t1 t2 →
-      join_policy_and_trace index_lhs index_rhs comid Γ1 Γ2 p1 p2 (Some (Γ_merged, p_merged)) →
+      join_policy_and_trace index_lhs index_rhs comid tr1 tr2 (Some tr_merged) →
       ε_merged = calculate_budget ε1 ε2 →
-      relation_join_by_prv_helper s1 s2 join_by t1 tl Γ1 Γ2 ε1 ε2 p1 p2 None →
-      relation_join_by_prv_helper s1 s2 join_by t1 r Γ1 Γ2 ε1 ε2 p1 p2 None
-  | E_JoinConsOk: ∀ s1 s2 join_by t1 t2 t' r r_cons tl Γ1 Γ2
-                    Γ_merged Γ_cons Γ_out
+      relation_join_by_prv_helper s1 s2 join_by t1 tl ε1 ε2 tr1 tr2 None →
+      relation_join_by_prv_helper s1 s2 join_by t1 r ε1 ε2 tr1 tr2 None
+  | E_JoinConsOk: ∀ s1 s2 join_by t1 t2 t' r r_cons tl
                     ε1 ε2 ε_merged ε_cons ε_out
-                    p1 p2 p_merged p_cons p_out
+                    tr1 tr2 tr_merged tr_cons tr_out
                     index_lhs index_rhs comid,
       r = t2 :: tl →
       Some(t', (index_lhs, index_rhs, comid)) = tuple_concat_by s1 s2 join_by t1 t2 →
-      join_policy_and_trace index_lhs index_rhs comid Γ1 Γ2 p1 p2 (Some (Γ_merged, p_merged)) →
+      join_policy_and_trace index_lhs index_rhs comid tr1 tr2 (Some tr_merged) →
       ε_merged = calculate_budget ε1 ε2 →
-      relation_join_by_prv_helper s1 s2 join_by t1 tl Γ1 Γ2 ε1 ε2 p1 p2
-      (Some (r_cons, Γ_cons, ε_cons, p_cons)) →
-      Γ_merged ⊍ Γ_cons = Γ_out →
+      relation_join_by_prv_helper s1 s2 join_by t1 tl ε1 ε2 tr1 tr2
+      (Some (r_cons, ε_cons, tr_cons)) →
       ε_out = calculate_budget ε_merged ε_cons →
-      p_merged ⊍ p_cons = p_out →
-      relation_join_by_prv_helper s1 s2 join_by t1 r Γ1 Γ2 ε1 ε2 p1 p2
-      (Some (t' :: r_cons, Γ_out, ε_out, p_out))
+      tr_merged ⊍ tr_cons = tr_out →
+      relation_join_by_prv_helper s1 s2 join_by t1 r ε1 ε2 tr1 tr2
+      (Some (t' :: r_cons, ε_out, tr_out))
 .
 
-Inductive relation_join_by_prv: ∀ s1 s2 join_by, relation s1 → relation s2 →
-  Policy.context → Policy.context → budget → budget → trace → trace →
-  option (relation (output_schema_join_by s1 s2 join_by) * Policy.context * budget * trace) → Prop :=
-  | E_RelationJoinSchemaNil: ∀ s1 s2 join_by r1 r2 Γ1 Γ2 ε1 ε2 p1 p2,
+Inductive relation_join_by_prv: ∀ s1 s2 join_by,
+  relation s1 → relation s2 → budget → budget → trace → trace →
+  option (relation (output_schema_join_by s1 s2 join_by) * budget * trace) → Prop :=
+  | E_RelationJoinSchemaNil: ∀ s1 s2 join_by r1 r2 ε1 ε2 tr1 tr2,
       s1 = nil ∨ s2 = nil →
-      relation_join_by_prv s1 s2 join_by r1 r2 Γ1 Γ2 ε1 ε2 p1 p2
-      (Some (nil, nil, O, nil))
-  | E_RelationJoinNil: ∀ s1 s2 join_by r1 r2 Γ1 Γ2 ε1 ε2 p1 p2,
+      relation_join_by_prv s1 s2 join_by r1 r2 ε1 ε2 tr1 tr2
+      (Some (nil, O, nil))
+  | E_RelationJoinNil: ∀ s1 s2 join_by r1 r2 ε1 ε2 tr1 tr2,
       r1 = nil ∨ r2 = nil →
-      relation_join_by_prv s1 s2 join_by r1 r2 Γ1 Γ2 ε1 ε2 p1 p2
-      (Some (nil, nil, O, nil))
+      relation_join_by_prv s1 s2 join_by r1 r2 ε1 ε2 tr1 tr2
+      (Some (nil, O, nil))
   | E_RelationJoinHeadErr: ∀ s1 s2 join_by r1 r2 hd tl
-                            Γ1 Γ2
                             ε1 ε2
-                            p1 p2, 
+                            tr1 tr2, 
       s1 ≠ nil ∧ s2 ≠ nil →
       r1 = hd :: tl →
-      relation_join_by_prv_helper s1 s2 join_by hd r2 Γ1 Γ2 ε1 ε2 p1 p2 None →
-      relation_join_by_prv s1 s2 join_by r1 r2 Γ1 Γ2 ε1 ε2 p1 p2 None
+      relation_join_by_prv_helper s1 s2 join_by hd r2 ε1 ε2 tr1 tr2 None →
+      relation_join_by_prv s1 s2 join_by r1 r2 ε1 ε2 tr1 tr2 None
   | E_RelationJoinConsErr: ∀ s1 s2 join_by r1 r2 r_hd hd tl
-                            Γ1 Γ2 Γ_hd
                             ε1 ε2 ε_hd
-                            p1 p2 p_hd,
+                            tr1 tr2 tr_hd,
       s1 ≠ nil ∧ s2 ≠ nil →
       r1 = hd :: tl →
-      relation_join_by_prv_helper s1 s2 join_by hd r2 Γ1 Γ2 ε1 ε2 p1 p2 (Some (r_hd, Γ_hd, ε_hd, p_hd)) →
-      relation_join_by_prv s1 s2 join_by tl r2 Γ1 Γ2 ε1 ε2 p1 p2 None →
-      relation_join_by_prv s1 s2 join_by r1 r2 Γ1 Γ2 ε1 ε2 p1 p2 None
+      relation_join_by_prv_helper s1 s2 join_by hd r2 ε1 ε2 tr1 tr2 (Some (r_hd, ε_hd, tr_hd)) →
+      relation_join_by_prv s1 s2 join_by tl r2 ε1 ε2 tr1 tr2 None →
+      relation_join_by_prv s1 s2 join_by r1 r2 ε1 ε2 tr1 tr2 None
   | E_RelationJoinConsOk: ∀ s1 s2 join_by r1 r2 r_hd r_cons r_out hd tl
-                            Γ1 Γ2 Γ_hd Γ_cons Γ_out
                             ε1 ε2 ε_hd ε_cons ε_out
-                            p1 p2 p_hd p_cons p_out,
+                            tr1 tr2 tr_hd tr_cons tr_out,
       s1 ≠ nil ∧ s2 ≠ nil →
       r1 = hd :: tl →
-      relation_join_by_prv_helper s1 s2 join_by hd r2 Γ1 Γ2 ε1 ε2 p1 p2 (Some (r_hd, Γ_hd, ε_hd, p_hd)) →
-      relation_join_by_prv s1 s2 join_by tl r2 Γ1 Γ2 ε1 ε2 p1 p2 (Some (r_cons, Γ_cons, ε_cons, p_cons)) →
-      Γ_hd ⊍ Γ_cons = Γ_out →
-      p_hd ⊍ p_cons = p_out →
+      relation_join_by_prv_helper s1 s2 join_by hd r2 ε1 ε2 tr1 tr2 (Some (r_hd, ε_hd, tr_hd)) →
+      relation_join_by_prv s1 s2 join_by tl r2 ε1 ε2 tr1 tr2 (Some (r_cons, ε_cons, tr_cons)) →
+      tr_hd ⊍ tr_cons = tr_out →
       ε_out = calculate_budget ε_hd ε_cons →
       r_out = r_hd ++ r_cons →
-      relation_join_by_prv s1 s2 join_by r1 r2 Γ1 Γ2 ε1 ε2 p1 p2 (Some (r_out, Γ_out, ε_out, p_out))
+      relation_join_by_prv s1 s2 join_by r1 r2 ε1 ε2 tr1 tr2 (Some (r_out, ε_out, tr_out))
 .
 
-Lemma relation_join_by_prv_helper_terminate: ∀ s1 s2 join_by t1 t2 Γ1 Γ2 ε1 ε2 p1 p2,
-  ∃ res, relation_join_by_prv_helper s1 s2 join_by t1 t2 Γ1 Γ2 ε1 ε2 p1 p2 res.
+Lemma relation_join_by_prv_helper_terminate: ∀ s1 s2 join_by t1 t2 ε1 ε2 p1 p2,
+  ∃ res, relation_join_by_prv_helper s1 s2 join_by t1 t2 ε1 ε2 p1 p2 res.
 Proof.
 Admitted.
 
-Lemma relation_join_by_prv_terminate: ∀ s1 s2 join_by r1 r2 Γ1 Γ2 ε1 ε2 p1 p2, ∃ res,
-  relation_join_by_prv s1 s2 join_by r1 r2 Γ1 Γ2 ε1 ε2 p1 p2 res.
+Lemma relation_join_by_prv_terminate: ∀ s1 s2 join_by r1 r2 ε1 ε2 p1 p2, ∃ res,
+  relation_join_by_prv s1 s2 join_by r1 r2 ε1 ε2 p1 p2 res.
 Proof.
   intros. destruct s1; destruct s2.
-  - exists (Some (nil, nil, O, nil)). constructor; intuition.
-  - exists (Some (nil, nil, O, nil)). constructor; intuition.
-  - exists (Some (nil, nil, O, nil)). constructor; intuition.
+  - exists (Some (nil, O, nil)). constructor; intuition.
+  - exists (Some (nil, O, nil)). constructor; intuition.
+  - exists (Some (nil, O, nil)). constructor; intuition.
   - induction r1; destruct r2.
-    + exists (Some (nil, nil, O, nil)). apply E_RelationJoinNil. intuition.
-    + exists (Some (nil, nil, O, nil)). apply E_RelationJoinNil. intuition.
-    + exists (Some (nil, nil, O, nil)). apply E_RelationJoinNil. intuition.
-    + destruct (relation_join_by_prv_helper_terminate (a :: s1) (a0 :: s2) join_by a1 (t :: r2) Γ1 Γ2 ε1 ε2 p1 p2).
+    + exists (Some (nil, O, nil)). apply E_RelationJoinNil. intuition.
+    + exists (Some (nil, O, nil)). apply E_RelationJoinNil. intuition.
+    + exists (Some (nil, O, nil)). apply E_RelationJoinNil. intuition.
+    + destruct (relation_join_by_prv_helper_terminate
+                  (a :: s1) (a0 :: s2) join_by a1 (t :: r2) ε1 ε2 p1 p2).
       destruct IHr1.
       destruct x; destruct x0.
-      * destruct p as[ [ [ r_hd Γ_hd ] β_hd ] p_hd ].
-        destruct p0 as[ [ [ r_cons Γ_cons ] β_cons ] p_cons ].
-        pose (merge_env Γ_hd Γ_cons) as Γ_out.
+      * destruct p as[ [ r_hd β_hd ] p_hd ].
+        destruct p0 as[ [ r_cons β_cons ] p_cons ].
         pose (merge_env p_hd p_cons) as p_out.
         pose (calculate_budget β_hd β_cons) as β_out.
-        exists (Some (r_hd ++ r_cons, Γ_out, β_out, p_out)).
+        exists (Some (r_hd ++ r_cons, β_out, p_out)).
         eapply E_RelationJoinConsOk; intuition; try discriminate; eauto.
-      * exists None. destruct p as[ [ [ r_hd Γ_hd ] β_hd ] p_hd ].
+      * exists None. destruct p as[ [ r_hd β_hd ] p_hd ].
         eapply E_RelationJoinConsErr; intuition; try discriminate; eauto.
       * exists None. econstructor; intuition; try discriminate; auto.
       * exists None. econstructor; intuition; try discriminate; auto.
 Qed.
 
-Lemma relation_join_by_prv_deterministic: ∀ s1 s2 join_by r1 r2 Γ1 Γ2 ε1 ε2 p1 p2 res1 res2,
-  relation_join_by_prv s1 s2 join_by r1 r2 Γ1 Γ2 ε1 ε2 p1 p2 res1 →
-  relation_join_by_prv s1 s2 join_by r1 r2 Γ1 Γ2 ε1 ε2 p1 p2 res2 →
+Lemma relation_join_by_prv_deterministic: ∀ s1 s2 join_by r1 r2 ε1 ε2 p1 p2 res1 res2,
+  relation_join_by_prv s1 s2 join_by r1 r2 ε1 ε2 p1 p2 res1 →
+  relation_join_by_prv s1 s2 join_by r1 r2 ε1 ε2 p1 p2 res2 →
   res1 = res2.
 Proof.
 Admitted.
@@ -948,16 +932,26 @@ Fixpoint inject_id_helper s (r: list (db_entry s)) (id_start: nat)
         end
   end.
 
+(*
+ * This function constructs the initial trace when the operator `Relation n` is being called.
+ * It propagates the whole trace array.
+ *)
+Fixpoint trace_from_policy_store (Γ: Policy.context)  :=
+  match Γ with
+  | nil => nil
+  | (id, 𝓅) :: Γ' => (id, TrEmpty 𝓅) :: trace_from_policy_store Γ'
+  end.
+
 Fixpoint database_get_contexts (db: database) (idx: nat)
-  : option (relation_wrapped * Policy.context * trace * budget) :=
+  : option (relation_wrapped * trace * budget) :=
   match db with
     | database_empty => None
     | database_relation s r β db' =>
         if Nat.eqb idx O then
                 match inject_id_helper s r 10 with
                 | (r', Γ') =>
-                  let p := empty_trace_from_pctx Γ' in
-                    Some (RelationWrapped s r', Γ', p, β)
+                  let p := trace_from_policy_store Γ' in
+                    Some (RelationWrapped s r', p, β)
                 end
         else database_get_contexts db' (idx - 1)
   end.

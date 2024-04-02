@@ -97,12 +97,12 @@ Inductive tuple_wrapped: Type :=
 
 (*
   The evaluation environment for the lambda calculus is a list of:
-  - The current state (see trace.v).
-  -
+  - The current budget.
+  - The current trace.
   - The current active tuple (for non-aggregate expressions).
   - The current groupby proxy (optional).
 *)
-Definition eval_env := (σ * trace * tuple_wrapped * option groupby)%type.
+Definition eval_env := (budget * trace * tuple_wrapped * option groupby)%type.
 
 Fixpoint index (x: string) (env: list string): nat :=
   match env with
@@ -132,34 +132,35 @@ Definition get_new_policy cur op: Policy.policy :=
 Inductive eval_unary_expression_in_cell: ∀ bt,
   unary_func → (type_to_coq_type bt * nat) → eval_env →
     option (eval_env * e_value) → Prop :=
-  | E_UnaryLabelNotFound: ∀ bt f (arg: type_to_coq_type bt) id tr proxy Γ β p,
-      label_lookup Γ id = None ∨
-      label_lookup p id = None →
-      eval_unary_expression_in_cell bt f (arg, id) ((Γ, β, p), tr, proxy) None
+  | E_UnaryLabelNotFound: ∀ bt f (arg: type_to_coq_type bt) id tp proxy β tr,
+      label_lookup tr id = None →
+      eval_unary_expression_in_cell bt f (arg, id) (β, tr, tp, proxy) None
   | E_UnaryTypeError: ∀ bt bt' f op lambda (arg: type_to_coq_type bt) id ee tr proxy,
       f = UnaryFunc op bt' lambda →
       bt ≠ bt' →
       eval_unary_expression_in_cell bt f (arg, id) (ee, tr, proxy) None
-  | E_UnaryPolicyError: ∀ bt bt' f op lambda (arg: type_to_coq_type bt) id tr proxy Γ β p p_cur,
-      label_lookup Γ id = Some p_cur →
+  | E_UnaryPolicyError: ∀ bt bt' f op lambda
+                         (arg: type_to_coq_type bt) id
+                         tp tr_cur proxy β tr p_cur,
+      label_lookup tr id = Some tr_cur →
+      extract_policy tr_cur = p_cur →
       f = UnaryFunc op bt' lambda →
       bt = bt' → 
       let p_f := ∘ (Policy.policy_transform ((unary_trans_op op) :: nil)) in
         ¬ (p_cur ⪯ p_f) →
-        eval_unary_expression_in_cell bt f (arg, id) ((Γ, β, p), tr, proxy) None
-  | E_UnaryPolicyOk: ∀ bt bt' f op lambda (arg: type_to_coq_type bt) id tr proxy
-                       Γ Γ' β β' p p' p_cur tr_cur,
-      label_lookup Γ id = Some p_cur →
-      label_lookup p id = Some tr_cur →
+        eval_unary_expression_in_cell bt f (arg, id) (β, tr, tp, proxy) None
+  | E_UnaryPolicyOk: ∀ bt bt' f op lambda (arg: type_to_coq_type bt) id tp proxy
+                       β β' tr tr' p_cur tr_cur,
+      label_lookup tr id = Some tr_cur →
+      extract_policy tr_cur = p_cur →
       f = UnaryFunc op bt' lambda →
       ∀ (eq: bt = bt'), let p_f := (Policy.policy_transform ((unary_trans_op op) :: nil)) in
         p_cur ⪯ (∘ p_f) →
           let p_new := get_new_policy p_cur p_f in
             let tr_new := TrLinear (prov_trans_unary op) p_new (tr_cur :: nil) in
-              Γ' = update_label Γ id p_new →
-              p' = update_label p id tr_new →
-              eval_unary_expression_in_cell bt f (arg, id) ((Γ', β, p'), tr, proxy)
-                (Some (((Γ', β', p'), tr, proxy), ValuePrimitive bt' (lambda (eq ♯ arg), Some id)))
+              tr' = update_label tr id tr_new →
+              eval_unary_expression_in_cell bt f (arg, id) (β, tr', tp, proxy)
+                (Some ((β', tr', tp, proxy), ValuePrimitive bt' (lambda (eq ♯ arg), Some id)))
 .
 
 (*
@@ -233,17 +234,15 @@ Inductive eval_unary_expression_list:
 Inductive eval_binary_expression_in_cell: ∀ bt,
   binary_func → (type_to_coq_type bt * option nat) → (type_to_coq_type bt * option nat) → eval_env →
     option (eval_env * e_value) → Prop :=
-  | E_BinaryLabelNotFound: ∀ bt f v1 v2 id1 id1' id2 id2' tr proxy Γ β p,
-      (id1 = Some id1' ∧ label_lookup Γ id1' = None) ∨
-      (id1 = Some id1' ∧ label_lookup p id1' = None) ∨
-      (id2 = Some id2' ∧ label_lookup Γ id2' = None) ∨
-      (id2 = Some id2' ∧ label_lookup p id2' = None) →
-      eval_binary_expression_in_cell bt f (v1, id1) (v2, id2) ((Γ, β, p), tr, proxy) None
-  (* | E_BinaryPolicyOk: ∀ bt f v1 v2 id1 id1' id2 id2' c tr proxy db Γ β p p1 p2 p_cur p_f prov1 prov2 tr_cur prov_f res,
-      c = ⟨ db Γ β p ⟩ →
-      (id1 = Some id1' ∧ label_lookup Γ id1' = Some p1) ∨
+  | E_BinaryLabelNotFound: ∀ bt f v1 v2 id1 id1' id2 id2' tp proxy β tr,
+      (id1 = Some id1' ∧ label_lookup tr id1' = None) ∨
+      (id2 = Some id2' ∧ label_lookup tr id2' = None) →
+      eval_binary_expression_in_cell bt f (v1, id1) (v2, id2)  (β, tr, tp, proxy) None
+  (* | E_BinaryPolicyOk: ∀ bt f v1 v2 id1 id1' id2 id2' c tr proxy db β p p1 p2 p_cur p_f prov1 prov2 tr_cur prov_f res,
+      c = ⟨ db β p ⟩ →
+      (id1 = Some id1' ∧ label_lookup id1' = Some p1) ∨
       (id1 = Some id1' ∧ label_lookup p id1' = Some prov1) ∨
-      (id2 = Some id2' ∧ label_lookup Γ id2' = Some p2) ∨
+      (id2 = Some id2' ∧ label_lookup id2' = Some p2) ∨
       (id2 = Some id2' ∧ label_lookup p id2' = Some prov2) →
       (* p_cur = ∘ (Policy.policy_agg (f :: nil)) →
       p_f = ∘ (Policy.policy_agg (f :: nil)) →
@@ -252,7 +251,6 @@ Inductive eval_binary_expression_in_cell: ∀ bt,
       tr_cur = merge_trace_ty (prov_agg f) (id1', prov1) (id2', prov2) →
       eval_binary_expression_in_cell bt f (v1, id1) (v2, id2) (c, tr, proxy) (Some (c, tr, proxy, ValuePrimitive bt res)) *)
       eval_binary_expression_in_cell bt f (v1, id1) (v2, id2) (c, tr, proxy) None *)
-
 .
 
 (* For binary expressions we just need to check if the operands satisfy their own policies. *)
@@ -303,76 +301,74 @@ Inductive eval_binary_expression_list:
 
 (* bt1: the input type; bt2: the output type; this evaluates the aggregation expression within a group. *)
 Inductive do_eval_agg:
-  ∀ bt1 bt2, agg_func → Policy.context → trace → list (type_to_coq_type bt1 * option nat) →
+  ∀ bt1 bt2, agg_func → trace → list (type_to_coq_type bt1 * option nat) →
     option (Policy.policy * trace_ty * (type_to_coq_type bt2)) → Prop :=
   (* When the list being folded is empty, we shall return the initial value. *)
-  | EvalDoAggNil: ∀ f op bt1 bt2 f' init_val noise Γ p l,
+  | EvalDoAggNil: ∀ f op bt1 bt2 f' init_val noise tr l,
       l = nil →
       f = AggFunc op bt1 bt2 f' init_val noise →
-      do_eval_agg bt1 bt2 f Γ p l (Some (∎, ∅, init_val))
-  | EvalDoAggLabelNotFound: ∀ f op bt1 bt2 f' init_val noise Γ p l hd hd_v id tl,
+      do_eval_agg bt1 bt2 f tr l (Some (∎, TrEmpty (∘ Policy.policy_bot), init_val))
+  | EvalDoAggLabelNotFound: ∀ f op bt1 bt2 f' init_val noise p l hd hd_v id tl,
       l = hd :: tl →
       f = AggFunc op bt1 bt2 f' init_val noise →
       hd = (hd_v, Some id) →
-      label_lookup Γ id = None ∨
       label_lookup p id = None →
-      do_eval_agg bt1 bt2 f Γ p l None
-  | EvalDoAggPolicyError: ∀ f op bt1 bt2 f' init_val noise Γ p l hd hd_v id tl p_cur p_f,
+      do_eval_agg bt1 bt2 f p l None
+  | EvalDoAggPolicyError: ∀ f op bt1 bt2 f' init_val noise tr tr_cur l hd hd_v id tl p_cur p_f,
       l = hd :: tl →
       f = AggFunc op bt1 bt2 f' init_val noise →
       hd = (hd_v, Some id) →
-      label_lookup Γ id = Some p_cur →
+      label_lookup tr id = Some tr_cur →
+      extract_policy tr_cur = p_cur →
       p_f = ∘ (Policy.policy_agg (op :: nil)) →
       ¬ (p_cur ⪯ p_f) →
-      do_eval_agg bt1 bt2 f Γ p l None
-  | EvalDoAggPolicyConsError: ∀ bt1 bt2 f Γ p l hd tl,
+      do_eval_agg bt1 bt2 f tr l None
+  | EvalDoAggPolicyConsError: ∀ bt1 bt2 f tr l hd tl,
       l = hd :: tl →
-      do_eval_agg bt1 bt2 f Γ p tl None →
-      do_eval_agg bt1 bt2 f Γ p l None
-  | EvalDoAggOk: ∀ f op bt1 bt2 f' init_val noise Γ p l hd hd_v
+      do_eval_agg bt1 bt2 f tr tl None →
+      do_eval_agg bt1 bt2 f tr l None
+  | EvalDoAggOk: ∀ f op bt1 bt2 f' init_val noise tr l hd hd_v
                    id tl tl_v p_cur p_f tr_cur tr_new p_tl p_final tr_tl,
       l = hd :: tl →
       f = AggFunc op bt1 bt2 f' init_val noise →
       hd = (hd_v, Some id) →
-      label_lookup Γ id = Some p_cur →
-      label_lookup p id = Some tr_cur →
+      label_lookup tr id = Some tr_cur →
+      extract_policy tr_cur = p_cur →
       p_f = ∘ (Policy.policy_agg (op :: nil)) →
       p_cur ⪯ p_f →
-      do_eval_agg bt1 bt2 f Γ p tl (Some (p_tl, tr_tl, tl_v)) →
+      do_eval_agg bt1 bt2 f tr tl (Some (p_tl, tr_tl, tl_v)) →
       let p_new := get_new_policy p_cur (Policy.policy_agg (op :: nil)) in
       let res := f' tl_v hd_v in
         merge_trace_ty tr_cur tr_tl tr_new →
         p_new ∪ p_tl = p_final →
-        do_eval_agg bt1 bt2 f Γ p l (Some (p_final, tr_new, res))
+        do_eval_agg bt1 bt2 f tr l (Some (p_final, tr_new, res))
 .
 
 Inductive apply_noise:
-  ∀ bt, type_to_coq_type bt → budget → noise_gen → nat → Policy.policy →
-        trace_ty → Policy.context → trace →
-    option (type_to_coq_type bt * Policy.context * budget * trace) → Prop :=
-  | ApplyNoiseTooWeak: ∀ bt v β ε δ 𝒩 oracle new_id policy tr Γ p,
+  ∀ bt, type_to_coq_type bt → budget → noise_gen → nat → Policy.policy → trace_ty → trace →
+    option (type_to_coq_type bt * budget * trace) → Prop :=
+  | ApplyNoiseTooWeak: ∀ bt v β ε δ 𝒩 oracle new_id policy tr_ty tr,
       𝒩 = NoiseGen (ε, δ) oracle →
       let p_f := (Policy.policy_noise (differential_privacy (ε, δ))) in
       ¬ (policy ⪯ (∘ p_f)) →
-      apply_noise bt v β 𝒩 new_id policy tr Γ p None
-  | ApplyNoiseNoBudget: ∀ bt v β ε δ 𝒩 oracle new_id policy tr Γ p,
+      apply_noise bt v β 𝒩 new_id policy tr_ty tr None
+  | ApplyNoiseNoBudget: ∀ bt v β ε δ 𝒩 oracle new_id policy tr_ty tr,
       𝒩 = NoiseGen (ε, δ) oracle →
       let p_f := (Policy.policy_noise (differential_privacy (ε, δ))) in
       policy ⪯ (∘ p_f) →
       β < ε →
-      apply_noise bt v β 𝒩 new_id policy tr Γ p None
-  | ApplyNoiseOk: ∀ bt v β ε δ 𝒩 oracle new_id policy tr Γ p,
+      apply_noise bt v β 𝒩 new_id policy tr_ty tr None
+  | ApplyNoiseOk: ∀ bt v β ε δ 𝒩 oracle new_id policy tr_ty tr,
       𝒩 = NoiseGen (ε, δ) oracle →
       let p_f := (Policy.policy_noise (differential_privacy (ε, δ))) in
       (* The privacy requirement is satisfied. *)
       policy ⪯ (∘ p_f) →
       β ≥ ε →
       let policy' := get_new_policy policy p_f in
-      let trace' := TrLinear (prov_noise (differential_privacy (ε, δ))) policy' (tr :: nil) in
-      let Γ' := (new_id, policy') :: Γ in
+      let trace' := TrLinear (prov_noise (differential_privacy (ε, δ))) policy' (tr_ty :: nil) in
       let β' := β - ε in
-      let p' := (new_id, trace') :: p in
-      apply_noise bt v β 𝒩 new_id policy tr Γ p (Some (oracle _ v, Γ', β', p'))
+      let tr' := (new_id, trace') :: tr in
+      apply_noise bt v β 𝒩 new_id policy tr_ty tr (Some (oracle _ v, β', tr'))
 .
 
 (*
@@ -380,34 +376,34 @@ Inductive apply_noise:
 *)
 Inductive eval_agg: ∀ bt, agg_func → eval_env → list (type_to_coq_type bt * option nat) →
   option (eval_env * e_value) → Prop :=
-  | EvalAggErr: ∀ bt f env Γ β p l,
-      fst (fst env) = (Γ, β, p) →
-      do_eval_agg bt bt f Γ p l None →
+  | EvalAggErr: ∀ bt f env β tr l,
+      fst (fst env) = (β, tr) →
+      do_eval_agg bt bt f tr l None →
       eval_agg bt f env l None
-  | EvalAggOkNoNoise: ∀ bt bt' f op f' init_val env  tr proxy Γ β p l v policy trace,
-      env = ((Γ, β, p), tr, proxy) →
+  | EvalAggOkNoNoise: ∀ bt bt' f op f' init_val env tp proxy β tr l v policy trace,
+      env = (β, tr, tp, proxy) →
       f = AggFunc op bt bt' f' init_val None →
-      do_eval_agg bt bt' f Γ p l (Some (policy, trace, v)) →
-      let new_id := next_available_id Γ 0 in
-      let Γ' := (new_id, policy) :: Γ in
-      let p' := (new_id, trace) :: p in
+      do_eval_agg bt bt' f tr l (Some (policy, trace, v)) →
+      let new_id := next_available_id tr 0 in
+      let tr' := (new_id, trace) :: tr in
       let v' := (ValuePrimitive bt' (v, Some new_id)) in
-        eval_agg bt f env l (Some (((Γ', β, p'), tr, proxy), v'))
-  | EvalAggOkNoBudget: ∀ bt bt'  f op f' init_val noise env tr proxy Γ β p l v policy trace,
-      env = ((Γ, β, p), tr, proxy) →
+        eval_agg bt f env l (Some ((β, tr', tp, proxy), v'))
+  | EvalAggOkNoBudget: ∀ bt bt'  f op f' init_val noise env tp proxy β tr l v policy trace,
+      env = (β, tr, tp, proxy) →
       f = AggFunc op bt bt' f' init_val (Some noise) →
-      do_eval_agg bt bt' f Γ p l (Some (policy, trace, v)) →
-      let new_id := next_available_id Γ 0 in
-      apply_noise bt' v β noise new_id policy trace Γ p None →
+      do_eval_agg bt bt' f tr l (Some (policy, trace, v)) →
+      let new_id := next_available_id tr 0 in
+      apply_noise bt' v β noise new_id policy trace tr None →
       eval_agg bt f env l None
-  | EvalAggOkNoise: ∀ bt bt' f op f' init_val noise env tr proxy Γ Γ' β β' p p' l v v' policy trace res,
-      env = ((Γ, β, p), tr, proxy) →
+  | EvalAggOkNoise: ∀ bt bt' f op f' init_val noise
+                      env tp proxy β β' tr tr' l v v' policy trace res,
+      env = (β, tr, tp, proxy) →
       f = AggFunc op bt bt' f' init_val (Some noise) →
-      do_eval_agg bt bt' f Γ p l (Some (policy, trace, v)) →
-      let new_id := next_available_id Γ 0 in
-      apply_noise bt' v β noise new_id policy trace Γ p res →
-      res = Some (v', Γ', β', p') →
-      eval_agg bt f env l (Some (((Γ', β', p'), tr, proxy), ValuePrimitive _ (v', Some new_id)))
+      do_eval_agg bt bt' f tr l (Some (policy, trace, v)) →
+      let new_id := next_available_id tr 0 in
+      apply_noise bt' v β noise new_id policy trace tr res →
+      res = Some (v', β', tr') →
+      eval_agg bt f env l (Some ((β', tr', tp, proxy), ValuePrimitive _ (v', Some new_id)))
 .
 
 (*
@@ -417,7 +413,7 @@ Inductive eval_agg: ∀ bt, agg_func → eval_env → list (type_to_coq_type bt 
   - Expr is the expression to evaluate.
   - 𝔹 is a boolean flag indicating whether the evaluation is performed within an aggregation context.
     - If it is `true`, we need to evaluate the expression on groupby proxy rather than the current tuple.
-  - Γ is the current environment.
+  - is the current environment.
   - Maybe (Γ' × Val) is the result of the evaluation:
     - If it is `None`, the evaluation results in an error.
     - If it is `Some (Γ', Val)`, the evaluation is finished with an updated environment Γ',
@@ -427,15 +423,15 @@ Inductive eval: nat → expression → bool → eval_env → option (eval_env * 
   (* The evaluation hangs and we have to force termination. *)
   | EvalNoStep: ∀ e b env step, step = O → eval step e b env None
   (* Evaluating a constant value is simple: we just return it. *)
-  | EvalConst: ∀ step step' b bt v e tr Γ β p proxy,
+  | EvalConst: ∀ step step' b bt v e tr β tp proxy,
       step = S step' →
       e = ExprConst bt v →
-      eval step e b ((Γ, β, p), tr, proxy) (Some (((Γ, β, p), tr, proxy), ValuePrimitive bt (v, None)))
+      eval step e b (β, tr, tp, proxy) (Some ((β, tr, tp, proxy), ValuePrimitive bt (v, None)))
   (* Extracts the value from the tuple if we are not inside an aggregation context. *)
-  | EvalColumnNotAgg: ∀ step step' b id n e s tr t Γ β p proxy,
+  | EvalColumnNotAgg: ∀ step step' b id n e s tp t β tr proxy,
       step = S step' →
       e = ExprCol id →
-      tr = TupleWrapped s t →
+      tp = TupleWrapped s t →
       b = false →
       (* We locate this column by its identifier `id` using the comparison function. *)
       ∀ (find: find_index (λ x y, Nat.eqb (snd x) y) s id 0 = Some n),
@@ -443,24 +439,24 @@ Inductive eval: nat → expression → bool → eval_env → option (eval_env * 
           (Tuple.nth_col_tuple (♭ s) n
             (eq_sym (schema_to_no_name_length s) ♯
               (elem_find_index_bounded_zero _ _ _ _ find)) t) in
-        eval step e b ((Γ, β, p), tr, proxy)
-          (Some ((((Γ, β, p), tr, proxy), ValuePrimitive _ (fst (fst col), Some (snd (fst col))))))
-  | EvalColumnNotAggFail: ∀ step step' b id e c s tr t proxy,
+        eval step e b (β, tr, tp, proxy)
+          (Some (((β, tr, tp, proxy), ValuePrimitive _ (fst (fst col), Some (snd (fst col))))))
+  | EvalColumnNotAggFail: ∀ step step' b id e c s tp t proxy,
       step = S step' →
       e = ExprCol id →
       b = false →
-      tr = TupleWrapped s t →
+      tp = TupleWrapped s t →
       (* The requested column identifier is not found. *)
       find_index (λ x y, Nat.eqb (snd x) y) s id 0 = None →
-      eval step e b (c, tr, proxy) None
+      eval step e b (c, tp, proxy) None
   (* Extracts the value from the groupby proxy if we are inside an aggregation context. *)
-  | EvalColumnInAggProxyMissing: ∀ step step' b id e c tr proxy,
+  | EvalColumnInAggProxyMissing: ∀ step step' b id e c tp proxy,
       step = S step' →
       e = ExprCol id →
       b = true →
       proxy = None →
-      eval step e b (c, tr, proxy) None
-  | EvalColumnInAgg: ∀ step step' b id n e c s1 s2 tr proxy r gb_keys gb_indices,
+      eval step e b (c, tp, proxy) None
+  | EvalColumnInAgg: ∀ step step' b id n e c s1 s2 tp proxy r gb_keys gb_indices,
       step = S step' →
       e = ExprCol id →
       b = true →
@@ -468,30 +464,30 @@ Inductive eval: nat → expression → bool → eval_env → option (eval_env * 
       ∀ (find: find_index (λ x y, Nat.eqb (snd x) y) s1 id 0 = Some n),
         let col' := extract_column_as_list s1 r n (elem_find_index_bounded_zero _ _ _ _ find) in
           let col := map (fun elem => (fst elem, Some (snd elem))) col' in
-            eval step e b (c, tr, proxy) (Some ((c, tr, proxy), ValuePrimitiveList _ col))
-  | EvalColumnInAggFail: ∀ step step' b id e c s1 s2 tr proxy r gb_keys gb_indices,
+            eval step e b (c, tp, proxy) (Some ((c, tp, proxy), ValuePrimitiveList _ col))
+  | EvalColumnInAggFail: ∀ step step' b id e c s1 s2 tp proxy r gb_keys gb_indices,
       step = S step' →
       e = ExprCol id →
       b = true →
       proxy = Some (GroupbyProxy s1 s2 r gb_keys gb_indices) →
       find_index (λ x y, Nat.eqb (snd x) y) s1 id 0 = None →
-      eval step e b (c, tr, proxy) None
-  | EvalUnary: ∀ step step' bt b e f e' env v v' res tr Γ β p proxy,
+      eval step e b (c, tp, proxy) None
+  | EvalUnary: ∀ step step' bt b e f e' env v v' res tp β tr proxy,
       step = S step' →
       e = ExprUnary f e' →
       b = false →
-      eval step' e' b ((Γ, β, p), tr, proxy) (Some (env, v)) →
+      eval step' e' b (β, tr, tp, proxy) (Some (env, v)) →
       v = ValuePrimitive bt v' →
       eval_unary_expression_prim bt f env v' res →
-      eval step e b ((Γ, β, p), tr, proxy) res
-  | EvalUnaryInAgg: ∀ step step' bt b e f e' env v v' res tr Γ β p proxy,
+      eval step e b (β, tr, tp, proxy) res
+  | EvalUnaryInAgg: ∀ step step' bt b e f e' env v v' res tp β tr proxy,
       step = S step' →
       e = ExprUnary f e' →
       b = true →
-      eval step' e' b ((Γ, β, p), tr, proxy) (Some (env, v)) →
+      eval step' e' b (β, tr, tp, proxy) (Some (env, v)) →
       v = ValuePrimitiveList bt v' →
       eval_unary_expression_list bt f env v' res →
-      eval step e b ((Γ, β, p), tr, proxy) res
+      eval step e b (β, tr, tp, proxy) res
   (*
     There are still many other cases for us to deal with:
 
@@ -499,70 +495,70 @@ Inductive eval: nat → expression → bool → eval_env → option (eval_env * 
     - Scalar value + vector value -> This means we need to propagate to lists.
     - Not implemented yet??
    *)
-  | EvalBinary: ∀ step step' bt1 bt2 b e f e1 e2 env1 env2 env v1 v1' v2 v2' res tr Γ β p proxy,
+  | EvalBinary: ∀ step step' bt1 bt2 b e f e1 e2 env1 env2 env v1 v1' v2 v2' res tp β tr proxy,
       step = S step' →
       e = ExprBinary f e1 e2 →
       b = false →
-      eval step' e1 b ((Γ, β, p), tr, proxy) (Some (env1, v1)) →
-      eval step' e2 b ((Γ, β, p), tr, proxy) (Some (env2, v2)) →
+      eval step' e1 b (β, tr, tp, proxy) (Some (env1, v1)) →
+      eval step' e2 b (β, tr, tp, proxy) (Some (env2, v2)) →
       (* Need to merge env1 and env2 *)
       v1 = ValuePrimitive bt1 v1' →
       v2 = ValuePrimitive bt2 v2' →
       eval_binary_expression_prim bt1 bt2 f env v1' v2' res →
-      eval step e b ((Γ, β, p), tr, proxy) res
-  | EvalBinaryInAgg: ∀ step step' bt1 bt2 b e f e1 e2 env v1 v1' v2 v2' res tr Γ β p proxy,
+      eval step e b (β, tr, tp, proxy) res
+  | EvalBinaryInAgg: ∀ step step' bt1 bt2 b e f e1 e2 env v1 v1' v2 v2' res tp β tr proxy,
       step = S step' →
       e = ExprBinary f e1 e2 →
       b = true →
-      eval step' e1 b ((Γ, β, p), tr, proxy) (Some (env, v1)) →
-      eval step' e2 b ((Γ, β, p), tr, proxy) (Some (env, v2)) →
+      eval step' e1 b (β, tr, tp, proxy) (Some (env, v1)) →
+      eval step' e2 b (β, tr, tp, proxy) (Some (env, v2)) →
       v1 = ValuePrimitiveList bt1 v1' →
       v2 = ValuePrimitiveList bt2 v2' →
       eval_binary_expression_list bt1 bt2 f env v1' v2' res →
-      eval step e b ((Γ, β, p), tr, proxy) res
+      eval step e b (β, tr, tp, proxy) res
   (* Nested aggregation makes no sense. *)
-  | EvalNestedAgg: ∀ step step' b e agg body tr Γ β p proxy s r s_key gb_keys gb_indices,
+  | EvalNestedAgg: ∀ step step' b e agg body tp β tr proxy s r s_key gb_keys gb_indices,
       step = S step' →
       proxy = Some (GroupbyProxy s s_key r gb_keys gb_indices) →
       e = ExprAgg agg body →
       b = true →
-      eval step e b ((Γ, β, p), tr, proxy) None
-  | EvalAggProxyMissing: ∀ step step' b e agg body tr Γ β p proxy,
+      eval step e b (β, tr, tp, proxy) None
+  | EvalAggProxyMissing: ∀ step step' b e agg body tp β tr proxy,
       step = S step' →
       proxy = None →
       b = false →
       e = ExprAgg agg body →
-      eval step e b ((Γ, β, p), tr, proxy) None
-  | EvalAggError: ∀ step step' b e agg body tr Γ β p proxy s r s_key gb_keys gb_indices,
+      eval step e b (β, tr, tp, proxy) None
+  | EvalAggError: ∀ step step' b e agg body tp β tr proxy s r s_key gb_keys gb_indices,
       step = S step' →
       proxy = Some (GroupbyProxy s s_key r gb_keys gb_indices) →
       e = ExprAgg agg body →
       b = false →
-      eval step' body b ((Γ, β, p), tr, proxy) None →
-      eval step e b ((Γ, β, p), tr, proxy) None
-  | EvalAggArgError: ∀ step step' b e agg body tr Γ β p proxy s r s_key gb_keys gb_indices v bt l,
+      eval step' body b (β, tr, tp, proxy) None →
+      eval step e b (β, tr, tp, proxy) None
+  | EvalAggArgError: ∀ step step' b e agg body tp β tr proxy s r s_key gb_keys gb_indices v bt l,
       step = S step' →
       proxy = Some (GroupbyProxy s s_key r gb_keys gb_indices) →
       e = ExprAgg agg body →
       b = false →
-      eval step' body b ((Γ, β, p), tr, proxy) (Some v) →
+      eval step' body b (β, tr, tp, proxy) (Some v) →
       snd v ≠ ValuePrimitiveList bt l →
-      eval step e b ((Γ, β, p), tr, proxy) None
-  | EvalAgg: ∀ step step' b e agg body tr Γ β p proxy s r s_key gb_keys gb_indices v bt l res,
+      eval step e b (β, tr, tp, proxy) None
+  | EvalAgg: ∀ step step' b e agg body tp β tr proxy s r s_key gb_keys gb_indices v bt l res,
       step = S step' →
       proxy = Some (GroupbyProxy s s_key r gb_keys gb_indices) →
       e = ExprAgg agg body →
       b = false →
-      eval step' body b ((Γ, β, p), tr, proxy) (Some v) →
+      eval step' body b (β, tr, tp, proxy) (Some v) →
       snd v = ValuePrimitiveList bt l →
-      eval_agg bt agg ((Γ, β, p), tr, proxy) l res →
-      eval step e b ((Γ, β, p), tr, proxy) res
+      eval_agg bt agg (β, tr, tp, proxy) l res →
+      eval step e b (β, tr, tp, proxy) res
 .
 
 Inductive eval_expr:
-  bool → (σ * trace) → tuple_wrapped → option groupby → expression → option (eval_env * e_value) → Prop :=
-  | EvalExpr: ∀ b tp proxy st e env,
-    eval 100 e b (st, tp, proxy) env → eval_expr b st tp proxy e env
+  bool → (budget * trace) → tuple_wrapped → option groupby → expression → option (eval_env * e_value) → Prop :=
+  | EvalExpr: ∀ b tp proxy β e env,
+    eval 100 e b (β, tp, proxy) env → eval_expr b β tp proxy e env
 .
 
 Section Facts.
