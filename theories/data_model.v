@@ -45,6 +45,7 @@ Definition policy_base_label_eq (lhs rhs: policy_label): Prop :=
   end.
 Notation "x '≃' y" := (policy_base_label_eq x y) (at level 10, y at next level, no associativity).
 
+
 (* FIXME: Such a proof is ugly. Perhaps we need to write some neat ltac. *)
 Lemma policy_base_label_eq_dec: ∀ (lhs rhs: policy_label), {lhs ≃ rhs} + {~ (lhs ≃ rhs)}.
 Proof.
@@ -108,8 +109,15 @@ Fixpoint policy_store (s: schema_no_name): Type :=
   | h :: t => (policy * policy_store t)%type
   end.
 
+(*
+ * One should not be confused: the `ℓ1 ⇝ ℓ2 ...` means that the policy label `ℓ1`
+ * is higher than the policy label `ℓ2` and so on.
+ *)
 Notation "x ⇝ y" := (policy_declass x y) (at level 10, no associativity).
 Notation "'∎'" := (policy_clean).
+(*
+ * This is a shorthand for specifying the end of a policy chain.
+ *)
 Notation "'∘' x" := (x ⇝ ∎) (at level 10, no associativity).
 
 Definition can_declassify ℓ ℓop : Prop :=
@@ -409,6 +417,20 @@ Global Instance policy_lattice: lattice policy_label.
     + destruct n, n0, n1, d, d0, d1; simpl in *; lia.
 Defined.
 
+Lemma policy_base_label_eq_flowsto: ∀ ℓ1 ℓ2 p,
+  ℓ1 ≃ ℓ2 →
+  ℓ1 ⊑ p ∧ ℓ2 ⊑ p →
+  (ℓ1 ⊔ ℓ2) ⊑ p.
+Proof.
+  destruct ℓ1; destruct ℓ2; intros; simpl in *; try contradiction; intuition.
+Admitted.
+
+Lemma policy_flowsto_base_label_eq_holds: ∀ ℓ1 ℓ2 ℓ3,
+  ℓ1 ≃ ℓ2 →
+  ℓ3 ⊑ ℓ1 ∨ ℓ3 ⊑ ℓ2 →
+  ℓ3 ⊑ ℓ1 ⊔ ℓ2.
+Admitted.
+
 Inductive valid_policy: policy → Prop :=
   | valid_policy_clean: valid_policy ∎
   | valid_policy_atomic: ∀ ℓ, valid_policy (∘ ℓ)
@@ -684,38 +706,57 @@ Qed.
 
 Reserved Notation "x '∪' y '=' z" (at level 10, y at next level, z at next level, no associativity).
 Inductive policy_join: policy → policy → policy → Prop :=
-  | policy_join_bot: ∀ p, valid_policy p → ∎ ∪ p = p
-  | policy_join_spec1: ∀ ℓ1 ℓ2 p1 p2 p3, ℓ2 ⊑ ℓ1 → ¬ (ℓ2 ≃ ℓ1) →
-      p1 ∪ p2 = p3 → valid_policy (ℓ1 ⇝ p1) → valid_policy (ℓ2 ⇝ p2) →
-      (ℓ1 ⇝ p1) ∪ (ℓ2 ⇝ p2) = (ℓ1 ⇝ (ℓ2 ⇝ p3))
-  (*
-    ℓ1 ⊑ ℓ2
-    p1 ∪ p2 = p3
-    p3 ∪ (∘ ℓ1) = p4
-    ----------------- = policy_join_spec2
-    (ℓ1 ⇝ p1) ∪ (ℓ2 ⇝ p2) = ℓ2 ⇝ p4
-  *)
-  | policy_join_spec2: ∀ ℓ1 ℓ2 ℓ3 p1 p2 p3, ℓ1 ≃ ℓ2 → ℓ1 ⊔ ℓ2 = ℓ3 →
-      p1 ∪ p2 = p3 → valid_policy (ℓ1 ⇝ p1) → valid_policy (ℓ2 ⇝ p2) →
-      (ℓ1 ⇝ p1) ∪ (ℓ2 ⇝ p2) = (ℓ3 ⇝ p3)
-  (*
-    p1 ∪ p2 = p3
-    ------------- = policy_join_symmetry
-    p2 ∪ p1 = p3
-  *)
-  | policy_join_symmetry: ∀ p1 p2 p3, p1 ∪ p2 = p3 → p2 ∪ p1 = p3 
+  | policy_join_bot_lhs: ∀ p, valid_policy p → ∎ ∪ p = p
+  | policy_join_bot_rhs: ∀ p, valid_policy p → p ∪ ∎ = p
+  | policy_join_spec1: ∀ ℓ1 ℓ2 p1 p2 p3,
+      valid_policy (ℓ1 ⇝ p1) →
+      valid_policy (ℓ2 ⇝ p2) →
+      ℓ2 ⊑ ℓ1 → ¬ (ℓ2 ≃ ℓ1) →
+      p1 ∪ (ℓ2 ⇝ p2) = p3 → 
+      (* ------------- *)
+      (ℓ1 ⇝ p1) ∪ (ℓ2 ⇝ p2) = (ℓ1 ⇝ p3)
+  | policy_join_spec2: ∀ ℓ1 ℓ2 p1 p2 p3,
+      valid_policy (ℓ1 ⇝ p1) →
+      valid_policy (ℓ2 ⇝ p2) →
+      ℓ1 ⊑ ℓ2 → ¬ (ℓ2 ≃ ℓ1) →
+      (ℓ1 ⇝ p1) ∪ p2 = p3 →
+      (* ------------- *)
+      (ℓ1 ⇝ p1) ∪ (ℓ2 ⇝ p2) = (ℓ2 ⇝ p3)
 where "x '∪' y '=' z" := (policy_join x y z).
+
+Lemma policy_join_valid: ∀ p1 p2 p3,
+  p1 ∪ p2 = p3 → valid_policy p3.
+Proof.
+  intros p1 p2 p3. generalize dependent p2. generalize dependent p1.
+  induction p3; intros; inversion H; subst; try constructor; auto.
+  - inversion H8; subst; try (econstructor; eauto). inversion H2. subst. assumption.
+  - inversion H8; subst; (econstructor; eauto). inversion H3. subst. assumption.
+Qed.
 
 Lemma policy_join_stronger: ∀ p1 p2 p3,
   p1 ∪ p2 = p3 → p1 ⪯ p3 ∧ p2 ⪯ p3.
 Proof.
-  intros. induction H; split; intuition.
-  - constructor; auto.
-  - apply preceq_refl. assumption.
+  intros.
+  assert (valid_policy p3) by (apply policy_join_valid in H; auto).
+  induction H; subst; intuition.
+  - constructor; assumption.
+  - apply preceq_refl; assumption.
+  - apply preceq_refl; assumption.
+  - constructor; assumption.
+  - econstructor; eauto. reflexivity. apply IHpolicy_join.
+    apply valid_policy_implies in H0. assumption.
   - econstructor; eauto.
-    + split; auto. econstructor; eauto.
-      
-Admitted.
+    assert (valid_policy p3) by (apply valid_policy_implies in H0; assumption).
+    apply IHpolicy_join in H5. destruct H5.
+    apply preceq_implies in H6. assumption.
+  - econstructor; eauto.
+    assert (valid_policy p3) by (apply valid_policy_implies in H0; assumption).
+    apply IHpolicy_join in H5. destruct H5.
+    apply preceq_implies in H5. assumption.
+  - econstructor; eauto. reflexivity.
+    apply IHpolicy_join. apply valid_policy_implies in H0. assumption.
+Qed.
+
 (*
   The `policy_ord_dec` lemma provides a decision procedure for the policy ordering.
 
@@ -787,31 +828,12 @@ Example policy_trans_rhs := (∘ (policy_transform (unary_trans_op Identity :: n
 
 Example join_correct: policy_lhs ∪ policy_rhs = policy_res.
 Proof.
-  constructor.
-  - simpl. reflexivity.
-  - red. unfold "≃". auto.
-  - apply policy_join_symmetry. constructor.
-    + simpl. reflexivity.
-    + red. unfold "≃". auto.
-    + constructor; intuition.
-      * red. auto.
-      * constructor.
-      * constructor.
-      * constructor.
-    + repeat constructor; intuition.
-    + repeat constructor; intuition.
-  - repeat constructor; intuition.
-  - repeat constructor; intuition.
+  repeat constructor; intuition.
 Qed.
 
 Example join_correct': policy_lhs' ∪ policy_rhs' = policy_res'.
 Proof.
-  apply policy_join_symmetry. constructor.
-  - red. auto.
-  - red. auto.
-  - constructor.
-  - constructor.
-  - constructor.
+  repeat constructor; intuition.
 Qed.
 
 Example join_correct'': policy_rhs'' ∪ policy_lhs'' = policy_rhs''.
