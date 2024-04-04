@@ -767,7 +767,7 @@ Inductive join_policy_and_trace:
       extract_policy tr2' = p2 →
       p1 ∪ p2 = pjoin →
       join_policy_and_trace tl1 tl2 tl3 tl4 tl5 (Some tr) →
-      let tr_join := TrBranch prov_join pjoin tr1' tr2' in
+      let tr_join := TrBranch prov_join pjoin (tr1' :: tr2' :: nil) in
       join_policy_and_trace l1 l2 com tr1 tr2 (Some ((hd3, tr_join) :: tr))
 .
 

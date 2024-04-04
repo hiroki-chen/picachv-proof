@@ -157,7 +157,7 @@ Inductive eval_unary_expression_in_cell: ∀ bt,
       ∀ (eq: bt = bt'), let p_f := (Policy.policy_transform ((unary_trans_op op) :: nil)) in
         p_cur ⪯ (∘ p_f) →
           let p_new := get_new_policy p_cur p_f in
-            let tr_new := TrLinear (prov_trans_unary op) p_new (tr_cur :: nil) in
+            let tr_new := TrLinear (prov_trans_unary op) p_new tr_cur in
               tr' = update_label tr id tr_new →
               eval_unary_expression_in_cell bt f (arg, id) (β, tr', tp, proxy)
                 (Some ((β', tr', tp, proxy), ValuePrimitive bt' (lambda (eq ♯ arg), Some id)))
@@ -302,12 +302,12 @@ Inductive eval_binary_expression_list:
 (* bt1: the input type; bt2: the output type; this evaluates the aggregation expression within a group. *)
 Inductive do_eval_agg:
   ∀ bt1 bt2, agg_func → trace → list (type_to_coq_type bt1 * option nat) →
-    option (Policy.policy * trace_ty * (type_to_coq_type bt2)) → Prop :=
+    option (Policy.policy * (list trace_ty) * (type_to_coq_type bt2)) → Prop :=
   (* When the list being folded is empty, we shall return the initial value. *)
   | EvalDoAggNil: ∀ f op bt1 bt2 f' init_val noise tr l,
       l = nil →
       f = AggFunc op bt1 bt2 f' init_val noise →
-      do_eval_agg bt1 bt2 f tr l (Some (∎, TrEmpty (∘ Policy.policy_bot), init_val))
+      do_eval_agg bt1 bt2 f tr l (Some (∎, nil, init_val))
   | EvalDoAggLabelNotFound: ∀ f op bt1 bt2 f' init_val noise p l hd hd_v id tl,
       l = hd :: tl →
       f = AggFunc op bt1 bt2 f' init_val noise →
@@ -327,8 +327,9 @@ Inductive do_eval_agg:
       l = hd :: tl →
       do_eval_agg bt1 bt2 f tr tl None →
       do_eval_agg bt1 bt2 f tr l None
+  (* These evaluation rules cannot guarantee *)
   | EvalDoAggOk: ∀ f op bt1 bt2 f' init_val noise tr l hd hd_v
-                   id tl tl_v p_cur p_f tr_cur tr_new p_tl p_final tr_tl,
+                   id tl tl_v p_cur p_f tr_cur tr_new p_tl tr_tl,
       l = hd :: tl →
       f = AggFunc op bt1 bt2 f' init_val noise →
       hd = (hd_v, Some id) →
@@ -339,9 +340,24 @@ Inductive do_eval_agg:
       do_eval_agg bt1 bt2 f tr tl (Some (p_tl, tr_tl, tl_v)) →
       let p_new := get_new_policy p_cur (Policy.policy_agg (op :: nil)) in
       let res := f' tl_v hd_v in
-        merge_trace_ty tr_cur tr_tl tr_new →
-        p_new ∪ p_tl = p_final →
-        do_eval_agg bt1 bt2 f tr l (Some (p_final, tr_new, res))
+        tr_new = tr_cur :: tr_tl →
+        p_new ⪯ p_tl →
+        do_eval_agg bt1 bt2 f tr l (Some (p_tl, tr_new, res))
+  | EvalDoAggOk2: ∀ f op bt1 bt2 f' init_val noise tr l hd hd_v
+                   id tl tl_v p_cur p_f tr_cur tr_new p_tl tr_tl,
+      l = hd :: tl →
+      f = AggFunc op bt1 bt2 f' init_val noise →
+      hd = (hd_v, Some id) →
+      label_lookup tr id = Some tr_cur →
+      extract_policy tr_cur = p_cur →
+      p_f = ∘ (Policy.policy_agg (op :: nil)) →
+      p_cur ⪯ p_f →
+      do_eval_agg bt1 bt2 f tr tl (Some (p_tl, tr_tl, tl_v)) →
+      let p_new := get_new_policy p_cur (Policy.policy_agg (op :: nil)) in
+      let res := f' tl_v hd_v in
+        tr_new = tr_cur :: tr_tl →
+        p_tl ⪯ p_new →
+        do_eval_agg bt1 bt2 f tr l (Some (p_new, tr_new, res))
 .
 
 Inductive apply_noise:
@@ -365,7 +381,7 @@ Inductive apply_noise:
       policy ⪯ (∘ p_f) →
       β ≥ ε →
       let policy' := get_new_policy policy p_f in
-      let trace' := TrLinear (prov_noise (differential_privacy (ε, δ))) policy' (tr_ty :: nil) in
+      let trace' := TrLinear (prov_noise (differential_privacy (ε, δ))) policy' tr_ty in
       let β' := β - ε in
       let tr' := (new_id, trace') :: tr in
       apply_noise bt v β 𝒩 new_id policy tr_ty tr (Some (oracle _ v, β', tr'))
@@ -385,7 +401,7 @@ Inductive eval_agg: ∀ bt, agg_func → eval_env → list (type_to_coq_type bt 
       f = AggFunc op bt bt' f' init_val None →
       do_eval_agg bt bt' f tr l (Some (policy, trace, v)) →
       let new_id := next_available_id tr 0 in
-      let tr' := (new_id, trace) :: tr in
+      let tr' := (new_id, TrBranch (prov_agg op) (∘ (Policy.policy_agg (op :: nil))) trace) :: tr in
       let v' := (ValuePrimitive bt' (v, Some new_id)) in
         eval_agg bt f env l (Some ((β, tr', tp, proxy), v'))
   | EvalAggOkNoBudget: ∀ bt bt'  f op f' init_val noise env tp proxy β tr l v policy trace,
@@ -393,7 +409,7 @@ Inductive eval_agg: ∀ bt, agg_func → eval_env → list (type_to_coq_type bt 
       f = AggFunc op bt bt' f' init_val (Some noise) →
       do_eval_agg bt bt' f tr l (Some (policy, trace, v)) →
       let new_id := next_available_id tr 0 in
-      apply_noise bt' v β noise new_id policy trace tr None →
+      apply_noise bt' v β noise new_id policy (TrBranch (prov_agg op) (∘ (Policy.policy_agg (op :: nil))) trace) tr None →
       eval_agg bt f env l None
   | EvalAggOkNoise: ∀ bt bt' f op f' init_val noise
                       env tp proxy β β' tr tr' l v v' policy trace res,
@@ -401,7 +417,7 @@ Inductive eval_agg: ∀ bt, agg_func → eval_env → list (type_to_coq_type bt 
       f = AggFunc op bt bt' f' init_val (Some noise) →
       do_eval_agg bt bt' f tr l (Some (policy, trace, v)) →
       let new_id := next_available_id tr 0 in
-      apply_noise bt' v β noise new_id policy trace tr res →
+      apply_noise bt' v β noise new_id policy (TrBranch (prov_agg op) (∘ (Policy.policy_agg (op :: nil))) trace) tr res →
       res = Some (v', β', tr') →
       eval_agg bt f env l (Some ((β', tr', tp, proxy), ValuePrimitive _ (v', Some new_id)))
 .
@@ -579,6 +595,12 @@ Proof.
       * apply Policy.preceq_implies in H0. assumption.
       * assumption.
 Qed.
+
+Lemma get_new_policy_lower': ∀ p1 p2 op,
+  Policy.valid_policy p2 →
+  p1 = get_new_policy p2 op →
+  p1 ⪯ p2.
+Admitted.
 
 Lemma expr_type_eqb_refl: ∀ τ, expr_type_eqb τ τ = true.
 Proof.

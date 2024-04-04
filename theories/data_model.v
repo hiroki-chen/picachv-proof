@@ -417,20 +417,6 @@ Global Instance policy_lattice: lattice policy_label.
     + destruct n, n0, n1, d, d0, d1; simpl in *; lia.
 Defined.
 
-Lemma policy_base_label_eq_flowsto: ∀ ℓ1 ℓ2 p,
-  ℓ1 ≃ ℓ2 →
-  ℓ1 ⊑ p ∧ ℓ2 ⊑ p →
-  (ℓ1 ⊔ ℓ2) ⊑ p.
-Proof.
-  destruct ℓ1; destruct ℓ2; intros; simpl in *; try contradiction; intuition.
-Admitted.
-
-Lemma policy_flowsto_base_label_eq_holds: ∀ ℓ1 ℓ2 ℓ3,
-  ℓ1 ≃ ℓ2 →
-  ℓ3 ⊑ ℓ1 ∨ ℓ3 ⊑ ℓ2 →
-  ℓ3 ⊑ ℓ1 ⊔ ℓ2.
-Admitted.
-
 Inductive valid_policy: policy → Prop :=
   | valid_policy_clean: valid_policy ∎
   | valid_policy_atomic: ∀ ℓ, valid_policy (∘ ℓ)
@@ -704,6 +690,33 @@ Proof.
       * assumption.
 Qed.
 
+Lemma preceq_trans: ∀ p1 p2 p3,
+  p1 ⪯ p2 → p2 ⪯ p3 → p1 ⪯ p3.
+Proof.
+  intros p1 p2 p3. generalize dependent p2. generalize dependent p1.
+  induction p3; intros; inversion H0; subst; try assumption.
+  - destruct H1. discriminate.
+  - inversion H; subst; try discriminate.
+    + constructor; auto.
+    + destruct H2. discriminate.
+  - destruct p1.
+    + constructor. intuition.
+    + econstructor; eauto.
+      * inversion H. subst. inversion H0. subst. intuition. intuition.
+      * destruct H1. inversion H5. subst.
+        inversion H. subst.
+        destruct H1. inversion H1. inversion H9. subst.
+        etransitivity; eauto.
+      * destruct H1. inversion H5. subst.
+        eapply IHp3; eauto. inversion H.
+        subst. destruct H1. inversion H1. inversion H9. subst. assumption.
+Qed.
+
+(* We export this so that we can use `transitivity` as one of Coq's built-in tactics. *)
+Global Instance preceq_istrans: Transitive policy_ordering.
+  unfold Transitive. apply preceq_trans.
+Defined.
+
 Reserved Notation "x '∪' y '=' z" (at level 10, y at next level, z at next level, no associativity).
 Inductive policy_join: policy → policy → policy → Prop :=
   | policy_join_bot_lhs: ∀ p, valid_policy p → ∎ ∪ p = p
@@ -756,6 +769,15 @@ Proof.
   - econstructor; eauto. reflexivity.
     apply IHpolicy_join. apply valid_policy_implies in H0. assumption.
 Qed.
+
+(* Does not even hold!!! *)
+(* Lemma policy_join_upper_bound: ∀ p1 p2 p3 p,
+  p1 ∪ p2 = p3 →
+  p1 ⪯ p ∧ p2 ⪯ p → p3 ⪯ p.
+Proof.
+  induction p1; induction p2; intros; intuition;
+  inversion H; subst; try assumption.
+Fail Qed. *)
 
 (*
   The `policy_ord_dec` lemma provides a decision procedure for the policy ordering.
@@ -1411,7 +1433,7 @@ Notation "'<<' x ; x0 '>>'" := (x, x0) (at level 0, x at next level, x0 at next 
 Notation "'[[' x , y , .. , z ']]'" := (x, (y, .. (z, tt) ..)) (at level 0, x at next level, y at next level, z at next level).
 Notation "'[[' x ']]'" := (x, tt) (at level 0, x at next level).
 Notation "x ⇝ y" := (Policy.policy_declass x y) (at level 10, no associativity).
-Notation "'∎'" := (Policy.policy_clean) (at level 10, no associativity).
+Notation "'∎'" := (Policy.policy_clean) (at level 0, no associativity).
 Notation "'∘' p " := (p ⇝ ∎) (at level 10, no associativity).
 Notation "x '⪯' y" := (Policy.policy_ordering x y) (at level 10, no associativity).
 Notation "x '∪' y '=' z" := (Policy.policy_join x y z) (at level 10, y at next level, z at next level, no associativity).

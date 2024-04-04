@@ -19,18 +19,26 @@ Section SecurityMain.
  * Checks whether a policy p1 can be downgraded to p2 using op.
  *)
 Definition valid_prov (τ: prov_type) (p1 p2: Policy.policy): Prop :=
+  (*
+   * First of all we must ensure that the level of policies are lowered, which would
+   * otherwise make no sense at all.
+   *)
   p2 ⪯ p1 ∧
-  match τ with
-    (*
-     * Adding `∘ op` ⪯ p should be enough for the condition as this is equivalent to
-     * op ⊑ (first label p), the proof of which is trivial and intuitive.
-     *)
-    | prov_trans_unary op => (∘ (Policy.policy_transform ((unary_trans_op op) :: nil))) ⪯ p1
-    | prov_trans_binary op => (∘ (Policy.policy_transform ((binary_trans_op op) :: nil))) ⪯ p1
-    | prov_agg op => (∘ (Policy.policy_agg (op :: nil))) ⪯ p1
-    | prov_noise op => (∘ (Policy.policy_noise op)) ⪯ p1
-    | prov_join => True
-  end.
+  (*
+   * Next we check if `p1` can be "lowered". This is ensured by `p1` ⪯ `∘ op`
+   *)
+    match τ with
+      (*
+      * Adding `p ⪯ ∘ op` should be enough for the condition as this is equivalent to
+      * `(first label p) ⊑ op`, the proof of which is trivial and intuitive.
+      *)
+      | prov_trans_unary op => p2 ⪯ (∘ (Policy.policy_transform ((unary_trans_op op) :: nil)))
+      | prov_trans_binary op => p2 ⪯ (∘ (Policy.policy_transform ((binary_trans_op op) :: nil)))
+      | prov_agg op => p2 ⪯ (∘ (Policy.policy_agg (op :: nil)))
+      | prov_noise op => p2 ⪯ (∘ (Policy.policy_noise op))
+      | prov_join => True
+    end
+.
 
 (*
  * For a cell to be released (i.e., it can be shared freely), it must be the case that all policies are satisfied.
@@ -41,33 +49,24 @@ Definition can_release p: Prop := p = ∎.
 (* TODO: Define this. *)
 Definition budget_bounded (β: budget): Prop := True.
 
-Fixpoint trace_mirrors_policy (tr: trace) (Γ: Policy.context) :=
-  match tr with
-  | nil => True
-  | (id, tr_ty) :: tl =>
-    match label_lookup Γ id with
-    | Some p => p = extract_policy tr_ty ∧ trace_mirrors_policy tl Γ
-    | None => False
-    end
-  end.
-
 Notation "p1 '=[' p ']=>' p2" := (valid_prov p p1 p2)
   (at level 10, p at next level, p2 at next level).
 
 (* 
- *                    ----< tr1
- *                   /
- * trace: join --< lbl 
- *                  \
- *                   ----< tr2 
+ *                      ----< tr1
+ *                     /
+ * trace: join / agg --< lbl  -----< tr2
+ *                    \
+ *                     ----< ...
  *)
-Inductive join_ok: Policy.policy → trace_ty → trace_ty → Prop :=
-  | JoinOk: ∀ lbl lbl1 lbl2 tr1 tr2,
-      lbl1 = extract_policy tr1 →
-      lbl2 = extract_policy tr2 →
+Inductive branch_ok: Policy.policy → list trace_ty → Prop :=
+  | BranchEmptyOk: ∀ lbl, branch_ok lbl nil
+  | BranchConsOk: ∀ lbl lbl1 tr hd tl,
+      tr = hd :: tl →
+      lbl1 = extract_policy hd →
       lbl1 ⪯ lbl →
-      lbl2 ⪯ lbl →
-      join_ok lbl tr1 tr2
+      branch_ok lbl tl →
+      branch_ok lbl tr
 .
 
 (*
@@ -75,9 +74,11 @@ Inductive join_ok: Policy.policy → trace_ty → trace_ty → Prop :=
  *)
 Inductive
 valid_transition: prov_type → Policy.policy → trace_ty → Prop :=
+  (* tr: old (higher) *)
+  (* lbl: new (lower) *)
   | ValidTransition: ∀ prov lbl lbl' tr,
       lbl' = extract_policy tr →
-      lbl =[ prov ]=> lbl' →
+      lbl' =[ prov ]=> lbl →
       valid_transition prov lbl tr
 .
 
@@ -90,6 +91,7 @@ label_transition_valid_impl: prov_type → Policy.policy → list (trace_ty) →
   | LabelTransitionImplCons: ∀ prov lbl tr hd tl,
       tr = hd :: tl →
       label_transition_valid_impl prov lbl tl →
+      (* hd: old trace (higher) *)
       valid_transition prov lbl hd →
       label_transition_valid_impl prov lbl tr
 .
@@ -98,13 +100,12 @@ Inductive label_transition_valid: trace_ty → Prop :=
   | LabelTransitionTrEmpty: ∀ p, label_transition_valid (TrEmpty p)
   | LabelTransitionTrLinear: ∀ tr prov lbl l,
       tr = TrLinear prov lbl l →
-      label_transition_valid_impl prov lbl l →
+      label_transition_valid_impl prov lbl (l :: nil) →
       label_transition_valid tr
-  | LabelTransitionTrBranch: ∀ tr lbl prov tr1 tr2,
-      tr = TrBranch prov lbl tr1 tr2 →
-      label_transition_valid tr1 →
-      label_transition_valid tr2 →
-      join_ok lbl tr1 tr2 →
+  | LabelTransitionTrBranch: ∀ tr lbl prov trace,
+      tr = TrBranch prov lbl trace →
+      Forall (λ x, label_transition_valid x) trace →
+      branch_ok lbl trace →
       label_transition_valid tr
 .
 
@@ -158,28 +159,6 @@ Proof.
       * inversion H0. subst. inversion H. subst. assumption.
       * assumption.
     + inversion H0. subst. inversion H. subst. assumption.
-Qed.
-
-Lemma label_transition_valid_merge_app: ∀ p l body1 body2,
-  label_transition_valid (TrLinear p l body1) ∧
-  label_transition_valid (TrLinear p l body2) →
-  label_transition_valid (TrLinear p l (body1 ++ body2)).
-Proof.
-  intros. destruct H.
-  inversion H; inversion H0; subst; try discriminate.
-  inversion H1. inversion H4. subst.
-  clear H1. clear H4. econstructor; eauto.
-  apply label_transition_valid_impl_merge_app; auto.
-Qed.
-
-Lemma transition_ok_merge_trace_ty: ∀ tr1 tr2 tr,
-  label_transition_valid tr1 →
-  label_transition_valid tr2 →
-  merge_trace_ty tr1 tr2 tr →
-  label_transition_valid tr.
-Proof.
-  intros. inversion H1; subst; intuition; subst; try discriminate.
-  eapply label_transition_valid_merge_app; eauto.
 Qed.
 
 Lemma trace_ok_app_cons_tail: ∀ a tr1 tr2,
@@ -293,24 +272,52 @@ Proof.
   - eapply H9.
 Qed.
 
-Lemma do_eval_agg_transition_ok: ∀ bt bt' func tr l policy tr' res,
+Lemma do_eval_agg_transition_ok: ∀ bt bt' func op bt1 bt2 f' init_val noise tr l policy tr' res,
   trace_ok tr →
+  func = AggFunc op bt1 bt2 f' init_val noise →
   do_eval_agg bt bt' func tr l (Some (policy, tr', res)) →
-  label_transition_valid tr'.
+    label_transition_valid (TrBranch (prov_agg op) (∘ (Policy.policy_agg (op :: nil))) tr') ∧
+    policy ⪯ (∘ (Policy.policy_agg (op :: nil))).
 Proof.
-  induction l; intros; inversion H0; subst; try discriminate; auto.
-  apply inj_pair2_eq_dec in H1; try (apply basic_type_eq_dec).
-  inversion H1. subst.
-  - constructor.
-  - apply inj_pair2_eq_dec in H1, H5; try (apply basic_type_eq_dec). inversion H1. subst.
-    apply transition_ok_merge_trace_ty with (tr1 := tr_cur) (tr2 := tr_tl).
-    + apply label_lookup_no_effect in H9; assumption.
-    + eapply IHl; eauto.
-    + assumption.
+  induction l; intros; inversion H1; subst; try discriminate; intuition.
+  - eapply LabelTransitionTrBranch; eauto. constructor.
+  - repeat constructor.
+  - apply inj_pair2_eq_dec in H2, H6; try (apply basic_type_eq_dec); subst.
+    inversion H2. subst. clear H2. clear H3.
+    eapply LabelTransitionTrBranch; eauto.
+    + constructor.
+      * apply label_lookup_no_effect in H10; assumption.
+      * apply IHl in H18; auto. destruct H18. inversion H0; subst; try discriminate.
+        inversion H3. subst. assumption.
+    + econstructor; eauto. inversion H8. subst. auto.
+      apply IHl in H18; auto. destruct H18. inversion H0; subst; try discriminate.
+      inversion H3. subst. assumption.
+  - apply inj_pair2_eq_dec in H2, H6; try (apply basic_type_eq_dec); subst.
+    inversion H2. subst. apply IHl in H18; auto. destruct H18. assumption.
+  - apply inj_pair2_eq_dec in H2, H6; try (apply basic_type_eq_dec); subst.
+    inversion H2. subst. clear H2. clear H3.
+    eapply LabelTransitionTrBranch; eauto.
+    + constructor.
+      * apply label_lookup_no_effect in H10; assumption.
+      * apply IHl in H18; auto. destruct H18. inversion H0; subst; try discriminate.
+        inversion H3. subst. assumption.
+    + econstructor; eauto. inversion H8. subst. auto.
+      apply IHl in H18; auto. destruct H18. inversion H0; subst; try discriminate.
+      inversion H3. subst. assumption.
+  - assert (p_new ⪯ (extract_policy tr_cur)).
+    {
+      cut (Policy.valid_policy (extract_policy tr_cur)). intros.
+      apply get_new_policy_lower; intuition.
+      + apply Policy.preceq_refl; auto.
+      + inversion H17; subst; try constructor; intuition.
+    }
+    inversion H8. subst.
+    (* by transitivy with p_new ⪯ extract... ⪯ ... *)
+    eapply Policy.preceq_trans; eauto.
 Qed.
 
 Lemma apply_noise_ok: ∀ bt v β ng n policy tr_ty v' β' tr tr',
-  label_transition_valid tr_ty →
+  policy ⪯ (extract_policy tr_ty) →
   trace_ok tr →
   apply_noise bt v β ng n policy tr_ty tr (Some (v', β', tr')) →
   trace_ok tr'.
@@ -318,13 +325,16 @@ Proof.
   intros. inversion H1; subst; try discriminate.
   apply inj_pair2_eq_dec in H2, H3; try (apply basic_type_eq_dec). subst.
   econstructor; eauto. simpl.
-  econstructor.
-  - reflexivity.
-  - econstructor; eauto; econstructor; eauto.
-    constructor.
-    + unfold policy'. simpl.
-      
-Admitted.
+  unfold trace'.
+  econstructor; eauto.
+  econstructor; eauto; econstructor; eauto. constructor.
+  - unfold policy'. simpl.
+    apply get_new_policy_lower.
+    + inversion H; subst; intuition; (constructor; intuition).
+    + assumption.
+  - unfold policy', p_f in *. apply get_new_policy_lower; intuition.
+    inversion H14; subst; try constructor; intuition. constructor.
+Qed.
 
 Lemma eval_agg_ok: ∀ bt l f β β' tr tr' tp tp' gb gb' n,
   trace_ok tr →
@@ -333,10 +343,13 @@ Lemma eval_agg_ok: ∀ bt l f β β' tr tr' tp tp' gb gb' n,
   trace_ok tr'.
 Proof.
   intros. inversion H0; subst.
-  - inversion H8. subst. econstructor; eauto; simpl. eapply do_eval_agg_transition_ok; eauto.
-  - inversion H10. subst. inversion H13; subst.
-    apply inj_pair2_eq_dec in H1, H2, H3; try (apply basic_type_eq_dec). subst.
-    eapply apply_noise_ok; eauto. eapply do_eval_agg_transition_ok; eauto.
+  - inversion H8. subst. econstructor; eauto; simpl. 
+    eapply do_eval_agg_transition_ok; eauto.
+  - inversion H10. subst.
+  apply inj_pair2_eq_dec in H1; try (apply basic_type_eq_dec). subst.
+    apply apply_noise_ok in H13; auto.
+    simpl. eapply do_eval_agg_transition_ok in H12; eauto.
+    destruct H12. assumption.
 Qed.
 
 Lemma eval_ok: ∀ expr n in_agg β β' tr tr' tp tp' gb gb' v,
@@ -350,16 +363,15 @@ Proof.
     + apply inj_pair2_eq_dec in H1. subst.
       * eapply IHexpr; eauto.
       * apply basic_type_eq_dec.
-    (* + apply inj_pair2_eq_dec in H1; subst; try (apply basic_type_eq_dec).
-      inversion H6. subst.
-      (* * eapply IHexpr; eauto. *)
-  - inversion H10. subst.
-    destruct env as [ [ [ [ Γ'' β''] tr'' ] tp'' ] gb'' ].
+    + apply inj_pair2_eq_dec in H1; subst; try (apply basic_type_eq_dec).
+      inversion H7. subst. eapply IHexpr; eauto.
+  - inversion H6. subst.
+    destruct env as [ [ [  β'' tr'' ] tp'' ] gb'' ].
     eapply eval_unary_expression_list_ok with (tr := tr''); eauto.
   - cheat. (* Let us do it later. *)
   - cheat. (* Let us do it later. *)
-  - eapply eval_agg_ok; eauto. *)
-Admitted.
+  - eapply eval_agg_ok; eauto.
+Qed.
 
 Lemma eval_expr_in_relation_ok: ∀ s r ty r' β β' tr tr' expr,
   trace_ok tr →
@@ -367,18 +379,10 @@ Lemma eval_expr_in_relation_ok: ∀ s r ty r' β β' tr tr' expr,
   trace_ok tr'.
 Proof.
   induction r; intros; inversion H0; subst;
-  try discriminate; intuition;
-  inversion H10; try inversion H1; subst; try discriminate.
-  (* - inversion H9. subst. apply inj_pair2_eq_dec in H26. subst.
-    + eapply IHr; eauto.
-    + apply basic_type_eq_dec.
-  - inversion H9. inversion H29. subst. eapply IHr; eauto.
-  - inversion H9. subst. eapply IHr.
-    + apply eval_ok in H1. eapply H1. assumption.
-    + eauto.
-  - cheat. *)
-  (* Let us do it later. *)
-Admitted.
+  try discriminate; intuition. inversion H4. subst.
+  inversion H8. subst.
+  eapply IHr with (tr := tr'0); eauto. apply eval_ok in H1; assumption.
+Qed.
 
 Lemma join_policy_and_trace_ok: ∀ l1 l2 com tr1 tr2 tr,
   trace_ok tr1 →
@@ -391,16 +395,15 @@ Proof.
   inversion H3. subst. clear H3.
   econstructor; eauto; simpl.
   - unfold tr_join. eapply LabelTransitionTrBranch; eauto.
-    + apply label_lookup_no_effect in H8; assumption.
-    + apply label_lookup_no_effect in H9; assumption.
-    + econstructor; eauto.
-      * 
+    + apply label_lookup_no_effect in H8, H9; repeat constructor; try assumption.
+    + apply Policy.policy_join_stronger in H12. destruct H12.
+      repeat (econstructor; eauto).
   - assert (trace_ok tl4) by (inversion H; subst; auto).
     assert (trace_ok tl5) by (inversion H0; subst; auto).
     eapply IHl1 with (tr1 := tl4) (tr2 := tl5); eauto.
-Admitted.
+Qed.
 
-Lemma trace_ok_join_ok_aux: ∀ s1 s2 join_by t r rout β1 β2 β tr1 tr2 tr,
+Lemma trace_ok_branch_ok_aux: ∀ s1 s2 join_by t r rout β1 β2 β tr1 tr2 tr,
   trace_ok tr1 →
   trace_ok tr2 →
   relation_join_by_prv_helper s1 s2 join_by t r β1 β2 tr1 tr2 (Some (rout, β, tr)) →
@@ -428,7 +431,7 @@ Proof.
     + apply list_eq_dec. apply attribute_eq_dec.
 Qed.
 
-Lemma trace_ok_join_ok: ∀ s1 s2 join_by r1 r2 r β1 β2 β tr1 tr2 tr,
+Lemma trace_ok_branch_ok: ∀ s1 s2 join_by r1 r2 r β1 β2 β tr1 tr2 tr,
   trace_ok tr1 →
   trace_ok tr2 →
   relation_join_by_prv s1 s2 join_by r1 r2 β1 β2 tr1 tr2 (Some (r, β, tr)) →
@@ -444,7 +447,7 @@ Proof.
     + inversion H2; subst.
       assert (trace_ok tr_cons) by (eapply IHr1 with (tr1 := tr1) (tr2 := tr2); eauto).
       eapply trace_ok_merge_ok with (tr1 := tr_hd) (tr2 := tr_cons).
-      *apply trace_ok_join_ok_aux in H12; auto.
+      *apply trace_ok_branch_ok_aux in H12; auto.
       * assumption.
     + apply list_eq_dec. apply Nat.eq_dec.
     + apply list_eq_dec. apply attribute_eq_dec.
@@ -691,7 +694,7 @@ Proof.
               ** eapply H1.
               ** eapply H3.
               ** reflexivity.
-           ++ eapply trace_ok_join_ok.
+           ++ eapply trace_ok_branch_ok.
               ** eapply H.
               ** eapply H6.
               ** eapply H3.

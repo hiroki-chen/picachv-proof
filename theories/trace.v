@@ -27,24 +27,16 @@ Inductive trace_ty: Type :=
   (* ⊥ *)
   | TrEmpty: Policy.policy → trace_ty
   (* Linear trace: op → current policy → predecessors *)
-  | TrLinear: prov_type → Policy.policy → list trace_ty → trace_ty
+  | TrLinear: prov_type → Policy.policy → trace_ty → trace_ty
   (* Branching trace. *)
-  | TrBranch: prov_type → Policy.policy → trace_ty → trace_ty → trace_ty
-.
-
-Inductive merge_trace_ty: trace_ty → trace_ty → trace_ty → Prop :=
-  | MergeTraceList: ∀ tr1 tr2 p1 p2 l1 l2 body1 body2,
-      tr1 = TrLinear p1 l1 body1 →
-      tr2 = TrLinear p2 l2 body2 →
-      p1 = p2 ∧ l1 = l2 →
-      merge_trace_ty tr1 tr2 (TrLinear p1 l1 (body1 ++ body2))
+  | TrBranch: prov_type → Policy.policy → list trace_ty → trace_ty
 .
 
 Definition extract_policy tr :=
   match tr with
   | TrEmpty p => p
   | TrLinear _ p _ => p
-  | TrBranch _ p _ _ => p
+  | TrBranch _ p _ => p
   end.
 
 (*
