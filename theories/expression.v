@@ -67,6 +67,35 @@ Definition agg_list := (list (expression * nat))%type.
 Definition group := (list nat)%type.
 
 (*
+ * Try to get a policy or the default policy if not found; it is useful for
+ * cells that do not carry labels at all because they have no labels at all.
+ *)
+Definition try_get_policy (tr: trace) (id: option nat) :=
+  match id with
+  | Some id' => match label_lookup tr id' with
+                | Some tr' => extract_policy tr'
+                | None => ∎
+                end
+  | None => ∎
+  end.
+
+Definition try_get_new_trace (tr: trace) (id1 id2: option nat) op p :=
+  let tr1 := match id1 with
+             | Some id1' => label_lookup tr id1'
+             | None => None
+             end in
+  let tr2 := match id2 with
+             | Some id2' => label_lookup tr id2'
+             | None => None
+             end in
+    match tr1, tr2 with
+    | Some tr1', Some tr2' => TrBranch op p (tr1' :: tr2' :: nil)
+    | Some tr1', None => TrBranch op p (tr1' :: nil)
+    | None, Some tr2' => TrBranch op p (tr2' :: nil)
+    | None, None => TrBranch op p nil
+    end.
+
+(*
   A GroupbyProxy can be visualized as a pair:
   
   +-----------------+-----------------+
@@ -211,8 +240,6 @@ Inductive eval_unary_expression_list:
 .
 
 (*
-  @hiroki: I think we need a smarter way to define this type.
-
   Somehow more complicated case because we have to deal with
   * Label = None => OK.
   * Label = Some id ∧ policy not found.
@@ -238,19 +265,38 @@ Inductive eval_binary_expression_in_cell: ∀ bt,
       (id1 = Some id1' ∧ label_lookup tr id1' = None) ∨
       (id2 = Some id2' ∧ label_lookup tr id2' = None) →
       eval_binary_expression_in_cell bt f (v1, id1) (v2, id2)  (β, tr, tp, proxy) None
-  (* | E_BinaryPolicyOk: ∀ bt f v1 v2 id1 id1' id2 id2' c tr proxy db β p p1 p2 p_cur p_f prov1 prov2 tr_cur prov_f res,
-      c = ⟨ db β p ⟩ →
-      (id1 = Some id1' ∧ label_lookup id1' = Some p1) ∨
-      (id1 = Some id1' ∧ label_lookup p id1' = Some prov1) ∨
-      (id2 = Some id2' ∧ label_lookup id2' = Some p2) ∨
-      (id2 = Some id2' ∧ label_lookup p id2' = Some prov2) →
-      (* p_cur = ∘ (Policy.policy_agg (f :: nil)) →
-      p_f = ∘ (Policy.policy_agg (f :: nil)) →
-      p1 ⪯ p_f →
-      p2 ⪯ p_f →
-      tr_cur = merge_trace_ty (prov_agg f) (id1', prov1) (id2', prov2) →
-      eval_binary_expression_in_cell bt f (v1, id1) (v2, id2) (c, tr, proxy) (Some (c, tr, proxy, ValuePrimitive bt res)) *)
-      eval_binary_expression_in_cell bt f (v1, id1) (v2, id2) (c, tr, proxy) None *)
+  | E_BinaryTypeError: ∀ bt bt' f op lambda arg1 arg2 ee tr proxy,
+      f = BinFunc op bt' lambda →
+      bt ≠ bt' →
+      eval_binary_expression_in_cell bt f arg1 arg2 (ee, tr, proxy) None
+  | E_BinaryPolicyError:
+      ∀ bt bt' f op lambda
+        arg1 arg2 id1 id2 id1' id2'
+        tp proxy β tr
+        p_cur1 p_cur2,
+      f = BinFunc op bt' lambda →
+      let p_f := Policy.policy_transform ((binary_trans_op op) :: nil) in
+        p_cur1 = try_get_policy tr id1' →
+        p_cur2 = try_get_policy tr id2' →
+        ¬ (p_cur1 ⪯ (∘ p_f)) ∨ ¬ (p_cur2 ⪯ (∘ p_f)) →
+        eval_binary_expression_in_cell bt f (arg1, id1) (arg2, id2) (β, tr, tp, proxy) None
+| E_BinaryPolicyOk:
+      ∀ bt bt' f op lambda
+        arg1 arg2 id1 id2 id1' id2'
+        tp proxy β tr
+        p_cur1 p_cur2 p_new
+        (eq: bt = bt'),
+      f = BinFunc op bt' lambda →
+      let p_f := Policy.policy_transform ((binary_trans_op op) :: nil) in
+      let new_id := next_available_id tr 0 in
+      let tr_new := try_get_new_trace tr id1' id2' (prov_trans_binary op) p_new in
+        p_cur1 ↑ p_cur2 = p_new →
+        p_cur1 = try_get_policy tr id1' →
+        p_cur2 = try_get_policy tr id2' →
+        p_cur1 ⪯ (∘ p_f) ∧ p_cur2 ⪯ (∘ p_f) →
+        eval_binary_expression_in_cell bt f (arg1, id1) (arg2, id2) (β, tr, tp, proxy)
+          (Some ((β, ((new_id, tr_new) :: tr), tp, proxy),
+            ValuePrimitive bt' (lambda (eq ♯ arg1) (eq ♯ arg2), Some new_id)))
 .
 
 (* For binary expressions we just need to check if the operands satisfy their own policies. *)
@@ -595,12 +641,6 @@ Proof.
       * apply Policy.preceq_implies in H0. assumption.
       * assumption.
 Qed.
-
-Lemma get_new_policy_lower': ∀ p1 p2 op,
-  Policy.valid_policy p2 →
-  p1 = get_new_policy p2 op →
-  p1 ⪯ p2.
-Admitted.
 
 Lemma expr_type_eqb_refl: ∀ τ, expr_type_eqb τ τ = true.
 Proof.

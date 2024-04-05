@@ -253,22 +253,6 @@ Proof.
     simpl. destruct a, a0. simpl in *. inversion H. subst. auto.
 Qed.
 
-Global Instance relation_product_proper s1 s2:
-  Proper (equiv ==> equiv ==> equiv) (@relation_product s1 s2).
-Proof.
-  repeat red. intros.
-  induction s1; destruct s2.
-  - simpl. auto.
-  - simpl. auto.
-  - simpl. auto.
-  - destruct a. destruct a0. 
-    destruct x; destruct y.
-    + simpl. auto.
-    + inversion H.
-    + inversion H.
-    +
-Admitted.
-
 (*
   @param s A schema, which is a list of attributes.
   @param join_by A list of attribute names to join by.

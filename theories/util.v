@@ -389,7 +389,7 @@ Proof.
 Defined.
 
 Definition set_eq {A: Type} (ℓ ℓ': set A) : Prop :=
-  (∀ a, set_In a ℓ → set_In a ℓ') ∧ (∀ a, set_In a ℓ' → set_In a ℓ).
+  ∀ a, (set_In a ℓ → set_In a ℓ') ∧ (set_In a ℓ' → set_In a ℓ).
 
 Definition subset {A: Type} (s1 s2: set A) : Prop :=
   ∀ a, set_In a s1 → set_In a s2.
@@ -399,44 +399,37 @@ Definition subset_neq {A: Type} (s1 s2: set A) : Prop :=
   s1 ⊆ s2 ∧ ~(set_eq s1 s2).
 Notation "s1 '⊂' s2" := (subset_neq s1 s2) (at level 70).
 
-Lemma set_eq_implies: ∀ {A: Type} (a: A) (ℓ ℓ': set A),
-  set_eq (a :: ℓ) (a :: ℓ') → set_eq ℓ ℓ'.
-Proof.
-Admitted.
-
 Lemma set_eq_dec: ∀ (A: Type) (dec: ∀ (a1 a2: A), {a1 = a2} + {a1 ≠ a2}) (ℓ ℓ': set A),
   {set_eq ℓ ℓ'} + {~(set_eq ℓ ℓ')}.
 Proof.
-  induction ℓ; induction ℓ'; intros.
-  - left. red. split; intuition.
-  - destruct IHℓ'.
-    + right. red. intros.
-      unfold set_eq in *. intuition.
-      assert (set_In a nil → False).
-      {
-        intros. inversion H.
-      }
-      apply H. apply H3.
-      apply in_eq.
-    + right. red. intros. unfold set_eq in *. intuition. apply H.
-      intros. inversion H2. intros. apply H1.
-      destruct (dec a0 a).
-      subst. apply in_eq. apply in_cons. assumption.
-  - right. red. intros. inversion H.
-    assert (set_In a nil → False).
-    {
-      intros. inversion H2.
-    }
-    apply H2. apply H0. apply in_eq.
-  - intuition.
-    destruct (dec a a0) .
-    + subst. destruct (IHℓ ℓ').
-      * left. red. intuition.
-        simpl in *. intuition.
-        -- right. unfold set_eq in *. simpl in *. intuition.
-        -- simpl. unfold set_eq in *. simpl in *. intuition.
-      * right. intros. apply f. apply set_eq_implies in H. assumption.
-Admitted.
+  intros.
+  (* Check Forall_dec.  *)
+  specialize Forall_dec with (A := A) (P := λ a, set_In a ℓ');
+  specialize Forall_dec with (A := A) (P := λ a, set_In a ℓ); intros.
+  specialize set_In_dec with (A := A) (x := ℓ);
+  specialize set_In_dec with (A := A) (x := ℓ'); intros.
+  intuition.
+
+  unfold set_eq, set_In in *.
+  destruct (X2 ℓ); destruct (X0 ℓ').
+  - left. intros. split; intros.
+    + assert (∀ x, In x ℓ → In x ℓ') by (apply Forall_forall; assumption). 
+      intuition.
+    + assert (∀ x, In x ℓ' → In x ℓ) by (apply Forall_forall; assumption).
+      intuition.
+  - right. intros. apply f0. 
+    apply Forall_forall. intros.
+    specialize H with x. destruct H.
+    intuition.
+  - right. intros. apply f. 
+    apply Forall_forall. intros.
+    specialize H with x. destruct H.
+    intuition.
+  - right. intros. apply f. 
+    apply Forall_forall. intros.
+    specialize H with x. destruct H.
+    intuition.
+Qed.
 
 Lemma list_eq_dec: ∀ {A: Type} (dec: ∀ (a1 a2: A), {a1 = a2} + {a1 ≠ a2}) (ℓ ℓ': list A),
   {ℓ = ℓ'} + {ℓ ≠ ℓ'}.
@@ -465,8 +458,11 @@ Proof.
   intros.
   split.
   - unfold Reflexive. intros. unfold set_eq. intros. split; intros; assumption.
-  - unfold Symmetric. intros. unfold set_eq in *. intros. destruct H; intuition.
-  - unfold Transitive. intros. unfold set_eq in *. intros. destruct H, H0; intuition.
+  - unfold Symmetric. intros. unfold set_eq in *. intros. specialize H with a.
+    intuition.
+  - unfold Transitive. intros. unfold set_eq in *. intros.
+    specialize H with a. specialize H0 with a.
+    intuition.
 Defined.
 
 Lemma set_inter_nil: ∀ (A: Type) (dec: ∀ (a1 a2: A), {a1 = a2} + {a1 ≠ a2}) (ℓ: set A),
@@ -576,7 +572,7 @@ Lemma set_inter_subset: ∀ (A: Type) (dec: ∀ (a1 a2: A), {a1 = a2} + {a1 ≠ 
   set_eq (set_inter dec s1 s2) s1 ↔ s1 ⊆ s2.
 Proof.
   intros. split; intros.
-  - unfold subset, set_eq in *. intros. destruct H. specialize H1 with a.
+  - unfold subset, set_eq in *. intros. specialize H with a. destruct H.
     apply H1 in H0. apply set_inter_elim in H0.
     destruct H0. assumption.
   - unfold subset, set_eq in *. intros.
@@ -589,7 +585,7 @@ Lemma set_union_subset: ∀ (A: Type) (dec: ∀ (a1 a2: A), {a1 = a2} + {a1 ≠ 
   set_eq (set_union dec s1 s2) s1 ↔ s2 ⊆ s1.
 Proof.
   intros. split; intros.
-  - unfold subset, set_eq in *. intros. destruct H. specialize H with a.
+  - unfold subset, set_eq in *. intros. specialize H with a. destruct H.
     apply H. apply set_union_intro. right. assumption.
   - unfold subset, set_eq in *. intros.
     split.
@@ -610,7 +606,9 @@ Proof.
   repeat red. unfold subset_neq, subset, set_eq in *. split; intros;
   destruct H, H0; unfold not in *.
   - apply H0. apply H. assumption.
-  - intros. destruct H1, H2, H3. split; intros; intuition.
+  - intros. apply H2. intros. split; intuition.
+    specialize H with a. specialize H0 with a. specialize H3 with a.
+    intuition.
 Qed.
 
 Section Tests.

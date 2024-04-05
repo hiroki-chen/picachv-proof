@@ -130,17 +130,11 @@ Definition can_declassify ℓ ℓop : Prop :=
   end.
 
 Theorem can_declassify_dec: ∀ ℓ ℓop, {can_declassify ℓ ℓop} + {~ can_declassify ℓ ℓop}.
+Proof.
+  intros. destruct ℓ; destruct ℓop; auto with *.
+  (left; simpl; auto) || (right; simpl; auto; red; intros; discriminate).
+  1-10: try discriminate.
 Admitted.
-
-(* 
-Definition can_declassifyb ℓ ℓop: bool :=
-  match ℓ, ℓop with
-  | policy_bot, _ => true
-  | policy_transform s1, policy_transform s2 => set_subsetb s2 s1
-  | policy_agg s1, policy_agg s2 => set_subsetb s2 s1
-  | policy_top, _ => false
-  | _, _ => policy_label_eq_dec' ℓ ℓop
-  end. *)
 
 Fixpoint policy_as_list (p: policy): list policy_label :=
   match p with
@@ -368,51 +362,49 @@ Global Instance policy_lattice: lattice policy_label.
   - intros. simpl. reflexivity.
   - intros. simpl in *.
     destruct x1; destruct x2; destruct y1; destruct y2; simpl; try apply policy_eq_eqv; try inversion H0; try inversion H; auto; simpl in *; unfold set_eq in *; intros; (try split; intros).
-    + apply set_inter_intro; destruct H, H0.
-      * apply H. apply set_inter_elim in H5. intuition.
-      * apply H0. apply set_inter_elim in H5. intuition.
-    + destruct H, H0. apply set_inter_elim in H5. apply set_inter_intro.
-      * apply H6. intuition.
-      * apply H2. intuition.
-    + apply set_inter_elim in H5. apply set_inter_intro; destruct H, H0.
-      * apply H. intuition.
-      * apply H0. intuition.
-    + apply set_inter_intro.
-      * apply set_inter_elim in H5. destruct H5. apply H. auto.
-      * apply set_inter_elim in H5. destruct H5. apply H0. auto.
+    + apply set_inter_intro; specialize H with a. specialize H0 with a. destruct H, H0.
+      * apply H. apply set_inter_elim in H1. intuition.
+      * apply H0. apply set_inter_elim in H1. intuition.
+    + specialize H with a. specialize H0 with a.
+      destruct H, H0. apply set_inter_elim in H1. apply set_inter_intro; intuition.
+    + apply set_inter_elim in H1. specialize H with a. specialize H0 with a.
+      apply set_inter_intro; intuition.
+    + apply set_inter_intro; specialize H with a; specialize H0 with a.
+      * apply set_inter_elim in H1. intuition.
+      * apply set_inter_elim in H1. intuition.
     + destruct n, n1, n0, n2, d, d0, d1, d2. simpl in *. split; lia.
   - intros. simpl in *.
     destruct x1; destruct x2; destruct y1; destruct y2; simpl; try apply policy_eq_eqv; try inversion H0; try inversion H; auto; simpl in *; unfold set_eq in *; intros; (try split; intros).
     + apply set_union_intro.
-      apply set_union_elim in H5. destruct H5. left. apply H. assumption. right. apply H0. assumption.
+      apply set_union_elim in H1. destruct H1. left. apply H. assumption. right. apply H0. assumption.
     + apply set_union_intro.
-      apply set_union_elim in H5. destruct H5. left. apply H. assumption. right. apply H0. assumption.
+      apply set_union_elim in H1. destruct H1. left. apply H. assumption. right. apply H0. assumption.
     + apply set_union_intro.
-      apply set_union_elim in H5. destruct H5. left. apply H. assumption. right. apply H0. assumption.
+      apply set_union_elim in H1. destruct H1. left. apply H. assumption. right. apply H0. assumption.
     + apply set_union_intro.
-      apply set_union_elim in H5. destruct H5. left. apply H. assumption. right. apply H0. assumption.
+      apply set_union_elim in H1. destruct H1. left. apply H. assumption. right. apply H0. assumption.
     + destruct n, n1, n0, n2, d, d0, d1, d2. simpl in *. split; lia.
   - intros. simpl in *. destruct x; destruct y; destruct z; simpl; try apply policy_eq_eqv;
     try inversion H0; try inversion H; simpl in *; unfold set_eq in *; intros; (try split; intros); auto.
-    + apply set_inter_elim in H5. destruct H5. assumption.
+    + apply set_inter_elim in H1. destruct H1. assumption.
     + apply set_inter_intro.
-      * apply H in H5. apply H0 in H5. apply set_inter_elim in H5. destruct H5. assumption.
+      * apply H in H1. apply H0 in H1. apply set_inter_elim in H1. destruct H1. assumption.
       * assumption.
-    + apply set_inter_elim in H5. destruct H5. assumption.
+    + apply set_inter_elim in H1. destruct H1. assumption.
     + apply set_inter_intro.
-      * apply H in H5. apply H0 in H5. apply set_inter_elim in H5. destruct H5. assumption.
+      * apply H in H1. apply H0 in H1. apply set_inter_elim in H1. destruct H1. assumption.
       * assumption.
     + destruct n, n0, d, d0; lia.
     + destruct n, n0, n1, d, d0, d1; simpl in *; lia.
   - intros. simpl in *. destruct x; destruct y; destruct z; simpl; try apply policy_eq_eqv;
     try inversion H0; try inversion H; simpl in *; unfold set_eq in *; intros; (try split; intros); auto.
-    + apply set_inter_elim in H5. destruct H5. assumption.
+    + apply set_inter_elim in H1. destruct H1. assumption.
     + apply set_inter_intro.
-      * apply H0 in H5. apply set_inter_elim in H5. destruct H5. apply H in H5. assumption.
+      * apply H0 in H1. apply set_inter_elim in H1. destruct H1. apply H in H1. assumption.
       * assumption.
-    + apply set_inter_elim in H5. destruct H5. assumption.
+    + apply set_inter_elim in H1. destruct H1. assumption.
     + apply set_inter_intro.
-      * apply H0 in H5. apply set_inter_elim in H5. destruct H5. apply H in H5. assumption.
+      * apply H0 in H1. apply set_inter_elim in H1. destruct H1. apply H in H1. assumption.
       * assumption.
     + destruct n, n0, n1, d, d0, d1; simpl in *; lia.
 Defined.
@@ -433,7 +425,6 @@ Definition policy_lt (lhs rhs: policy_label): Prop :=
   flowsto lhs rhs ∧ lhs =/= rhs.
 Definition policy_le (lhs rhs: policy_label): Prop :=
   flowsto lhs rhs.
-
 Global Instance policy_lt_trans: Transitive policy_lt.
   unfold Transitive.
   intros. destruct x; destruct y; destruct z; unfold policy_lt in *; intuition auto with *;
@@ -442,15 +433,15 @@ Global Instance policy_lt_trans: Transitive policy_lt.
   - destruct n, n0, d, d0. simpl. lia.
   - assert (s0 ⊂ s).
     {
-      red. split; red.
-      - intros.  unfold set_eq in H1. destruct H1. apply H4 in H0.
+      red. split; red; intros.
+      - unfold set_eq in H1. specialize H1 with a. destruct H1. apply H4 in H0.
         apply set_inter_elim in H0. intuition.
-      - intros. apply H2. symmetry. auto.
+      - apply H2. symmetry. auto.
     }
     assert (s1 ⊂ s0).
     {
       red. split; red.
-      - intros.  unfold set_eq in H. destruct H. apply H5 in H4.
+      - intros.  unfold set_eq in H. specialize H with a. destruct H. apply H5 in H4.
         apply set_inter_elim in H4. intuition.
       - intros. apply H3. symmetry. auto.
     }
@@ -465,31 +456,31 @@ Global Instance policy_lt_trans: Transitive policy_lt.
   - assert (s0 ⊂ s).
     {
       red. split; red.
-      - intros. unfold set_eq in H1. destruct H1. apply H7 in H6.
+      - intros. unfold set_eq in H1. specialize H1 with a. destruct H1. intuition.
         apply set_inter_elim in H6. intuition.
       - intros. apply H2. symmetry. auto.
     }
     assert (s1 ⊂ s0).
     {
       red. split; red.
-      - intros. unfold set_eq in H. destruct H. apply H8 in H7.
+      - intros. unfold set_eq in H. specialize H with a. destruct H. intuition.
         apply set_inter_elim in H7. intuition.
       - intros. apply H3. symmetry. auto.
     }
     assert (s1 ⊂ s) by (eapply transitivity; eauto).
-    red in H8. destruct H8. red in H9.
-    apply H9. symmetry. assumption.
+    red in H6. destruct H6. red in H7.
+    apply H7. symmetry. assumption.
   - assert (s0 ⊂ s).
     {
       red. split; red.
-      - intros.  unfold set_eq in H1. destruct H1. apply H4 in H0.
+      - intros. unfold set_eq in H1. specialize H1 with a. destruct H1. apply H4 in H0.
         apply set_inter_elim in H0. intuition.
       - intros. apply H2. symmetry. auto.
     }
     assert (s1 ⊂ s0).
     {
       red. split; red.
-      - intros.  unfold set_eq in H. destruct H. apply H5 in H4.
+      - intros.  unfold set_eq in H. specialize H with a. destruct H. apply H5 in H4.
         apply set_inter_elim in H4. intuition.
       - intros. apply H3. symmetry. auto.
     }
@@ -504,20 +495,20 @@ Global Instance policy_lt_trans: Transitive policy_lt.
   - assert (s0 ⊂ s).
     {
       red. split; red.
-      - intros. unfold set_eq in H1. destruct H1. apply H7 in H6.
+      - intros. unfold set_eq in H1. specialize H1 with a. destruct H1. intuition.
         apply set_inter_elim in H6. intuition.
       - intros. apply H2. symmetry. auto.
     }
     assert (s1 ⊂ s0).
     {
       red. split; red.
-      - intros. unfold set_eq in H. destruct H. apply H8 in H7.
+      - intros. unfold set_eq in H. specialize H with a. destruct H. intuition.
         apply set_inter_elim in H7. intuition.
       - intros. apply H3. symmetry. auto.
     }
     assert (s1 ⊂ s) by (eapply transitivity; eauto).
-    red in H8. destruct H8. red in H9.
-    apply H9. symmetry. assumption.
+    red in H6. destruct H6. red in H5.
+    intuition auto with *.
   - destruct n, n0, n1, d, d0, d1. simpl in *. intuition; lia.
   - destruct n, n0, n1, d, d0, d1. simpl in *. intuition; lia.
 Qed.
@@ -668,6 +659,11 @@ where "x ⪯ y" := (policy_ordering x y).
 
 Definition policy_eq (lhs rhs: policy): Prop := lhs ⪯ rhs ∧ rhs ⪯ lhs.
 Notation "x ≡ y" := (policy_eq x y) (at level 10, no associativity).
+
+Inductive max_policy: policy → policy → policy → Prop :=
+  | MaxPolicy: ∀ p1 p2, p1 ⪯ p2 → max_policy p1 p2 p2
+  | MaxPolicySym: ∀ p1 p2, p2 ⪯ p1 → max_policy p1 p2 p1
+.
 
 Lemma preceq_implies: ∀ ℓ1 p1 p,
   (ℓ1 ⇝ p1) ⪯ p → p1 ⪯ p.
@@ -1432,9 +1428,10 @@ Notation "'<<' x '>>'" := (x, 0) (at level 0, x at next level).
 Notation "'<<' x ; x0 '>>'" := (x, x0) (at level 0, x at next level, x0 at next level).
 Notation "'[[' x , y , .. , z ']]'" := (x, (y, .. (z, tt) ..)) (at level 0, x at next level, y at next level, z at next level).
 Notation "'[[' x ']]'" := (x, tt) (at level 0, x at next level).
-Notation "x ⇝ y" := (Policy.policy_declass x y) (at level 10, no associativity).
+Notation "x '⇝' y" := (Policy.policy_declass x y) (at level 10, no associativity).
 Notation "'∎'" := (Policy.policy_clean) (at level 0, no associativity).
 Notation "'∘' p " := (p ⇝ ∎) (at level 10, no associativity).
 Notation "x '⪯' y" := (Policy.policy_ordering x y) (at level 10, no associativity).
 Notation "x '∪' y '=' z" := (Policy.policy_join x y z) (at level 10, y at next level, z at next level, no associativity).
-Notation "x ≡ y" := (Policy.policy_eq x y) (at level 10, no associativity).
+Notation "x '≡' y" := (Policy.policy_eq x y) (at level 10, no associativity).
+Notation "x '↑' y '=' z" := (Policy.max_policy x y z) (at level 10, y at next level, z at next level, no associativity).
