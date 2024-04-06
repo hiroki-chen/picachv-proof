@@ -56,8 +56,8 @@ Notation "p1 '=[' p ']=>' p2" := (valid_prov p p1 p2)
  *                      ----< tr1
  *                     /
  * trace: join / agg --< lbl  -----< tr2
- *                    \
- *                     ----< ...
+ *                     \
+ *                      ----< ...
  *)
 Inductive branch_ok: Policy.policy → list trace_ty → Prop :=
   | BranchEmptyOk: ∀ lbl, branch_ok lbl nil
@@ -352,25 +352,87 @@ Proof.
     destruct H12. assumption.
 Qed.
 
+Lemma try_get_new_trace_bin_ok: ∀ tr tr' n1 n2 op p_new,
+  trace_ok tr →
+  (try_get_policy tr n1) ↑ (try_get_policy tr n2) = p_new →
+  tr' = try_get_new_trace tr n1 n2 (prov_trans_binary op) p_new →
+  label_transition_valid tr'.
+Proof.
+  intros. subst. unfold try_get_new_trace.
+  destruct n1 as [n1|], n2 as [n2|];
+  try destruct (label_lookup tr n1) eqn: Hn1;
+  try destruct (label_lookup tr n2) eqn: Hn2;
+  simpl in *; try rewrite Hn1 in *; try rewrite Hn2 in *.
+  - eapply LabelTransitionTrBranch; eauto.
+    + constructor.
+      * apply label_lookup_no_effect in Hn1; assumption.
+      * constructor. apply label_lookup_no_effect in Hn2; assumption. constructor.
+    + econstructor; eauto.
+      * apply Policy.max_policy_max in H0. tauto.
+      * econstructor; eauto. apply Policy.max_policy_max in H0. tauto. constructor.
+  - eapply LabelTransitionTrBranch; eauto.
+    + constructor.
+      * apply label_lookup_no_effect in Hn1; assumption.
+      * constructor.
+    + econstructor; eauto.
+      * apply Policy.max_policy_max in H0. tauto.
+      * econstructor; eauto.
+  - eapply LabelTransitionTrBranch; eauto.
+    + constructor.
+      * apply label_lookup_no_effect in Hn2; assumption.
+      * constructor.
+    + econstructor; eauto.
+      * apply Policy.max_policy_max in H0. tauto.
+      * econstructor; eauto.
+  - eapply LabelTransitionTrBranch; eauto. constructor.
+  - eapply LabelTransitionTrBranch; eauto. constructor.
+    + apply label_lookup_no_effect in Hn1; assumption.
+    + constructor.
+    + econstructor; eauto. apply Policy.max_policy_max in H0. tauto. constructor.
+  - inversion H0; subst; eapply LabelTransitionTrBranch; eauto; constructor.
+  - eapply LabelTransitionTrBranch; eauto.
+    + constructor. apply label_lookup_no_effect in Hn2; assumption. constructor.
+    + econstructor; eauto.
+      * apply Policy.max_policy_max in H0. tauto.
+      * constructor.
+  - inversion H0; subst; eapply LabelTransitionTrBranch; eauto; constructor.
+  - inversion H0; subst; eapply LabelTransitionTrBranch; eauto; constructor.
+Qed.
+
 Lemma eval_binary_ok:
-  ∀ bt1 bt2 e1 e2 f n β β1 β2 β'
-  tr tr1 tr2 tr' tp tp1 tp2 tp' gb gb1 gb2 gb' v1' v2' v,
-    eval n e1 false (β, tr, tp, gb) (Some (β1, tr1, tp1, gb1, ValuePrimitive bt1 v1')) →
-    eval n e2 false (β, tr, tp, gb) (Some (β2, tr2, tp2, gb2, ValuePrimitive bt2 v2')) →
-    eval_binary_expression_prim bt1 bt2 f (calculate_budget β1 β2, tr1 ⊍ tr2, tp, gb)
+  ∀ bt1 bt2 f β β'
+  tr tr' tp tp' gb gb' v1' v2' v,
+    trace_ok tr →
+    eval_binary_expression_prim bt1 bt2 f (β, tr, tp, gb)
       v1' v2' (Some (β', tr', tp', gb', v)) →
     trace_ok tr'.
-Admitted.
+Proof.
+  intros. inversion H0. subst.
+  apply inj_pair2_eq_dec in H1, H2; try (apply basic_type_eq_dec). subst.
+  inversion H12.
+  apply inj_pair2_eq_dec in H1, H3; try (apply basic_type_eq_dec). subst.
+  inversion H13. apply inj_pair2_eq_dec in H3; try (apply basic_type_eq_dec). subst.
+  destruct H23.
+
+  econstructor; eauto. simpl. unfold tr_new. eapply try_get_new_trace_bin_ok; eauto. 
+Qed.
 
 Lemma eval_binary_list_ok:
-  ∀ bt1 bt2 e1 e2 f n β β1 β2 β'
-  tr tr1 tr2 tr' tp tp1 tp2 tp' gb gb1 gb2 gb' v1' v2' v,
-    eval n e1 true (β, tr, tp, gb) (Some (β1, tr1, tp1, gb1, ValuePrimitiveList bt1 v1')) →
-    eval n e2 true (β, tr, tp, gb) (Some (β2, tr2, tp2, gb2, ValuePrimitiveList bt2 v2')) →
-    eval_binary_expression_list bt1 bt2 f
-      (calculate_budget β1 β2, tr1 ⊍ tr2, tp, gb) v1' v2' (Some (β', tr', tp', gb', v)) →
+  ∀ bt1 bt2 f β β'
+  tr tr' tp tp' gb gb' v1' v2' v,
+    trace_ok tr →
+    eval_binary_expression_list bt1 bt2 f (β, tr, tp, gb) v1' v2' (Some (β', tr', tp', gb', v)) →
     trace_ok tr'.
-Admitted.
+Proof.
+  intros. revert f β β' tr tr' tp tp' gb gb' v v1' H H0.
+  induction v2'; intros;
+  inversion H0; apply inj_pair2_eq_dec in H1, H2; try (apply basic_type_eq_dec); subst;
+  try solve [assumption | discriminate].
+  inversion H2. subst. clear H2.
+  destruct env' as [ [ [ β'' tr'' ] tp'' ] gb'' ].
+  assert (trace_ok tr'') by (apply eval_binary_ok in H11; assumption).
+  eapply IHv2' with (tr := tr''); eauto.
+Qed.
 
 Lemma eval_ok: ∀ expr n in_agg β β' tr tr' tp tp' gb gb' v,
   trace_ok tr →
@@ -391,11 +453,13 @@ Proof.
   - inversion H6. subst.
     assert (trace_ok tr1) by (eapply IHexpr1 with (tr := tr) (tr' := tr1); eauto).
     assert (trace_ok tr2) by (eapply IHexpr2 with (tr := tr) (tr' := tr2); eauto).
-    eapply eval_binary_ok with (v1' := v1') (v2' := v2'); eauto.
+    eapply eval_binary_ok with (tr := tr1 ⊍ tr2); eauto.
+    apply trace_ok_merge_ok; auto.
   - inversion H6. subst.
     assert (trace_ok tr1) by (eapply IHexpr1 with (tr := tr) (tr' := tr1); eauto).
     assert (trace_ok tr2) by (eapply IHexpr2 with (tr := tr) (tr' := tr2); eauto).
-    eapply eval_binary_list_ok with (v1' := v1') (v2' := v2'); eauto.
+    eapply eval_binary_list_ok with (tr := tr1 ⊍ tr2); eauto.
+    apply trace_ok_merge_ok; auto.
   - eapply eval_agg_ok; eauto.
 Qed.
 

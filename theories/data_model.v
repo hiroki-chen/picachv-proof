@@ -694,6 +694,13 @@ Proof.
       * assumption.
 Qed.
 
+Lemma max_policy_max: ∀ p1 p2 p3,
+  max_policy p1 p2 p3 → p1 ⪯ p3 ∧ p2 ⪯ p3.
+Proof.
+  intros. inversion H; subst; intuition.
+  all: apply preceq_refl; inversion H0; subst; intuition.
+Qed.
+
 Lemma preceq_trans: ∀ p1 p2 p3,
   p1 ⪯ p2 → p2 ⪯ p3 → p1 ⪯ p3.
 Proof.
