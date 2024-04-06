@@ -129,12 +129,54 @@ Definition can_declassify ℓ ℓop : Prop :=
   | _, _ => ℓ = ℓop
   end.
 
+Definition policy_label_eq (lhs rhs: policy_label): Prop :=
+  match lhs, rhs with
+  | policy_top, policy_top => True
+  | policy_bot, policy_bot => True
+  | policy_select, policy_select => True
+  | policy_transform ℓ1, policy_transform ℓ2 => set_eq ℓ1 ℓ2
+  | policy_agg ℓ1, policy_agg ℓ2 => set_eq ℓ1 ℓ2
+  | policy_noise p1, policy_noise p2 =>
+      match p1, p2 with
+        | differential_privacy (ε1, δ1), differential_privacy (ε2, δ2) =>
+            ε1 = ε2 ∧ δ1 = δ2
+      end
+  | _, _ => False
+  end.
+
+Lemma policy_eq_dec: ∀ (lhs rhs: policy_label), {policy_label_eq lhs rhs} + {~ (policy_label_eq lhs rhs)}.
+Proof.
+  destruct lhs; destruct rhs; auto with *;
+  try destruct (set_eq_dec transop_dec s s0);
+  try destruct (set_eq_dec aggop_dec s s0).
+  - left. auto.
+  - right. auto.
+  - left. auto.
+  - right. auto.
+  - destruct n, n0, d, d0. auto with *.
+    destruct (nat_dec n n1). destruct (nat_dec n0 n2); try destruct s; try destruct s0; simpl; intuition.
+    + right. lia.
+    + right. lia.
+    + right. lia.
+    + right. lia.
+    + right. lia.
+    + simpl. right. lia.
+Defined.
+
 Theorem can_declassify_dec: ∀ ℓ ℓop, {can_declassify ℓ ℓop} + {~ can_declassify ℓ ℓop}.
 Proof.
-  intros. destruct ℓ; destruct ℓop; auto with *.
-  (left; simpl; auto) || (right; simpl; auto; red; intros; discriminate).
-  1-10: try discriminate.
-Admitted.
+  intros. destruct ℓ; destruct ℓop; auto with *;
+  try solve [(left; simpl; auto) | (right; red; intros; discriminate)].
+  - destruct (subset_dec trans_op_eq_dec s0 s).
+    + left. simpl. assumption.
+    + right. red. intros. apply n. simpl in H. assumption.
+  - destruct (subset_dec agg_op_eq_dec s0 s).
+    + left. simpl. assumption.
+    + right. red. intros. apply n. simpl in H. assumption.
+  - destruct n, n0, d, d0.
+    destruct (Nat.eq_dec n n1); destruct (Nat.eq_dec n0 n2); subst;
+    solve [(left; simpl; auto) | (unfold not in n3; right; red; intros; apply n3; inversion H; reflexivity)].
+Qed.
 
 Fixpoint policy_as_list (p: policy): list policy_label :=
   match p with
@@ -215,21 +257,6 @@ Definition policy_option_meet (lhs rhs: option policy_label): option policy_labe
     | None, _ => None
     | _, None => None
     | Some lhs', Some rhs' => Some (policy_meet lhs' rhs')
-  end.
-
-Definition policy_label_eq (lhs rhs: policy_label): Prop :=
-  match lhs, rhs with
-  | policy_top, policy_top => True
-  | policy_bot, policy_bot => True
-  | policy_select, policy_select => True
-  | policy_transform ℓ1, policy_transform ℓ2 => set_eq ℓ1 ℓ2
-  | policy_agg ℓ1, policy_agg ℓ2 => set_eq ℓ1 ℓ2
-  | policy_noise p1, policy_noise p2 =>
-      match p1, p2 with
-        | differential_privacy (ε1, δ1), differential_privacy (ε2, δ2) =>
-            ε1 = ε2 ∧ δ1 = δ2
-      end
-  | _, _ => False
   end.
 
 Definition policy_option_eq (lhs rhs: option policy_label): Prop :=
@@ -518,25 +545,6 @@ Ltac ordering_lt := try (apply OrderedType.LT; auto; simpl_ord).
 Ltac ordering_eq := try (apply OrderedType.EQ; auto; simpl_ord).
 Ltac ordering_gt := try (apply OrderedType.GT; auto; simpl_ord).
 
-Lemma policy_eq_dec: ∀ (lhs rhs: policy_label), {policy_label_eq lhs rhs} + {~ (policy_label_eq lhs rhs)}.
-Proof.
-  destruct lhs; destruct rhs; auto with *;
-  try destruct (set_eq_dec _ transop_dec s s0);
-  try destruct (set_eq_dec _ aggop_dec s s0).
-  - left. auto.
-  - right. auto.
-  - left. auto.
-  - right. auto.
-  - destruct n, n0, d, d0. auto with *.
-    destruct (nat_dec n n1). destruct (nat_dec n0 n2); try destruct s; try destruct s0; simpl; intuition.
-    + right. lia.
-    + right. lia.
-    + right. lia.
-    + right. lia.
-    + right. lia.
-    + simpl. right. lia.
-Defined.
-
 Lemma policy_eq_dec': ∀ (lhs rhs: policy_label), {lhs === rhs} + {lhs =/= rhs}.
 Proof.
   intros. destruct (policy_eq_dec lhs rhs).
@@ -589,7 +597,7 @@ Proof.
   - left. simpl_ord.
   - right. red. intros. inversion H. simpl in *. auto.
   - left. simpl_ord.
-  - destruct (set_eq_dec _ transop_dec s s0).
+  - destruct (set_eq_dec transop_dec s s0).
     + right. red. intros. inversion H. simpl in *. auto.
     + destruct (flowsto_dec _ policy_lattice policy_eq_dec' (policy_transform s) (policy_transform s0)).
       * left. simpl_ord.
@@ -600,7 +608,7 @@ Proof.
   - right. red. intros. inversion H. simpl in *. auto.
   - left. simpl_ord.
   - left. simpl_ord.
-  - destruct (set_eq_dec _ aggop_dec s s0).
+  - destruct (set_eq_dec aggop_dec s s0).
     + right. red. intros. inversion H. simpl in *. auto.
     + destruct (flowsto_dec _ policy_lattice policy_eq_dec' (policy_agg s) (policy_agg s0)).
       * left. simpl_ord.

@@ -445,4 +445,25 @@ Proof.
   - intros. subst. destruct t2; auto.
 Qed.
 
+Lemma trans_op_eq_dec: ∀ (op1 op2: trans_op),
+  {op1 = op2} + {op1 ≠ op2}.
+Proof.
+  destruct op1; destruct op2;
+  try (destruct u, u0); try (destruct b, b0);
+  try (destruct (Nat.eq_dec n n0));
+  try (destruct l, l0);
+  try (destruct c, c0);
+  try (destruct b, b0);
+  try solve [(left; simpl; subst; auto) | (right; red; simpl; intros; discriminate)].
+  right. unfold not in *. intros. apply n1.
+  inversion H. reflexivity.
+Qed.
+
+Lemma agg_op_eq_dec: ∀ (op1 op2: agg_op),
+  {op1 = op2} + {op1 ≠ op2}.
+Proof.
+  destruct op1; destruct op2;
+  solve [(left; simpl; subst; auto) | (right; red; simpl; intros; discriminate)].
+Qed.
+
 End Facts.

@@ -399,7 +399,24 @@ Definition subset_neq {A: Type} (s1 s2: set A) : Prop :=
   s1 ⊆ s2 ∧ ~(set_eq s1 s2).
 Notation "s1 '⊂' s2" := (subset_neq s1 s2) (at level 70).
 
-Lemma set_eq_dec: ∀ (A: Type) (dec: ∀ (a1 a2: A), {a1 = a2} + {a1 ≠ a2}) (ℓ ℓ': set A),
+Lemma subset_dec: ∀ {A: Type} (dec: ∀ (a1 a2: A), {a1 = a2} + {a1 ≠ a2}) (ℓ ℓ': set A),
+  {subset ℓ ℓ'} + {~(subset ℓ ℓ')}.
+Proof.
+  intros.
+  specialize Forall_dec with (A := A) (P := λ a, set_In a ℓ');
+  specialize Forall_dec with (A := A) (P := λ a, set_In a ℓ); intros.
+  specialize set_In_dec with (A := A) (x := ℓ);
+  specialize set_In_dec with (A := A) (x := ℓ'); intros.
+  intuition.
+  unfold subset, set_In in *.
+  destruct (X2 ℓ); destruct (X0 ℓ').
+  - left. intros. assert (∀ x, In x ℓ → In x ℓ') by (apply Forall_forall; assumption). intuition.
+  - left. intros. assert (∀ x, In x ℓ → In x ℓ') by (apply Forall_forall; assumption). intuition.
+  - right. intros. apply f. apply Forall_forall. intros. specialize H with x. intuition.
+  - right. intros. apply f. apply Forall_forall. intros. specialize H with x. intuition.
+Qed.
+
+Lemma set_eq_dec: ∀ {A: Type} (dec: ∀ (a1 a2: A), {a1 = a2} + {a1 ≠ a2}) (ℓ ℓ': set A),
   {set_eq ℓ ℓ'} + {~(set_eq ℓ ℓ')}.
 Proof.
   intros.

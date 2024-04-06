@@ -239,25 +239,6 @@ Inductive eval_unary_expression_list:
     eval_unary_expression_list bt f env l (Some (env'', ValuePrimitiveList bt (hd' :: tl')))
 .
 
-(*
-  Somehow more complicated case because we have to deal with
-  * Label = None => OK.
-  * Label = Some id ∧ policy not found.
-  * Label = Some id ∧ policy not valid.
-  * Label = Some id ∧ policy valid.
-
-  So, in all, there would be 16 cases in total. Simply iterating all possible cases
-  would be a nightmare, but we can merge some cases:
-  * policy_valid lhs ∧ policy_valid rhs
-    - (Label = None ∨ (Label = Some id ∧ policy valid)) ∧ (Label = None ∨ (Label = Some id ∧ policy valid))
-  * policy_invalid lhs ∨ policy_invalid rhs
-    - all the rest cases.
-
-  Although it seems feasible, when we are dealing with trace update, how can we ensure that id is
-  really meaningful? ...
-
-  TODO: We need a cleverer way to do this.
-*)
 Inductive eval_binary_expression_in_cell: ∀ bt,
   binary_func → (type_to_coq_type bt * option nat) → (type_to_coq_type bt * option nat) → eval_env →
     option (eval_env * e_value) → Prop :=
@@ -557,23 +538,36 @@ Inductive eval: nat → expression → bool → eval_env → option (eval_env * 
     - Scalar value + vector value -> This means we need to propagate to lists.
     - Not implemented yet??
    *)
-  | EvalBinary: ∀ step step' bt1 bt2 b e f e1 e2 env1 env2 env v1 v1' v2 v2' res tp β tr proxy,
+  | EvalBinary:
+      ∀ step step' bt1 bt2 b e f e1 e2
+        tp tp1 tp2 β β1 β2 tr tr1 tr2
+        env1 env2 env v1 v1' v2 v2' res proxy,
       step = S step' →
       e = ExprBinary f e1 e2 →
       b = false →
       eval step' e1 b (β, tr, tp, proxy) (Some (env1, v1)) →
       eval step' e2 b (β, tr, tp, proxy) (Some (env2, v2)) →
+      env1 = (β1, tr1, tp1, proxy) →
+      env2 = (β2, tr2, tp2, proxy) →
       (* Need to merge env1 and env2 *)
+      env  = (calculate_budget β1 β2, tr1 ⊍ tr2, tp, proxy) →
       v1 = ValuePrimitive bt1 v1' →
       v2 = ValuePrimitive bt2 v2' →
       eval_binary_expression_prim bt1 bt2 f env v1' v2' res →
       eval step e b (β, tr, tp, proxy) res
-  | EvalBinaryInAgg: ∀ step step' bt1 bt2 b e f e1 e2 env v1 v1' v2 v2' res tp β tr proxy,
+  | EvalBinaryInAgg:
+      ∀ step step' bt1 bt2 b e f e1 e2
+        tp tp1 tp2 β β1 β2 tr tr1 tr2
+        env1 env2 env v1 v1' v2 v2' res proxy,
       step = S step' →
       e = ExprBinary f e1 e2 →
       b = true →
-      eval step' e1 b (β, tr, tp, proxy) (Some (env, v1)) →
-      eval step' e2 b (β, tr, tp, proxy) (Some (env, v2)) →
+      eval step' e1 b (β, tr, tp, proxy) (Some (env1, v1)) →
+      eval step' e2 b (β, tr, tp, proxy) (Some (env2, v2)) →
+      env1 = (β1, tr1, tp1, proxy) →
+      env2 = (β2, tr2, tp2, proxy) →
+      (* Need to merge env1 and env2 *)
+      env  = (calculate_budget β1 β2, tr1 ⊍ tr2, tp, proxy) →
       v1 = ValuePrimitiveList bt1 v1' →
       v2 = ValuePrimitiveList bt2 v2' →
       eval_binary_expression_list bt1 bt2 f env v1' v2' res →

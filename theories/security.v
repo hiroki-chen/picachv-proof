@@ -352,6 +352,26 @@ Proof.
     destruct H12. assumption.
 Qed.
 
+Lemma eval_binary_ok:
+  ∀ bt1 bt2 e1 e2 f n β β1 β2 β'
+  tr tr1 tr2 tr' tp tp1 tp2 tp' gb gb1 gb2 gb' v1' v2' v,
+    eval n e1 false (β, tr, tp, gb) (Some (β1, tr1, tp1, gb1, ValuePrimitive bt1 v1')) →
+    eval n e2 false (β, tr, tp, gb) (Some (β2, tr2, tp2, gb2, ValuePrimitive bt2 v2')) →
+    eval_binary_expression_prim bt1 bt2 f (calculate_budget β1 β2, tr1 ⊍ tr2, tp, gb)
+      v1' v2' (Some (β', tr', tp', gb', v)) →
+    trace_ok tr'.
+Admitted.
+
+Lemma eval_binary_list_ok:
+  ∀ bt1 bt2 e1 e2 f n β β1 β2 β'
+  tr tr1 tr2 tr' tp tp1 tp2 tp' gb gb1 gb2 gb' v1' v2' v,
+    eval n e1 true (β, tr, tp, gb) (Some (β1, tr1, tp1, gb1, ValuePrimitiveList bt1 v1')) →
+    eval n e2 true (β, tr, tp, gb) (Some (β2, tr2, tp2, gb2, ValuePrimitiveList bt2 v2')) →
+    eval_binary_expression_list bt1 bt2 f
+      (calculate_budget β1 β2, tr1 ⊍ tr2, tp, gb) v1' v2' (Some (β', tr', tp', gb', v)) →
+    trace_ok tr'.
+Admitted.
+
 Lemma eval_ok: ∀ expr n in_agg β β' tr tr' tp tp' gb gb' v,
   trace_ok tr →
   eval n expr in_agg (β, tr, tp, gb) (Some ((β', tr', tp', gb', v))) →
@@ -368,8 +388,14 @@ Proof.
   - inversion H6. subst.
     destruct env as [ [ [  β'' tr'' ] tp'' ] gb'' ].
     eapply eval_unary_expression_list_ok with (tr := tr''); eauto.
-  - cheat. (* Let us do it later. *)
-  - cheat. (* Let us do it later. *)
+  - inversion H6. subst.
+    assert (trace_ok tr1) by (eapply IHexpr1 with (tr := tr) (tr' := tr1); eauto).
+    assert (trace_ok tr2) by (eapply IHexpr2 with (tr := tr) (tr' := tr2); eauto).
+    eapply eval_binary_ok with (v1' := v1') (v2' := v2'); eauto.
+  - inversion H6. subst.
+    assert (trace_ok tr1) by (eapply IHexpr1 with (tr := tr) (tr' := tr1); eauto).
+    assert (trace_ok tr2) by (eapply IHexpr2 with (tr := tr) (tr' := tr2); eauto).
+    eapply eval_binary_list_ok with (v1' := v1') (v2' := v2'); eauto.
   - eapply eval_agg_ok; eauto.
 Qed.
 
