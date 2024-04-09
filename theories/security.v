@@ -72,8 +72,7 @@ Inductive branch_ok: Policy.policy → list trace_ty → Prop :=
 (*
  * Checks against for each element, can it be released via the current label?
  *)
-Inductive
-valid_transition: prov_type → Policy.policy → trace_ty → Prop :=
+Inductive valid_transition: prov_type → Policy.policy → trace_ty → Prop :=
   (* tr: old (higher) *)
   (* lbl: new (lower) *)
   | ValidTransition: ∀ prov lbl lbl' tr,
@@ -85,8 +84,7 @@ valid_transition: prov_type → Policy.policy → trace_ty → Prop :=
 (*
  * Checks against the list element, can it be released via the current label?
  *)
-Inductive
-label_transition_valid_impl: prov_type → Policy.policy → list (trace_ty) → Prop :=
+Inductive label_transition_valid_impl: prov_type → Policy.policy → list (trace_ty) → Prop :=
   | LabelTransitionImplNil: ∀ prov lbl, label_transition_valid_impl prov lbl nil
   | LabelTransitionImplCons: ∀ prov lbl tr hd tl,
       tr = hd :: tl →
@@ -652,6 +650,13 @@ Qed.
  * enforced by an extra epilogue function. The proof for that function is not included here.
  *)
 Theorem secure_query:
+  (*
+   * This somehow somehow implicitly states that the query must *terminate* so that it results in
+   * either error or a valid configuration. If we only cares about the states associated by the
+   * inductively defined proposition then we should be fine but this is less desirable since there
+   * would be no guarantee that infinite evaluation would occur. Of course this has less to do with
+   * the security of the system.
+   *)
   ∀ db o, ⟦ db o ⟧ ⇓ ⟦ ConfigError ⟧ ∨
     (∃ s c r β tr,
       (* The output is valid. *)
