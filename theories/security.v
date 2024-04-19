@@ -360,6 +360,11 @@ Lemma eval_binary_ok:
     eval_binary_expression_prim bt1 bt2 f (calculate_budget β1 β2, tr1 ⊍ tr2, tp, gb)
       v1' v2' (Some (β', tr', tp', gb', v)) →
     trace_ok tr'.
+Proof.
+  intros. inversion H1; subst.
+  apply inj_pair2_eq_dec in H2, H3; try (apply basic_type_eq_dec). subst.
+  inversion H13; subst.
+  apply inj_pair2_eq_dec in H2, H4; try (apply basic_type_eq_dec). subst.
 Admitted.
 
 Lemma eval_binary_list_ok:
@@ -502,17 +507,7 @@ Lemma eval_predicate_in_relation_ok: ∀ s r β tr e r' β' tr',
   eval_predicate_in_relation s r β tr e (Some (r', β', tr')) →
   trace_ok tr'.
 Proof.
-  induction r; intros; inversion H0; subst; try discriminate; intuition
-  inversion H9; subst; destruct env as [ [ [ β'' tr'' ] tp'' ] gb'' ].
-  - inversion H4. subst. clear H4.
-    inversion H8. subst.
-    inversion H2. subst.
-    assert (trace_ok tr'0) by (eapply eval_ok; eauto).
-    eapply IHr with (tr := tr'0); eauto.
-  - inversion H4. subst. clear H4. 
-    inversion H2. subst. inversion H8. subst.
-    assert (trace_ok tr'0) by (eapply eval_ok; eauto).
-    eapply IHr with (tr := tr'0); eauto.
+  induction r; intros; inversion H0; subst; try discriminate; intuition.
 Qed.
 
 Lemma eval_groupby_having_ok: ∀ gb expr β tr gb' β' tr',
