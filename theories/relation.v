@@ -1,4 +1,5 @@
 Require Import Arith.
+Require Import Logic.Eqdep_dec Logic.EqdepFacts.
 Require Import Lia.
 Require Import List.
 Require Import RelationClasses.
@@ -728,18 +729,28 @@ Inductive join_policy_and_trace:
   | join_policy_and_trace_no_com: ∀ l1 l2 tr1 tr2 tr3,
       tr1 ⊍ tr2 = tr3 →
       join_policy_and_trace l1 l2 nil tr1 tr2 (Some tr3)
-  | join_policy_and_trace_cons_err: ∀ l1 l2 com tr1 tr2 hd1 hd2 tl1 tl2,
+  | join_policy_and_trace_lookup_err: ∀ l1 l2 com tr1 tr2 hd1 hd2 tl1 tl2,
       l1 = hd1 :: tl1 →
       l2 = hd2 :: tl2 →
       label_lookup tr1 hd1 = None ∨ label_lookup tr2 hd2 = None →
+      join_policy_and_trace l1 l2 com tr1 tr2 None
+  | join_policy_and_trace_cons_err:
+      ∀ l1 l2 com tr1 tr2
+        hd1 hd2 hd3 hd4 hd5
+        tl1 tl2 tl3 tl4 tl5,
+      l1 = hd1 :: tl1 →
+      l2 = hd2 :: tl2 →
+      com = hd3 :: tl3 →
+      tr1 = hd4 :: tl4 →
+      tr2 = hd5 :: tl5 →
+      join_policy_and_trace tl1 tl2 tl3 tl4 tl5 None →
       join_policy_and_trace l1 l2 com tr1 tr2 None
   | join_policy_and_trace_cons_ok:
       ∀ l1 l2 com tr1 tr2 tr
         hd1 hd2 hd3 hd4 hd5
         tl1 tl2 tl3 tl4 tl5
         p1 p2 pjoin
-        tr1' tr2'
-        ,
+        tr1' tr2',
       l1 = hd1 :: tl1 →
       l2 = hd2 :: tl2 →
       com = hd3 :: tl3 →
@@ -839,10 +850,46 @@ Inductive relation_join_by_prv: ∀ s1 s2 join_by,
       relation_join_by_prv s1 s2 join_by r1 r2 ε1 ε2 tr1 tr2 (Some (r_out, ε_out, tr_out))
 .
 
-Lemma relation_join_by_prv_helper_terminate: ∀ s1 s2 join_by t1 t2 ε1 ε2 p1 p2,
-  ∃ res, relation_join_by_prv_helper s1 s2 join_by t1 t2 ε1 ε2 p1 p2 res.
+Lemma join_policy_and_trace_terminate: ∀ l1 l2 com tr1 tr2, ∃ res,
+  join_policy_and_trace l1 l2 com tr1 tr2 res.
 Proof.
-Admitted.
+  induction l1; destruct l2; destruct com; intros.
+  1-7: exists (Some (tr1 ⊍ tr2)); constructor; auto.
+  all: remember a as hd1. remember n as hd2.
+    destruct (label_lookup tr1 hd1) eqn: Hhd1, (label_lookup tr2 hd2) eqn: Hhd2.
+    2-4: exists None; eapply join_policy_and_trace_lookup_err; eauto.
+    all: assert (tr1 ≠ nil ∧ tr2 ≠ nil) as Hpreq.
+    {
+      destruct tr1; destruct tr2; try discriminate.
+      split; discriminate. 
+    }
+    destruct Hpreq.
+    destruct tr1; destruct tr2; try discriminate.
+    destruct (IHl1 l2 com tr1 tr2).
+    destruct x as [tr|].
+    - pose (extract_policy t) as p1.
+      pose (extract_policy t0) as p2.
+      destruct (Policy.policy_join_terminate p1 p2) as [pjoin].
+      exists (Some ((n0, (TrBranch prov_join pjoin (t :: t0 :: nil))) :: tr)).
+      eapply join_policy_and_trace_cons_ok; eauto.
+    - exists None. eapply join_policy_and_trace_cons_err; eauto.
+Qed.
+
+Lemma relation_join_by_prv_helper_terminate: ∀ s1 s2 join_by t r ε1 ε2 p1 p2,
+  ∃ res, relation_join_by_prv_helper s1 s2 join_by t r ε1 ε2 p1 p2 res.
+Proof.
+  induction r; intros.
+  - subst. exists (Some (nil, calculate_budget ε1 ε2, (p1 ⊍ p2))). constructor; auto.
+  - rename t into t1. rename a into t2.
+    destruct (tuple_concat_by s1 s2 join_by t1 t2) as [ [t' [ [ index_lhs index_rhs ] comid ] ]|] eqn: H1.
+    + destruct (join_policy_and_trace_terminate index_lhs index_rhs comid p1 p2). destruct x as [tr_merged|] eqn: H2.
+      * destruct (IHr ε1 ε2 p1 p2). destruct x0 as [ [ [r_cons ε_cons] tr_cons] |].
+        -- exists (Some (t' :: r_cons, calculate_budget (calculate_budget ε1 ε2) ε_cons, (tr_merged ⊍ tr_cons))).
+           eapply E_JoinConsOk; intuition; try discriminate; eauto.
+        -- exists None. eapply E_JoinConsError3; intuition; try discriminate; eauto.
+      * exists None. eapply E_JoinConsError2; intuition; try discriminate; eauto.
+    + exists None. eapply E_JoinConsError1; intuition; try discriminate; eauto.
+Qed.
 
 Lemma relation_join_by_prv_terminate: ∀ s1 s2 join_by r1 r2 ε1 ε2 p1 p2, ∃ res,
   relation_join_by_prv s1 s2 join_by r1 r2 ε1 ε2 p1 p2 res.

@@ -58,7 +58,7 @@ def check(allow_admitted: bool, verbose: bool) -> None:
             exit(1)
 
     if not os.path.exists("Makefile"):
-        subprocess.run("coq_makefile", "-f", "_CoqProject", "-o", "Makefile")
+        subprocess.run(["coq_makefile", "-f", "_CoqProject", "-o", "Makefile"])
 
     res = subprocess.run("make", stderr=subprocess.PIPE, stdout=subprocess.PIPE)
 

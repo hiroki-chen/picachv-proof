@@ -46,46 +46,10 @@ Definition policy_base_label_eq (lhs rhs: policy_label): Prop :=
 Notation "x '≃' y" := (policy_base_label_eq x y) (at level 10, y at next level, no associativity).
 
 
-(* FIXME: Such a proof is ugly. Perhaps we need to write some neat ltac. *)
 Lemma policy_base_label_eq_dec: ∀ (lhs rhs: policy_label), {lhs ≃ rhs} + {~ (lhs ≃ rhs)}.
 Proof.
-  intros. destruct lhs; destruct rhs.
-  - left. red. auto.
-  - right. red. auto.
-  - right. red. auto.
-  - right. red. auto.
-  - right. red. auto.
-  - right. red. auto.
-  - right. red. auto.
-  - left. red. auto.
-  - right. red. auto.
-  - right. red. auto.
-  - right. red. auto.
-  - right. red. auto.
-  - right. red. auto.
-  - right. red. auto.
-  - left. red. auto.
-  - right. red. auto.
-  - right. red. auto.
-  - right. red. auto.
-  - right. red. auto.
-  - right. red. auto.
-  - right. red. auto.
-  - left. red. auto.
-  - right. red. auto.
-  - right. red. auto.
-  - right. red. auto.
-  - right. red. auto.
-  - right. red. auto.
-  - right. red. auto.
-  - left. red. auto.
-  - right. red. auto.
-  - right. red. auto.
-  - right. red. auto.
-  - right. red. auto.
-  - right. red. auto.
-  - right. red. auto.
-  - left. red. auto.
+  intros. destruct lhs; destruct rhs;
+  solve [left; red; auto | right; unfold not; intros; apply H; reflexivity].
 Qed.
 
 (*
@@ -155,12 +119,8 @@ Proof.
   - right. auto.
   - destruct n, n0, d, d0. auto with *.
     destruct (nat_dec n n1). destruct (nat_dec n0 n2); try destruct s; try destruct s0; simpl; intuition.
-    + right. lia.
-    + right. lia.
-    + right. lia.
-    + right. lia.
-    + right. lia.
-    + simpl. right. lia.
+    1-5: right; lia.
+    all:simpl; right; lia.
 Defined.
 
 Theorem can_declassify_dec: ∀ ℓ ℓop, {can_declassify ℓ ℓop} + {~ can_declassify ℓ ℓop}.
@@ -694,6 +654,13 @@ Proof.
       * assumption.
 Qed.
 
+Lemma max_policy_max: ∀ p1 p2 p3,
+  max_policy p1 p2 p3 → p1 ⪯ p3 ∧ p2 ⪯ p3.
+Proof.
+  intros. inversion H; subst; intuition.
+  all: apply preceq_refl; inversion H0; subst; intuition.
+Qed.
+
 Lemma preceq_trans: ∀ p1 p2 p3,
   p1 ⪯ p2 → p2 ⪯ p3 → p1 ⪯ p3.
 Proof.
@@ -728,14 +695,14 @@ Inductive policy_join: policy → policy → policy → Prop :=
   | policy_join_spec1: ∀ ℓ1 ℓ2 p1 p2 p3,
       valid_policy (ℓ1 ⇝ p1) →
       valid_policy (ℓ2 ⇝ p2) →
-      ℓ2 ⊑ ℓ1 → ¬ (ℓ2 ≃ ℓ1) →
-      p1 ∪ (ℓ2 ⇝ p2) = p3 → 
+      ℓ2 ⊑ ℓ1 → 
+      p1 ∪ (ℓ2 ⇝ p2) = p3 →
       (* ------------- *)
       (ℓ1 ⇝ p1) ∪ (ℓ2 ⇝ p2) = (ℓ1 ⇝ p3)
   | policy_join_spec2: ∀ ℓ1 ℓ2 p1 p2 p3,
       valid_policy (ℓ1 ⇝ p1) →
       valid_policy (ℓ2 ⇝ p2) →
-      ℓ1 ⊑ ℓ2 → ¬ (ℓ2 ≃ ℓ1) →
+      ℓ1 ⊑ ℓ2 →
       (ℓ1 ⇝ p1) ∪ p2 = p3 →
       (* ------------- *)
       (ℓ1 ⇝ p1) ∪ (ℓ2 ⇝ p2) = (ℓ2 ⇝ p3)
@@ -746,8 +713,8 @@ Lemma policy_join_valid: ∀ p1 p2 p3,
 Proof.
   intros p1 p2 p3. generalize dependent p2. generalize dependent p1.
   induction p3; intros; inversion H; subst; try constructor; auto.
-  - inversion H8; subst; try (econstructor; eauto). inversion H2. subst. assumption.
-  - inversion H8; subst; (econstructor; eauto). inversion H3. subst. assumption.
+  - inversion H7; subst; try (econstructor; eauto). inversion H2. subst. assumption.
+  - inversion H7; subst; (econstructor; eauto). inversion H3. subst. assumption.
 Qed.
 
 Lemma policy_join_stronger: ∀ p1 p2 p3,
@@ -764,24 +731,17 @@ Proof.
     apply valid_policy_implies in H0. assumption.
   - econstructor; eauto.
     assert (valid_policy p3) by (apply valid_policy_implies in H0; assumption).
-    apply IHpolicy_join in H5. destruct H5.
-    apply preceq_implies in H6. assumption.
+    apply IHpolicy_join in H4. destruct H4.
+    apply preceq_implies in H5. assumption.
   - econstructor; eauto.
     assert (valid_policy p3) by (apply valid_policy_implies in H0; assumption).
-    apply IHpolicy_join in H5. destruct H5.
-    apply preceq_implies in H5. assumption.
+    apply IHpolicy_join in H4. destruct H4.
+    apply preceq_implies in H4. assumption.
   - econstructor; eauto. reflexivity.
     apply IHpolicy_join. apply valid_policy_implies in H0. assumption.
 Qed.
 
-(* Does not even hold!!! *)
-(* Lemma policy_join_upper_bound: ∀ p1 p2 p3 p,
-  p1 ∪ p2 = p3 →
-  p1 ⪯ p ∧ p2 ⪯ p → p3 ⪯ p.
-Proof.
-  induction p1; induction p2; intros; intuition;
-  inversion H; subst; try assumption.
-Fail Qed. *)
+Axiom policy_join_terminate: ∀ p1 p2, ∃ p3, p1 ∪ p2 = p3.
 
 (*
   The `policy_ord_dec` lemma provides a decision procedure for the policy ordering.
