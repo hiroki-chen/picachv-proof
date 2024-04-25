@@ -292,13 +292,13 @@ Definition func_list: Set := list func%type.
 
 Inductive unary_func :=
   (* un_op is the "sort" signature of the function because function itself is opaque. *)
-  | UnaryFunc: un_op → ∀ ty, (type_to_coq_type ty → type_to_coq_type ty) → unary_func
+  | UnaryFunc: un_op → ∀ ty1 ty2, (type_to_coq_type ty1 → type_to_coq_type ty2) → unary_func
 .
 
 Inductive binary_func :=
   (* bin_op is the "sort" signature of the function because function itself is opaque. *)
-  | BinFunc: bin_op → ∀ ty,
-      (type_to_coq_type ty → type_to_coq_type ty → type_to_coq_type ty) → binary_func
+  | BinFunc: bin_op → ∀ ty1 ty2 ty3,
+      (type_to_coq_type ty1 → type_to_coq_type ty2 → type_to_coq_type ty3) → binary_func
 .
 
 Inductive agg_func :=

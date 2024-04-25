@@ -57,7 +57,7 @@ Fixpoint determine_bt_from_expr_helper (s: schema) (arg: expression) (env: ty_en
         match determine_bt_from_expr_helper s x env, determine_bt_from_expr_helper s y env with
           | Some τ1, Some τ2 =>
             match op with
-              | BinFunc op _ _ =>
+              | BinFunc op _ _ _ _ =>
                 match op with
                 | Arithmetic _ =>
                   if expr_type_eqb τ1 (ExprTypeBasic IntegerType) then
@@ -81,7 +81,7 @@ Fixpoint determine_bt_from_expr_helper (s: schema) (arg: expression) (env: ty_en
         match determine_bt_from_expr_helper s x env with
           | Some τ =>
             match op with
-              | UnaryFunc op ty _ =>
+              | UnaryFunc op _ ty _ =>
                 if expr_type_eqb τ (ExprTypeBasic ty) then
                   match op with
                   | Not =>
@@ -105,6 +105,7 @@ Fixpoint determine_bt_from_expr_helper (s: schema) (arg: expression) (env: ty_en
             end
           | _ => None
         end
+    | ExprUDF _ ret _ _ _ => Some (ExprTypeBasic ret)
     end.
 
 Definition determine_bt_from_expr (s: schema) (arg: expression): option basic_type :=
@@ -795,6 +796,23 @@ Inductive step_config: (database * operator) → config → Prop :=
           ⟦ db (OperatorGroupByHaving gb agg f o) ⟧ ⇓ ⟦ c' ⟧
 where "'⟦' c op '⟧' '⇓' '⟦' c' '⟧'" := (step_config (c, op) c').
 Hint Constructors step_config: core.
+
+Definition finalize (c: config): config :=
+  match c with
+  | ConfigError => c
+  | ConfigOut r β tr =>
+    let Γ := List.map (λ x, extract_policy (snd x)) tr in 
+    (fix finalize' Γ :=
+      match Γ with
+        | nil => c
+        | hd :: tl =>
+            match hd with
+              | ∎ | Policy.policy_bot ⇝ ∎ => finalize' tl
+              | _ => ConfigError
+            end
+      end
+    ) Γ
+  end.
 
 Section Facts.
 
