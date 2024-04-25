@@ -19,6 +19,28 @@ Fixpoint nary (arg_types: list basic_type) (ret: basic_type): Type :=
   | hd :: tl => type_to_coq_type hd → nary tl ret
   end.
 
+(*
+ * Apply one argument to the function and return the curried function.
+ * 
+ * Suppose you now have a n-ary function `f: a -> b -> c -> d -> e`. The curried
+ * function will be `f a_term: b -> c -> d -> e` and so on.
+ *
+ * An interesting thing with this is that we cannot use `arg_types = hd :: tl` to
+ * transport `nary args_types ret` directly into `type_to_coq_type hd -> nary tl ret`
+ * which makes the type checker hangs due to endless recursion.
+ *)
+Definition apply_one arg_types ret (f: nary arg_types ret):
+  ∀ hd tl, arg_types = hd :: tl → type_to_coq_type hd → nary tl ret.
+  refine (
+    match arg_types as arg_types' return arg_types = arg_types' → _ with
+    | nil => fun _ _ _ _ _ => _
+    | hd :: tl => fun _ _ _ _ _ => _
+    end eq_refl
+  ); inversion y1; subst.
+  simpl in *.
+  exact (f y2).
+Defined.
+
 Lemma tuple_single_eq: ∀ s ty, s = ty :: nil →
   Tuple.tuple (♭ s) = (prod (prod (type_to_coq_type (fst ty)) nat) unit).
 Proof.
@@ -76,6 +98,7 @@ Definition coerce_udf_to_unary
     + inversion y.
     + exact (Some (ExprUnary (UnaryFunc u hd ret f) e)).
   - exact None.
+  - exact None.
 Defined.
 
 Inductive e_value: Type :=
@@ -124,6 +147,25 @@ Definition try_get_new_trace (tr: trace) (id1 id2: option nat) op p :=
     | None, Some tr2' => TrBranch op p (tr2' :: nil)
     | None, None => TrBranch op p nil
     end.
+
+Definition concat (col: e_value) (rest: list udf_arg_list) :=
+  match col with
+  | ValuePrimitiveList bt l =>
+    if Nat.eqb (List.length l) (List.length rest) then
+      (fix f (l: list (type_to_coq_type bt * option nat)) (rest: list udf_arg_list) :=
+        match l, rest with
+        | nil, nil => Some nil
+        | hd :: tl, hd' :: tl' =>
+            match f tl tl' with
+            | Some tl'' => Some (UdfArgCons bt hd hd' :: tl'')
+            | None => None
+            end
+        (* Should never happen *)
+        | _, _ => None
+        end) l rest
+    else None
+  | _ => None
+  end.
 
 (*
   A GroupbyProxy can be visualized as a pair:
@@ -459,30 +501,109 @@ Inductive eval_agg: ∀ bt, agg_func → eval_env → list (type_to_coq_type bt 
       f = AggFunc op bt bt' f' init_val None →
       do_eval_agg bt bt' f tr l (Some (policy, trace, v)) →
       let new_id := next_available_id tr 0 in
-      let tr' := (new_id, TrBranch (prov_agg op) (∘ (Policy.policy_agg (op :: nil))) trace) :: tr in
-      let v' := (ValuePrimitive bt' (v, Some new_id)) in
-        eval_agg bt f env l (Some ((β, tr', tp, proxy), v'))
+        let tr' := (new_id, TrBranch (prov_agg op) (∘ (Policy.policy_agg (op :: nil))) trace) :: tr in
+          let v' := (ValuePrimitive bt' (v, Some new_id)) in
+            eval_agg bt f env l (Some ((β, tr', tp, proxy), v'))
   | EvalAggOkNoBudget: ∀ bt bt'  f op f' init_val noise env tp proxy β tr l v policy trace,
       env = (β, tr, tp, proxy) →
       f = AggFunc op bt bt' f' init_val (Some noise) →
       do_eval_agg bt bt' f tr l (Some (policy, trace, v)) →
       let new_id := next_available_id tr 0 in
-      apply_noise bt' v β noise new_id policy (TrBranch (prov_agg op) (∘ (Policy.policy_agg (op :: nil))) trace) tr None →
-      eval_agg bt f env l None
+        apply_noise bt' v β noise new_id policy (TrBranch (prov_agg op) (∘ (Policy.policy_agg (op :: nil))) trace) tr None →
+        eval_agg bt f env l None
   | EvalAggOkNoise: ∀ bt bt' f op f' init_val noise
                       env tp proxy β β' tr tr' l v v' policy trace res,
       env = (β, tr, tp, proxy) →
       f = AggFunc op bt bt' f' init_val (Some noise) →
       do_eval_agg bt bt' f tr l (Some (policy, trace, v)) →
       let new_id := next_available_id tr 0 in
-      apply_noise bt' v β noise new_id policy (TrBranch (prov_agg op) (∘ (Policy.policy_agg (op :: nil))) trace) tr res →
-      res = Some (v', β', tr') →
-      eval_agg bt f env l (Some ((β', tr', tp, proxy), ValuePrimitive _ (v', Some new_id)))
+        apply_noise bt' v β noise new_id policy (TrBranch (prov_agg op) (∘ (Policy.policy_agg (op :: nil))) trace) tr res →
+        res = Some (v', β', tr') →
+        eval_agg bt f env l (Some ((β', tr', tp, proxy), ValuePrimitive _ (v', Some new_id)))
 .
 
-Inductive eval_udf: ∀ arg_types ret, nary arg_types ret → eval_env → udf_arg_list →
-  option (eval_env * e_value) → Prop :=
+(*
+ * Note this does not return `e_value`.
+ *)
+Inductive do_eval_udf: ∀ arg_types ret, trans_op → nary arg_types ret → eval_env → udf_arg_list →
+  option (Policy.policy * list trace_ty * (type_to_coq_type ret)) → Prop :=
+  (* Nothing can be done anymore. *)
+  | DoEvalUdfNil: ∀ ret op f env arg_list,
+      do_eval_udf nil ret op f env arg_list (Some (∎, nil, f))
+  | DoEvalUdfConsErr: ∀ arg_types op hd tl ret f f' env arg_list,
+      arg_types = hd :: tl →
+      do_eval_udf tl ret op f' env arg_list None →
+      do_eval_udf arg_types ret op f env arg_list None
+  | DoEvalUdfHeadLabelNotFound: ∀ arg_types op hd tl ret f env β tr tp proxy arg_list arg_list' v id,
+      env = (β, tr, tp, proxy) →
+      arg_types = hd :: tl →
+      arg_list = UdfArgCons hd (v, Some id) arg_list' →
+      label_lookup tr id = None →
+      do_eval_udf arg_types ret op f env arg_list None
+  | DoEvalUdfPolicyErr:
+      ∀ arg_types op hd tl ret f f' env β tr tp proxy arg_list arg_list' v
+        id p_hd trace_hd (arg_case: arg_types = hd :: tl),
+      env = (β, tr, tp, proxy) →
+      arg_list = UdfArgCons hd (v, Some id) arg_list' →
+      (* A curry trick. *)
+      f' = (apply_one _ _ f hd tl arg_case) v →
+      label_lookup tr id = Some trace_hd →
+      extract_policy trace_hd = p_hd →
+      let p_f := Policy.policy_transform (op :: nil) in
+        ¬ (p_hd ⪯ (∘ p_f)) →
+        do_eval_udf tl ret op f' env arg_list' None
+  | DoEvalUdfOk:
+      ∀ arg_types op hd tl ret f f' env β tr tp proxy arg_list arg_list' v v_tl
+        id p_hd p_tl p_new trace_hd trace (arg_case: arg_types = hd :: tl),
+      env = (β, tr, tp, proxy) →
+      arg_list = UdfArgCons hd (v, Some id) arg_list' →
+      (* A curry trick. *)
+      f' = (apply_one _ _ f hd tl arg_case) v →
+      label_lookup tr id = Some trace_hd →
+      extract_policy trace_hd = p_hd →
+      do_eval_udf tl ret op f' env arg_list' (Some (p_tl, trace, v_tl)) →
+      p_hd ↑ p_tl = p_new →
+      let p_f := Policy.policy_transform (op :: nil) in
+        p_hd ⪯ (∘ p_f) →
+        do_eval_udf arg_types ret op f env arg_list (Some (p_new, trace, v_tl))
+.
 
+(*
+ * The checking logic is similar to `fold` that involves multiple arguments.
+ *)
+Inductive eval_udf: ∀ arg_types ret, trans_op → nary arg_types ret → eval_env → udf_arg_list →
+  option (eval_env * e_value) → Prop :=
+  | EvalUdfErr: ∀ arg_types ret op f env args,
+      do_eval_udf arg_types ret op f env args None →
+      eval_udf arg_types ret op f env args None
+  | EvalUdfOk: ∀ arg_types ret op f env β tr tp proxy args policy trace res,
+      env = (β, tr, tp, proxy) →
+      do_eval_udf arg_types ret op f env args (Some (policy, trace, res)) →
+      let new_id := next_available_id tr 0 in
+      (* Just keep it. *)
+       let tr' := (new_id, TrBranch (prov_udf op) policy trace) :: tr in
+          let v' := (ValuePrimitive ret (res, Some new_id)) in
+            eval_udf arg_types ret op f env args (Some ((β, tr', tp, proxy), ValuePrimitive ret (res, Some new_id)))
+.
+
+Inductive eval_udf_expression_list:
+  ∀ arg_types ret, trans_op → nary arg_types ret → eval_env → list udf_arg_list →
+    option (eval_env * e_value) → Prop :=
+  | EvalUdfExpressionListNil: ∀ arg_types ret op f env,
+      eval_udf_expression_list arg_types ret op f env nil (Some (env, ValuePrimitiveList ret nil))
+  | EvalUdfExpressionConsErr: ∀ arg_types ret op f env arg_list hd tl,
+      arg_list = hd :: tl →
+      eval_udf_expression_list arg_types ret op f env tl None →
+      eval_udf_expression_list arg_types ret op f env arg_list None
+  | EvalUdfExpressionHeadErr: ∀ arg_types ret op f env arg_list hd tl,
+      arg_list = hd :: tl →
+      eval_udf arg_types ret op f env hd None →
+      eval_udf_expression_list arg_types ret op f env arg_list None
+  | EvalUdfExpressionOk: ∀ arg_types ret op f env env' env'' arg_list hd tl v_hd v_tl,
+      arg_list = hd :: tl → 
+      eval_udf arg_types ret op f env hd (Some (env', ValuePrimitive ret v_hd)) →
+      eval_udf_expression_list arg_types ret op f env' tl (Some (env'', ValuePrimitiveList ret v_tl)) →
+      eval_udf_expression_list arg_types ret op f env arg_list (Some (env'', ValuePrimitiveList ret (v_hd :: v_tl)))
 .
 
 Lemma udf_single_helper: ∀ {A B: Type} (a: A) (b: B),
@@ -682,7 +803,16 @@ Inductive eval: nat → expression → bool → eval_env → option (eval_env * 
     List.length arg_types > 1 →
     eval_udf_expr step' args b (β, tr, tp, proxy) res →
     res = Some (env, arg_list) →
-    eval_udf arg_types ret f env arg_list res' →
+    eval_udf arg_types ret op f env arg_list res' →
+    eval step e b (β, tr, tp, proxy) res'
+  | EvalUdfAgg: ∀ step step' b e arg_types args ret op f tp β tr proxy env arg_list res res',
+    step = S step' →
+    e = ExprUDF arg_types ret op f args →
+    List.length arg_types > 1 →
+    b = true →
+    eval_udf_expr_list step' args b (β, tr, tp, proxy) res →
+    res = Some (env, arg_list) →
+    eval_udf_expression_list arg_types ret op f env arg_list res' →
     eval step e b (β, tr, tp, proxy) res'
 with
 (* Evaluate each sub-expression. *)
@@ -705,6 +835,28 @@ eval_udf_expr: nat → list expression → bool → eval_env → option (eval_en
       res = ValuePrimitive bt v →
       eval_udf_expr step' tl b env' (Some (env'', res')) →
       eval_udf_expr step e b env (Some (env'', UdfArgCons bt v res'))
+with
+(* Evaluate each sub-expression as value list. *)
+eval_udf_expr_list: nat → list expression → bool → eval_env → option (eval_env * list udf_arg_list) → Prop :=
+  | EvalUdfExprListNil: ∀ step b env, eval_udf_expr_list step nil b env (Some (env, nil))
+  | EvalUdfExprListConsErr: ∀ step step' b e hd tl env,
+      step = S step' →
+      e = hd :: tl →
+      eval_udf_expr_list step' tl b env None →
+      eval_udf_expr_list step e b env None
+  | EvalUdfExprListHeadErr: ∀ step step' b e hd tl env,
+      step = S step' →
+      e = hd :: tl →
+      eval step' hd b env None →
+      eval_udf_expr_list step tl b env None
+  | EvalUdfExprListOk: ∀ step step' b e hd tl env env' env'' res res' res'' bt v,
+      step = S step' →
+      e = hd :: tl →
+      eval step' hd b env (Some (env', res)) →
+      res = ValuePrimitiveList bt v →
+      eval_udf_expr_list step' tl b env' (Some (env'', res')) →
+      concat res res' = Some res'' →
+      eval_udf_expr_list step e b env (Some (env'', res''))
 .
 
 Inductive eval_expr:

@@ -36,7 +36,7 @@ Definition valid_prov (τ: prov_type) (p1 p2: Policy.policy): Prop :=
       | prov_trans_binary op => p2 ⪯ (∘ (Policy.policy_transform ((binary_trans_op op) :: nil)))
       | prov_agg op => p2 ⪯ (∘ (Policy.policy_agg (op :: nil)))
       | prov_noise op => p2 ⪯ (∘ (Policy.policy_noise op))
-      | prov_join => True
+      | _ => True
     end
 .
 
@@ -460,6 +460,8 @@ Proof.
     apply trace_ok_merge_ok; auto.
   - eapply eval_agg_ok; eauto.
   - cheat. (* do it later. *)
+  - cheat.
+  - cheat.
 Qed.
 
 Lemma eval_expr_in_relation_ok: ∀ s r ty r' β β' tr tr' expr,

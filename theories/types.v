@@ -90,6 +90,7 @@ Inductive bin_op: Type :=
 Inductive trans_op: Type :=
   | unary_trans_op: un_op → trans_op
   | binary_trans_op: bin_op → trans_op
+  | other_trans_op: trans_op
 .
 
 Inductive agg_op: Type := Max | Min | Sum | Avg | Count.
@@ -177,6 +178,14 @@ Definition agg_op_eqb op1 op2: bool :=
   | Sum, Sum => true
   | Avg, Avg => true
   | Count, Count => true
+  | _, _ => false
+  end.
+
+Definition trans_op_eqb op1 op2: bool :=
+  match op1, op2 with
+  | unary_trans_op op1, unary_trans_op op2 => un_op_eqb op1 op2
+  | binary_trans_op op1, binary_trans_op op2 => bin_op_eqb op1 op2
+  | other_trans_op, other_trans_op => true
   | _, _ => false
   end.
 
@@ -435,6 +444,19 @@ Proof.
   destruct op1, op2; simpl; split; intros; try discriminate; auto; destruct d; destruct d0.
   - apply andb_true_iff in H. destruct H. apply Nat.eqb_eq in H. apply Nat.eqb_eq in H0. auto. subst. auto.
   - apply andb_true_iff. split; apply Nat.eqb_eq; inversion H; auto.
+Qed.
+
+Lemma trans_op_eq_eqb: ∀ op1 op2, trans_op_eqb op1 op2 = true ↔ op1 = op2.
+Proof.
+  intros.
+  destruct op1, op2; simpl; split; intros; try discriminate; auto;
+  inversion H;
+  try solve [apply un_op_eq_eqb in H; subst; simpl; auto | apply bin_op_eq_eqb in H; subst; auto].
+  - destruct u0; simpl; auto. apply Nat.eqb_refl.
+  - destruct b0; simpl; auto.
+    + apply log_op_eq_eqb. auto.
+    + apply com_op_eq_eqb. auto.
+    + apply bin_arith_op_eq_eqb. auto.
 Qed.
 
 Lemma type_matches_eq: ∀ t1 t2, type_matches t1 t2 = true ↔ t1 = t2.
