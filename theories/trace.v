@@ -9,6 +9,8 @@ Inductive prov_type: Set :=
   | prov_trans_unary: un_op → prov_type
   | prov_trans_binary: bin_op → prov_type
   | prov_agg: agg_op → prov_type
+  (* Just re-use it; should be fine. *)
+  | prov_udf: trans_op → prov_type
   | prov_noise: noise_op → prov_type
   | prov_join: prov_type
 .
@@ -20,6 +22,7 @@ Definition prov_type_eqb τ1 τ2: bool :=
   | prov_agg op1, prov_agg op2 => agg_op_eqb op1 op2
   | prov_noise op1, prov_noise op2 => noise_op_eqb op1 op2
   | prov_join, prov_join => true
+  | prov_udf op1, prov_udf op2 => trans_op_eqb op1 op2
   | _, _ => false
   end.
 
