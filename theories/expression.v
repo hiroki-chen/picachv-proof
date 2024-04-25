@@ -13,6 +13,12 @@ Require Import trace.
 Require Import types.
 Require Import util.
 
+Fixpoint nary (arg_types: list basic_type) (ret: basic_type): Type :=
+  match arg_types with
+  | nil => type_to_coq_type ret
+  | hd :: tl => type_to_coq_type hd → nary tl ret
+  end.
+
 Lemma tuple_single_eq: ∀ s ty, s = ty :: nil →
   Tuple.tuple (♭ s) = (prod (prod (type_to_coq_type (fst ty)) nat) unit).
 Proof.
@@ -46,7 +52,31 @@ Inductive expression: Type :=
   | ExprBinary: binary_func → expression → expression → expression
   (* fold *)
   | ExprAgg: agg_func → expression → expression
+  (* UDFs: trans_op × f *)
+  | ExprUDF: ∀ args ret, trans_op → nary args ret → list expression → expression
 .
+
+Inductive udf_arg_list: Type :=
+  | UdfArgNil: udf_arg_list
+  | UdfArgCons: ∀ bt, (type_to_coq_type bt * option nat) → udf_arg_list → udf_arg_list
+.
+
+Definition coerce_udf_to_unary
+  arg_types (args: list expression) ret (op: trans_op) (f: nary arg_types ret)
+: List.length args = List.length arg_types → List.length args = 1 → option expression.
+  refine (
+    match arg_types as arg_types' return arg_types = arg_types' → _ with
+    | nil => fun _ _ _ => False_rect _  _
+    | hd :: nil => fun _ _ _ => _
+    | _ => fun _ _ _ => False_rect _ _
+    end eq_refl ); try rewrite y in y0; try discriminate.
+  subst. simpl in *.
+  destruct op.
+  - destruct args.
+    + inversion y.
+    + exact (Some (ExprUnary (UnaryFunc u hd ret f) e)).
+  - exact None.
+Defined.
 
 Inductive e_value: Type :=
   (*
@@ -164,32 +194,32 @@ Inductive eval_unary_expression_in_cell: ∀ bt,
   | E_UnaryLabelNotFound: ∀ bt f (arg: type_to_coq_type bt) id tp proxy β tr,
       label_lookup tr id = None →
       eval_unary_expression_in_cell bt f (arg, id) (β, tr, tp, proxy) None
-  | E_UnaryTypeError: ∀ bt bt' f op lambda (arg: type_to_coq_type bt) id ee tr proxy,
-      f = UnaryFunc op bt' lambda →
-      bt ≠ bt' →
+  | E_UnaryTypeError: ∀ bt bt1 bt2 f op lambda (arg: type_to_coq_type bt) id ee tr proxy,
+      f = UnaryFunc op bt1 bt2 lambda →
+      bt ≠ bt1 →
       eval_unary_expression_in_cell bt f (arg, id) (ee, tr, proxy) None
-  | E_UnaryPolicyError: ∀ bt bt' f op lambda
+  | E_UnaryPolicyError: ∀ bt bt1 bt2 f op lambda
                          (arg: type_to_coq_type bt) id
                          tp tr_cur proxy β tr p_cur,
       label_lookup tr id = Some tr_cur →
       extract_policy tr_cur = p_cur →
-      f = UnaryFunc op bt' lambda →
-      bt = bt' → 
+      f = UnaryFunc op bt1 bt2 lambda →
+      bt = bt1 → 
       let p_f := ∘ (Policy.policy_transform ((unary_trans_op op) :: nil)) in
         ¬ (p_cur ⪯ p_f) →
         eval_unary_expression_in_cell bt f (arg, id) (β, tr, tp, proxy) None
-  | E_UnaryPolicyOk: ∀ bt bt' f op lambda (arg: type_to_coq_type bt) id tp proxy
+  | E_UnaryPolicyOk: ∀ bt bt1 bt2 f op lambda (arg: type_to_coq_type bt) id tp proxy
                        β β' tr tr' p_cur tr_cur,
       label_lookup tr id = Some tr_cur →
       extract_policy tr_cur = p_cur →
-      f = UnaryFunc op bt' lambda →
-      ∀ (eq: bt = bt'), let p_f := (Policy.policy_transform ((unary_trans_op op) :: nil)) in
+      f = UnaryFunc op bt1 bt2 lambda →
+      ∀ (eq: bt = bt1), let p_f := (Policy.policy_transform ((unary_trans_op op) :: nil)) in
         p_cur ⪯ (∘ p_f) →
           let p_new := get_new_policy p_cur p_f in
             let tr_new := TrLinear (prov_trans_unary op) p_new tr_cur in
               tr' = update_label tr id tr_new →
               eval_unary_expression_in_cell bt f (arg, id) (β, tr', tp, proxy)
-                (Some ((β', tr', tp, proxy), ValuePrimitive bt' (lambda (eq ♯ arg), Some id)))
+                (Some ((β', tr', tp, proxy), ValuePrimitive bt2 (lambda (eq ♯ arg), Some id)))
 .
 
 (*
@@ -200,18 +230,18 @@ Inductive eval_unary_expression_in_cell: ∀ bt,
 Inductive eval_unary_expression_prim:
   ∀ bt, unary_func → eval_env → (type_to_coq_type bt * option nat) →
     option (eval_env * e_value) → Prop :=
-  | EvalUnaryValueTypeMismatch: ∀ f op env bt bt' v v' id lambda,
+  | EvalUnaryValueTypeMismatch: ∀ f op env bt bt1 bt2 v v' id lambda,
     v = (v', id) →
-    f = UnaryFunc op bt' lambda →
+    f = UnaryFunc op bt1 bt2 lambda →
     (* We cannot cast it. *)
-    try_cast bt bt' v' = None →
+    try_cast bt bt1 v' = None →
     eval_unary_expression_prim bt f env v None
   (* If a value does not carry any id, then it is just a value without any policy. *)
-  | EvalUnaryValue: ∀ f op env bt bt' v v' v'' lambda,
+  | EvalUnaryValue: ∀ f op env bt bt1 bt2 v v' v'' lambda,
     v = (v', None) →
-    f = UnaryFunc op bt' lambda →
-    try_cast bt bt' v' = Some v'' →
-    eval_unary_expression_prim bt f env v (Some (env, ValuePrimitive bt' (lambda v'', None)))
+    f = UnaryFunc op bt1 bt2 lambda →
+    try_cast bt bt1 v' = Some v'' →
+    eval_unary_expression_prim bt f env v (Some (env, ValuePrimitive bt2 (lambda v'', None)))
   | EvalUnaryValueWithId: ∀ f env bt v v' id res,
     v = (v', Some id) →
     eval_unary_expression_in_cell bt f (v', id) env res →
@@ -239,35 +269,36 @@ Inductive eval_unary_expression_list:
     eval_unary_expression_list bt f env l (Some (env'', ValuePrimitiveList bt (hd' :: tl')))
 .
 
-Inductive eval_binary_expression_in_cell: ∀ bt,
-  binary_func → (type_to_coq_type bt * option nat) → (type_to_coq_type bt * option nat) → eval_env →
+Inductive eval_binary_expression_in_cell: ∀ bt1 bt2,
+  binary_func → (type_to_coq_type bt1 * option nat) → (type_to_coq_type bt2 * option nat) → eval_env →
     option (eval_env * e_value) → Prop :=
-  | E_BinaryLabelNotFound: ∀ bt f v1 v2 id1 id1' id2 id2' tp proxy β tr,
+  | E_BinaryLabelNotFound: ∀ bt1 bt2 f v1 v2 id1 id1' id2 id2' tp proxy β tr,
       (id1 = Some id1' ∧ label_lookup tr id1' = None) ∨
       (id2 = Some id2' ∧ label_lookup tr id2' = None) →
-      eval_binary_expression_in_cell bt f (v1, id1) (v2, id2)  (β, tr, tp, proxy) None
-  | E_BinaryTypeError: ∀ bt bt' f op lambda arg1 arg2 ee tr proxy,
-      f = BinFunc op bt' lambda →
-      bt ≠ bt' →
-      eval_binary_expression_in_cell bt f arg1 arg2 (ee, tr, proxy) None
+      eval_binary_expression_in_cell bt1 bt2 f (v1, id1) (v2, id2)  (β, tr, tp, proxy) None
+  | E_BinaryTypeError: ∀ bt1 bt2 bt1' bt2' bt f op lambda arg1 arg2 ee tr proxy,
+      f = BinFunc op bt1' bt2' bt lambda →
+      bt1 ≠ bt1' ∨ bt2 ≠ bt2' →
+      eval_binary_expression_in_cell bt1 bt2 f arg1 arg2 (ee, tr, proxy) None
   | E_BinaryPolicyError:
-      ∀ bt bt' f op lambda
+      ∀ bt1 bt2 bt1' bt2' bt f op lambda
         arg1 arg2 id1 id2 id1' id2'
         tp proxy β tr
         p_cur1 p_cur2,
-      f = BinFunc op bt' lambda →
+      f = BinFunc op bt1' bt2' bt lambda →
       let p_f := Policy.policy_transform ((binary_trans_op op) :: nil) in
         p_cur1 = try_get_policy tr id1' →
         p_cur2 = try_get_policy tr id2' →
         ¬ (p_cur1 ⪯ (∘ p_f)) ∨ ¬ (p_cur2 ⪯ (∘ p_f)) →
-        eval_binary_expression_in_cell bt f (arg1, id1) (arg2, id2) (β, tr, tp, proxy) None
-| E_BinaryPolicyOk:
-      ∀ bt bt' f op lambda
+        eval_binary_expression_in_cell bt1 bt2 f (arg1, id1) (arg2, id2) (β, tr, tp, proxy) None
+   | E_BinaryPolicyOk:
+      ∀ bt1 bt2 bt1' bt2' bt f op lambda
         arg1 arg2 id1 id2 id1' id2'
         tp proxy β tr
         p_cur1 p_cur2 p_new
-        (eq: bt = bt'),
-      f = BinFunc op bt' lambda →
+        (eq1: bt1 = bt1')
+        (eq2: bt2 = bt2'),
+      f = BinFunc op bt1' bt2' bt lambda →
       let p_f := Policy.policy_transform ((binary_trans_op op) :: nil) in
       let new_id := next_available_id tr 0 in
       let tr_new := try_get_new_trace tr id1' id2' (prov_trans_binary op) p_new in
@@ -275,29 +306,29 @@ Inductive eval_binary_expression_in_cell: ∀ bt,
         p_cur1 = try_get_policy tr id1' →
         p_cur2 = try_get_policy tr id2' →
         p_cur1 ⪯ (∘ p_f) ∧ p_cur2 ⪯ (∘ p_f) →
-        eval_binary_expression_in_cell bt f (arg1, id1) (arg2, id2) (β, tr, tp, proxy)
+        eval_binary_expression_in_cell bt1 bt2 f (arg1, id1) (arg2, id2) (β, tr, tp, proxy)
           (Some ((β, ((new_id, tr_new) :: tr), tp, proxy),
-            ValuePrimitive bt' (lambda (eq ♯ arg1) (eq ♯ arg2), Some new_id)))
+            ValuePrimitive bt (lambda (eq1 ♯ arg1) (eq2 ♯ arg2), Some new_id)))
 .
 
 (* For binary expressions we just need to check if the operands satisfy their own policies. *)
 Inductive eval_binary_expression_prim:
   ∀ bt1 bt2, binary_func → eval_env → (type_to_coq_type bt1 * option nat) → (type_to_coq_type bt2 * option nat) →
   option (eval_env * e_value) → Prop :=
-  | EvalBinaryValueTypeMismatch: ∀ f op env bt1 bt2 bt lambda v1 v2 v1' v2' id1 id2,
+  | EvalBinaryValueTypeMismatch: ∀ f op env bt1 bt2 bt1' bt2' bt lambda v1 v2 v1' v2' id1 id2,
     v1 = (v1', id1) →
     v2 = (v2', id2) →
-    f = BinFunc op bt lambda →
+    f = BinFunc op bt1' bt2' bt lambda →
     (* We cannot cast it. *)
-    try_cast bt1 bt v1' = None ∨ try_cast bt2 bt v2' = None →
+    try_cast bt1 bt1' v1' = None ∨ try_cast bt2 bt2' v2' = None →
     eval_binary_expression_prim bt1 bt2 f env v1 v2 None
-  | EvalBinaryValueOk: ∀ f op env bt1 bt2 bt lambda v1 v2 v1' v2' v1'' v2'' id1 id2 res,
+  | EvalBinaryValueOk: ∀ f op env bt1 bt2 bt1' bt2' bt lambda v1 v2 v1' v2' v1'' v2'' id1 id2 res,
     v1 = (v1', id1) →
     v2 = (v2', id2) →
-    f = BinFunc op bt lambda →
-    try_cast bt1 bt v1' = Some v1'' →
-    try_cast bt2 bt v2' = Some v2'' →
-    eval_binary_expression_in_cell bt f (v1'', id1) (v2'', id2) env res →
+    f = BinFunc op bt1' bt2' bt lambda →
+    try_cast bt1 bt1' v1' = Some v1'' →
+    try_cast bt2 bt2' v2' = Some v2'' →
+    eval_binary_expression_in_cell bt1' bt2' f (v1'', id1) (v2'', id2) env res →
     eval_binary_expression_prim bt1 bt2 f env v1 v2 res
 .
 
@@ -448,6 +479,15 @@ Inductive eval_agg: ∀ bt, agg_func → eval_env → list (type_to_coq_type bt 
       res = Some (v', β', tr') →
       eval_agg bt f env l (Some ((β', tr', tp, proxy), ValuePrimitive _ (v', Some new_id)))
 .
+
+Inductive eval_udf: ∀ arg_types ret, nary arg_types ret → eval_env → udf_arg_list →
+  option (eval_env * e_value) → Prop :=
+
+.
+
+Lemma udf_single_helper: ∀ {A B: Type} (a: A) (b: B),
+  List.length (a :: nil) = List.length (b :: nil) ∧ List.length (a :: nil) = 1.
+Proof. auto. Qed.
 
 (*
   Eval : (ℕ × Expr × 𝔹 × Γ) × Maybe (Γ' × Val) 
@@ -609,6 +649,62 @@ Inductive eval: nat → expression → bool → eval_env → option (eval_env * 
       snd v = ValuePrimitiveList bt l →
       eval_agg bt agg (β, tr, tp, proxy) l res →
       eval step e b (β, tr, tp, proxy) res
+  | EvalUdfArgLengthMismatch: ∀ step b e arg_types args ret op f tp β tr proxy,
+      e = ExprUDF arg_types ret op f args →
+      List.length arg_types ≠ List.length args →
+      eval step e b (β, tr, tp, proxy) None
+  (* Evaluate not in an aggregate context. *)
+  | EvalUdfNoArg: ∀ step step' b e args ret op f tp β tr proxy,
+      step = S step' →
+      e = ExprUDF nil ret op f args →
+      b = false →
+      eval step e b (β, tr, tp, proxy) (Some ((β, tr, tp, proxy), ValuePrimitive _ (f, None)))
+  | EvalUdfNoArgAgg: ∀ step step' b e args ret op f tp β tr proxy s s_key r gb_keys gb_indices,
+      step = S step' →
+      e = ExprUDF nil ret op f args →
+      b = true →
+      proxy = Some (GroupbyProxy s s_key r gb_keys gb_indices) →
+      let v := list_of_length_n (List.length gb_indices) (f, None) in
+        eval step e b (β, tr, tp, proxy) (Some ((β, tr, tp, proxy), (ValuePrimitiveList _ v)))
+  (* Cast to the unary expression. *)
+  | EvalUdfSingleArg: ∀ step step' b e e' arg_type arg ret op f tp β tr proxy res,
+      step = S step' →
+      e = ExprUDF (arg_type :: nil) ret op f (arg :: nil) →
+      let thm := udf_single_helper arg_type arg in
+        coerce_udf_to_unary (arg_type :: nil) (arg :: nil) ret op f (proj1 thm) (proj2 thm) =
+        Some e' →
+        eval step e' b (β, tr, tp, proxy) res →
+        eval step e b (β, tr, tp, proxy) res
+  (* The rest case. *)
+  | EvalUdf: ∀ step step' b e arg_types args ret op f tp β tr proxy env arg_list res res',
+    step = S step' →
+    e = ExprUDF arg_types ret op f args →
+    List.length arg_types > 1 →
+    eval_udf_expr step' args b (β, tr, tp, proxy) res →
+    res = Some (env, arg_list) →
+    eval_udf arg_types ret f env arg_list res' →
+    eval step e b (β, tr, tp, proxy) res'
+with
+(* Evaluate each sub-expression. *)
+eval_udf_expr: nat → list expression → bool → eval_env → option (eval_env * udf_arg_list) → Prop :=
+  | EvalUdfExprNil: ∀ step b env, eval_udf_expr step nil b env (Some (env, UdfArgNil))
+  | EvalUdfExprConsErr: ∀ step step' b e hd tl env,
+      step = S step' →
+      e = hd :: tl →
+      eval_udf_expr step' tl b env None →
+      eval_udf_expr step e b env None
+  | EvalUdfExprHeadErr: ∀ step step' b e hd tl env,
+      step = S step' →
+      e = hd :: tl →
+      eval step' hd b env None →
+      eval_udf_expr step tl b env None
+  | EvalUdfExprOk: ∀ step step' b e hd tl env env' env'' res res' bt v,
+      step = S step' →
+      e = hd :: tl →
+      eval step' hd b env (Some (env', res)) →
+      res = ValuePrimitive bt v →
+      eval_udf_expr step' tl b env' (Some (env'', res')) →
+      eval_udf_expr step e b env (Some (env'', UdfArgCons bt v res'))
 .
 
 Inductive eval_expr:

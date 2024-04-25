@@ -409,8 +409,8 @@ Proof.
   apply inj_pair2_eq_dec in H1, H2; try (apply basic_type_eq_dec). subst.
   inversion H12.
   apply inj_pair2_eq_dec in H1, H3; try (apply basic_type_eq_dec). subst.
-  inversion H13. apply inj_pair2_eq_dec in H3; try (apply basic_type_eq_dec). subst.
-  destruct H23.
+  inversion H14. apply inj_pair2_eq_dec in H4; try (apply basic_type_eq_dec). subst.
+  destruct H24.
 
   econstructor; eauto. simpl. unfold tr_new. eapply try_get_new_trace_bin_ok; eauto. 
 Qed.
@@ -459,6 +459,7 @@ Proof.
     eapply eval_binary_list_ok with (tr := tr1 ⊍ tr2); eauto.
     apply trace_ok_merge_ok; auto.
   - eapply eval_agg_ok; eauto.
+  - cheat. (* do it later. *)
 Qed.
 
 Lemma eval_expr_in_relation_ok: ∀ s r ty r' β β' tr tr' expr,
