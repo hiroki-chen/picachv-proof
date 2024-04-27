@@ -132,6 +132,18 @@ Definition try_get_policy (tr: trace) (id: option nat) :=
   | None => ∎
   end.
 
+Lemma try_get_policy_nonempty_implies: ∀ tr id,
+  try_get_policy tr id ≠ ∎ →
+  ∃ id', id = Some id' ∧ label_lookup tr id' ≠ None.
+Proof.
+  destruct id; intros.
+  - exists n. simpl in H.
+    destruct (label_lookup tr n) eqn: Heq.
+    + intuition. discriminate.
+    + red in H. exfalso. apply H. reflexivity.
+  - simpl in H. red in H. exfalso. apply H. reflexivity.
+Qed.
+
 Definition try_get_new_trace (tr: trace) (id1 id2: option nat) op p :=
   let tr1 := match id1 with
              | Some id1' => label_lookup tr id1'
@@ -142,10 +154,10 @@ Definition try_get_new_trace (tr: trace) (id1 id2: option nat) op p :=
              | None => None
              end in
     match tr1, tr2 with
-    | Some tr1', Some tr2' => TrBranch op p (tr1' :: tr2' :: nil)
-    | Some tr1', None => TrBranch op p (tr1' :: nil)
-    | None, Some tr2' => TrBranch op p (tr2' :: nil)
-    | None, None => TrBranch op p nil
+    | Some tr1', Some tr2' => TrBinary op p tr1' tr2'
+    | Some tr1', None => TrBinary op p tr1' (TrEmpty ∎)
+    | None, Some tr2' => TrBinary op p (TrEmpty ∎) tr2'
+    | None, None => TrBinary op p (TrEmpty ∎) (TrEmpty ∎)
     end.
 
 Definition concat (col: e_value) (rest: list udf_arg_list) :=
@@ -221,13 +233,19 @@ Fixpoint index (x: string) (env: list string): nat :=
     In other words, ℓ ⇝ p ⪯ ∘ (op) ==> p_new = p.
 *)
 Definition get_new_policy cur op: Policy.policy :=
-  match cur with
-  | ∎ => cur
-  | ℓ ⇝ p =>
-    match Policy.can_declassify_dec ℓ op with
-    | left _ => p
-    | right _ => cur
+  let new_p :=
+    match cur with
+    | ∎ => cur
+    | ℓ ⇝ p =>
+      match Policy.can_declassify_dec ℓ op with
+      | left _ => p
+      | right _ => cur
+      end
     end
+  in
+  match new_p with
+  | (∘ Policy.policy_bot) => ∎
+  | _ => new_p
   end.
 
 Inductive eval_unary_expression_in_cell: ∀ bt,
@@ -247,7 +265,7 @@ Inductive eval_unary_expression_in_cell: ∀ bt,
       extract_policy tr_cur = p_cur →
       f = UnaryFunc op bt1 bt2 lambda →
       bt = bt1 → 
-      let p_f := ∘ (Policy.policy_transform ((unary_trans_op op) :: nil)) in
+      let p_f := ∘ (Policy.policy_transform ((UnaryTransOp op) :: nil)) in
         ¬ (p_cur ⪯ p_f) →
         eval_unary_expression_in_cell bt f (arg, id) (β, tr, tp, proxy) None
   | E_UnaryPolicyOk: ∀ bt bt1 bt2 f op lambda (arg: type_to_coq_type bt) id tp proxy
@@ -255,7 +273,7 @@ Inductive eval_unary_expression_in_cell: ∀ bt,
       label_lookup tr id = Some tr_cur →
       extract_policy tr_cur = p_cur →
       f = UnaryFunc op bt1 bt2 lambda →
-      ∀ (eq: bt = bt1), let p_f := (Policy.policy_transform ((unary_trans_op op) :: nil)) in
+      ∀ (eq: bt = bt1), let p_f := (Policy.policy_transform ((UnaryTransOp op) :: nil)) in
         p_cur ⪯ (∘ p_f) →
           let p_new := get_new_policy p_cur p_f in
             let tr_new := TrLinear (prov_trans_unary op) p_new tr_cur in
@@ -322,32 +340,59 @@ Inductive eval_binary_expression_in_cell: ∀ bt1 bt2,
       f = BinFunc op bt1' bt2' bt lambda →
       bt1 ≠ bt1' ∨ bt2 ≠ bt2' →
       eval_binary_expression_in_cell bt1 bt2 f arg1 arg2 (ee, tr, proxy) None
-  | E_BinaryPolicyError:
+  (* If two arguments all carry a policy we return the result with high-confidential label. *)
+  | E_BinaryPolicyDefault:
       ∀ bt1 bt2 bt1' bt2' bt f op lambda
         arg1 arg2 id1 id2 id1' id2'
         tp proxy β tr
-        p_cur1 p_cur2,
-      f = BinFunc op bt1' bt2' bt lambda →
-      let p_f := Policy.policy_transform ((binary_trans_op op) :: nil) in
-        p_cur1 = try_get_policy tr id1' →
-        p_cur2 = try_get_policy tr id2' →
-        ¬ (p_cur1 ⪯ (∘ p_f)) ∨ ¬ (p_cur2 ⪯ (∘ p_f)) →
-        eval_binary_expression_in_cell bt1 bt2 f (arg1, id1) (arg2, id2) (β, tr, tp, proxy) None
-   | E_BinaryPolicyOk:
-      ∀ bt1 bt2 bt1' bt2' bt f op lambda
-        arg1 arg2 id1 id2 id1' id2'
-        tp proxy β tr
-        p_cur1 p_cur2 p_new
+        p_cur1 p_cur2
         (eq1: bt1 = bt1')
         (eq2: bt2 = bt2'),
       f = BinFunc op bt1' bt2' bt lambda →
-      let p_f := Policy.policy_transform ((binary_trans_op op) :: nil) in
       let new_id := next_available_id tr 0 in
-      let tr_new := try_get_new_trace tr id1' id2' (prov_trans_binary op) p_new in
-        p_cur1 ↑ p_cur2 = p_new →
+      let p_new := ∘ (Policy.policy_top) in
+      let tr_new := try_get_new_trace tr id1' id2' (prov_trans_binary bt2 op arg2) p_new in
         p_cur1 = try_get_policy tr id1' →
         p_cur2 = try_get_policy tr id2' →
-        p_cur1 ⪯ (∘ p_f) ∧ p_cur2 ⪯ (∘ p_f) →
+        p_cur1 ≠ ∎ ∧ p_cur2 ≠ ∎ →
+        eval_binary_expression_in_cell bt1 bt2 f (arg1, id1) (arg2, id2) (β, tr, tp, proxy)
+          (Some ((β, ((new_id, tr_new) :: tr), tp, proxy),
+            ValuePrimitive bt (lambda (eq1 ♯ arg1) (eq2 ♯ arg2), Some new_id)))
+  (* When rhs = ⊥ *)
+  | E_BinaryPolicyRhsOk:
+      ∀ bt1 bt2 bt1' bt2' bt f op lambda
+        arg1 arg2 id1 id2 id1' id2'
+        tp proxy β tr
+        p_cur1 p_new
+        (eq1: bt1 = bt1')
+        (eq2: bt2 = bt2'),
+      f = BinFunc op bt1' bt2' bt lambda →
+      let p_f := Policy.policy_transform ((BinaryTransOp bt2 op arg2) :: nil) in
+      let new_id := next_available_id tr 0 in
+      let tr_new := try_get_new_trace tr id1' id2' (prov_trans_binary bt2 op arg2) p_new in
+        p_cur1 = try_get_policy tr id1' →
+        ∎ = try_get_policy tr id2' →
+        p_cur1 ⪯ (∘ p_f) →
+        p_new = get_new_policy p_cur1 p_f →
+        eval_binary_expression_in_cell bt1 bt2 f (arg1, id1) (arg2, id2) (β, tr, tp, proxy)
+          (Some ((β, ((new_id, tr_new) :: tr), tp, proxy),
+            ValuePrimitive bt (lambda (eq1 ♯ arg1) (eq2 ♯ arg2), Some new_id)))
+  (* When lhs = ⊥ *)
+  | E_BinaryPolicyLhsOk:
+      ∀ bt1 bt2 bt1' bt2' bt f op lambda
+        arg1 arg2 id1 id2 id1' id2'
+        tp proxy β tr
+        p_cur2 p_new
+        (eq1: bt1 = bt1')
+        (eq2: bt2 = bt2'),
+      f = BinFunc op bt1' bt2' bt lambda →
+      let p_f := Policy.policy_transform ((BinaryTransOp bt1 op arg1) :: nil) in
+      let new_id := next_available_id tr 0 in
+      let tr_new := try_get_new_trace tr id1' id2' (prov_trans_binary bt1 op arg1) p_new in
+        ∎ = try_get_policy tr id1' →
+        p_cur2 = try_get_policy tr id2' →
+        p_cur2 ⪯ (∘ p_f) →
+        p_new = get_new_policy p_cur2 p_f →
         eval_binary_expression_in_cell bt1 bt2 f (arg1, id1) (arg2, id2) (β, tr, tp, proxy)
           (Some ((β, ((new_id, tr_new) :: tr), tp, proxy),
             ValuePrimitive bt (lambda (eq1 ♯ arg1) (eq2 ♯ arg2), Some new_id)))
@@ -878,10 +923,20 @@ Proof.
   - simpl. assumption.
   - destruct p1; simpl.
     + destruct H. discriminate.
-    + destruct H, H3. inversion H. subst.
-      destruct Policy.can_declassify_dec.
-      * apply Policy.preceq_implies in H0. assumption.
-      * assumption.
+    + destruct H, H3. inversion H. subst. unfold get_new_policy.
+      destruct (Policy.can_declassify_dec ℓ1 op); destruct p1'.
+      * constructor. assumption.
+      * destruct p. destruct p1'.
+        -- constructor. assumption.
+        -- apply Policy.preceq_implies in H0. assumption.
+        -- apply Policy.preceq_implies in H0. assumption.
+        -- apply Policy.preceq_implies in H0. assumption.
+        -- apply Policy.preceq_implies in H0. assumption.
+        -- apply Policy.preceq_implies in H0. assumption.
+        -- apply Policy.preceq_implies in H0. assumption.
+      * destruct ℓ1; intuition.
+        constructor. assumption.
+      * destruct ℓ1; intuition.
 Qed.
 
 Lemma expr_type_eqb_refl: ∀ τ, expr_type_eqb τ τ = true.

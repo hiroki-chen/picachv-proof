@@ -32,8 +32,8 @@ Definition valid_prov (τ: prov_type) (p1 p2: Policy.policy): Prop :=
       * Adding `p ⪯ ∘ op` should be enough for the condition as this is equivalent to
       * `(first label p) ⊑ op`, the proof of which is trivial and intuitive.
       *)
-      | prov_trans_unary op => p2 ⪯ (∘ (Policy.policy_transform ((unary_trans_op op) :: nil)))
-      | prov_trans_binary op => p2 ⪯ (∘ (Policy.policy_transform ((binary_trans_op op) :: nil)))
+      | prov_trans_unary op => p2 ⪯ (∘ (Policy.policy_transform ((UnaryTransOp op) :: nil)))
+      | prov_trans_binary bt op v => p2 ⪯ (∘ (Policy.policy_transform ((BinaryTransOp bt op v) :: nil)))
       | prov_agg op => p2 ⪯ (∘ (Policy.policy_agg (op :: nil)))
       | prov_noise op => p2 ⪯ (∘ (Policy.policy_noise op))
       | _ => True
@@ -94,6 +94,24 @@ Inductive label_transition_valid_impl: prov_type → Policy.policy → list (tra
       label_transition_valid_impl prov lbl tr
 .
 
+Inductive binary_ok: prov_type → Policy.policy → trace_ty → trace_ty → Prop :=
+  | BinaryOkAllEmpty: ∀ prov lbl trace1 trace2,
+    (* Basically we can do anything with non-policy guarded data. *)
+      trace1 = TrEmpty (∎) ∧ trace2 = TrEmpty (∎) →
+      binary_ok prov lbl trace1 trace2
+  | BinaryOkCannotDisclose: ∀ prov lbl trace1 trace2,
+      lbl = (∘ Policy.policy_top) →
+      binary_ok prov lbl trace1 trace2
+  | BinaryOkLhsEmpty: ∀ prov lbl trace1 trace2,
+      extract_policy trace1 = ∎ →
+      valid_transition prov lbl trace2 →
+      binary_ok prov lbl trace1 trace2
+  | BinaryOkRhsEmpty: ∀ prov lbl trace1 trace2,
+      extract_policy trace2 = ∎ →
+      valid_transition prov lbl trace1 →
+      binary_ok prov lbl trace1 trace2
+.
+
 Inductive label_transition_valid: trace_ty → Prop :=
   | LabelTransitionTrEmpty: ∀ p, label_transition_valid (TrEmpty p)
   | LabelTransitionTrLinear: ∀ tr prov lbl l,
@@ -105,6 +123,10 @@ Inductive label_transition_valid: trace_ty → Prop :=
       Forall (λ x, label_transition_valid x) trace →
       branch_ok lbl trace →
       label_transition_valid tr
+  | LabelTransitionTrBinary: ∀ tr prov lbl trace1 trace2,
+    tr = TrBinary prov lbl trace1 trace2 →
+    binary_ok prov lbl trace1 trace2 →
+    label_transition_valid tr
 .
 
 (*
@@ -350,53 +372,6 @@ Proof.
     destruct H12. assumption.
 Qed.
 
-Lemma try_get_new_trace_bin_ok: ∀ tr tr' n1 n2 op p_new,
-  trace_ok tr →
-  (try_get_policy tr n1) ↑ (try_get_policy tr n2) = p_new →
-  tr' = try_get_new_trace tr n1 n2 (prov_trans_binary op) p_new →
-  label_transition_valid tr'.
-Proof.
-  intros. subst. unfold try_get_new_trace.
-  destruct n1 as [n1|], n2 as [n2|];
-  try destruct (label_lookup tr n1) eqn: Hn1;
-  try destruct (label_lookup tr n2) eqn: Hn2;
-  simpl in *; try rewrite Hn1 in *; try rewrite Hn2 in *.
-  - eapply LabelTransitionTrBranch; eauto.
-    + constructor.
-      * apply label_lookup_no_effect in Hn1; assumption.
-      * constructor. apply label_lookup_no_effect in Hn2; assumption. constructor.
-    + econstructor; eauto.
-      * apply Policy.max_policy_max in H0. tauto.
-      * econstructor; eauto. apply Policy.max_policy_max in H0. tauto. constructor.
-  - eapply LabelTransitionTrBranch; eauto.
-    + constructor.
-      * apply label_lookup_no_effect in Hn1; assumption.
-      * constructor.
-    + econstructor; eauto.
-      * apply Policy.max_policy_max in H0. tauto.
-      * econstructor; eauto.
-  - eapply LabelTransitionTrBranch; eauto.
-    + constructor.
-      * apply label_lookup_no_effect in Hn2; assumption.
-      * constructor.
-    + econstructor; eauto.
-      * apply Policy.max_policy_max in H0. tauto.
-      * econstructor; eauto.
-  - eapply LabelTransitionTrBranch; eauto. constructor.
-  - eapply LabelTransitionTrBranch; eauto. constructor.
-    + apply label_lookup_no_effect in Hn1; assumption.
-    + constructor.
-    + econstructor; eauto. apply Policy.max_policy_max in H0. tauto. constructor.
-  - inversion H0; subst; eapply LabelTransitionTrBranch; eauto; constructor.
-  - eapply LabelTransitionTrBranch; eauto.
-    + constructor. apply label_lookup_no_effect in Hn2; assumption. constructor.
-    + econstructor; eauto.
-      * apply Policy.max_policy_max in H0. tauto.
-      * constructor.
-  - inversion H0; subst; eapply LabelTransitionTrBranch; eauto; constructor.
-  - inversion H0; subst; eapply LabelTransitionTrBranch; eauto; constructor.
-Qed.
-
 Lemma eval_binary_ok:
   ∀ bt1 bt2 f β β'
   tr tr' tp tp' gb gb' v1' v2' v,
@@ -405,14 +380,40 @@ Lemma eval_binary_ok:
       v1' v2' (Some (β', tr', tp', gb', v)) →
     trace_ok tr'.
 Proof.
-  intros. inversion H0. subst.
+  intros. inversion H0; subst.
   apply inj_pair2_eq_dec in H1, H2; try (apply basic_type_eq_dec). subst.
-  inversion H12.
-  apply inj_pair2_eq_dec in H1, H3; try (apply basic_type_eq_dec). subst.
-  inversion H14. apply inj_pair2_eq_dec in H4; try (apply basic_type_eq_dec). subst.
-  destruct H24.
-
-  econstructor; eauto. simpl. unfold tr_new. eapply try_get_new_trace_bin_ok; eauto. 
+  inversion H12; apply inj_pair2_eq_dec in H1, H3; try (apply basic_type_eq_dec); subst.
+  - intuition. inversion H13. subst.
+    apply inj_pair2_eq_dec in H7, H7, H7; try (apply basic_type_eq_dec). subst.
+    econstructor; eauto. simpl.
+    unfold tr_new in *.
+    apply try_get_policy_nonempty_implies in H1, H2.
+    destruct H1, H2. intuition. subst. unfold try_get_new_trace.
+    destruct (label_lookup tr x), (label_lookup tr x0); intuition.
+    eapply LabelTransitionTrBinary; eauto.
+    eapply BinaryOkCannotDisclose; auto.
+  - econstructor; eauto. simpl.
+    unfold tr_new in *.
+    destruct id1', id2'; unfold try_get_new_trace; simpl in *;
+    try destruct (label_lookup tr n); try destruct (label_lookup tr n0);
+    intuition.
+    all: eapply LabelTransitionTrBinary; eauto;
+         eapply BinaryOkRhsEmpty; eauto;
+          econstructor; eauto; constructor; apply get_new_policy_lower; intuition;
+          apply Policy.preceq_implies_valid in H23; try tauto;
+          solve [apply Policy.preceq_refl; tauto | unfold p_f; apply get_new_policy_lower; intuition;
+              apply Policy.preceq_implies_valid in H23; tauto; constructor].
+  - econstructor; eauto. simpl.
+    unfold tr_new in *.
+    destruct id1', id2'; unfold try_get_new_trace; simpl in *;
+    try destruct (label_lookup tr n); try destruct (label_lookup tr n0);
+    intuition.
+    all: eapply LabelTransitionTrBinary; eauto;
+         eapply BinaryOkLhsEmpty; eauto;
+          econstructor; eauto; constructor; apply get_new_policy_lower; intuition;
+          apply Policy.preceq_implies_valid in H23; try tauto;
+          solve [apply Policy.preceq_refl; tauto | unfold p_f; apply get_new_policy_lower; intuition;
+              apply Policy.preceq_implies_valid in H23; tauto; constructor].
 Qed.
 
 Lemma eval_binary_list_ok:
@@ -638,6 +639,54 @@ Proof.
 Qed.
 
 (*
+ * Finalize checks whether for each cell, the policy is enforced, i.e.,
+ * there is no more policy label attached to that cell.
+ *)
+Definition finalize c :=
+  match c with
+  | ConfigError => ConfigError
+  | ConfigOut (RelationWrapped s r) β tr =>
+    let cells := extract_as_cell_list s r in
+    let check := fix f cells tr :=
+      match cells with
+      | nil => true
+      | hd :: tl =>
+        match label_lookup tr hd with
+        | Some p =>
+          match extract_policy p with
+          | ∎ | (∘ Policy.policy_bot) => f tl tr
+          | _ => false
+          end
+        | None => f tl tr
+        end
+      end in
+    if check cells tr then
+      ConfigOut (RelationWrapped s r) β tr
+    else
+      ConfigError
+  end.
+
+Theorem finalize_trace_same: ∀ s s' r r' β β' tr tr',
+  finalize (ConfigOut (RelationWrapped s r) β tr) = ConfigOut (RelationWrapped s' r') β' tr' →
+  tr = tr'.
+Proof.
+  induction r; intros.
+  - simpl in H. inversion H. reflexivity.
+  - simpl in H. destruct (
+    (fix f (cells : list nat) (tr : ctx trace_ty) {struct cells} : bool := match cells with
+    | nil => true
+    | hd :: tl => match label_lookup tr hd with
+    | Some p => match extract_policy p with
+    | ∎ | ∘ Policy.policy_bot => f tl tr
+    | _ => false
+    end
+    | None => f tl tr
+    end
+    end) (Tuple.extract_as_cell_id (♭ s) a ++ extract_as_cell_list s r) tr
+  ); inversion H. reflexivity.
+Qed.
+
+(*
  * This theorem is the main security theorem that states the following fact:
  *
  * Given an initial environment where the configuration is valid, one of the followings holds:
@@ -645,6 +694,7 @@ Qed.
  * * There exists some configuration such that the query evaluation results in that configuration
  *   and the label transition is valid with regard to the cell provenance information, and that
  *   the budget is bounded.
+ * This is a similar definitio to the relaxed non-interference property (Li and Zdancewic, POPL'05)
  *
  * The proof is by induction on `o` which mimics the structure of the semantics.
  *
@@ -894,6 +944,27 @@ Proof.
               ** left. eapply E_AggFail; eauto. intuition; discriminate.
             ++ left. eapply E_AggSchemaError; eauto. intuition; discriminate.
         -- left. eapply E_AggNotBounded; eauto. intuition; discriminate.
+Qed.
+
+Theorem finalize_ok: ∀ db o c c' s r β tr,
+  ⟦ db o ⟧ ⇓ ⟦ c ⟧ →
+  finalize c = c' →
+  c' = ConfigOut (RelationWrapped s r) β tr →
+  trace_ok tr ∧ budget_bounded β.
+Proof.
+  intros.
+  destruct c; rewrite <- H0 in H1.
+  - discriminate.
+  - specialize secure_query with (db := db) (o := o).
+    intros. destruct H2.
+    + apply operator_deterministic with (c1 := ConfigError) in H.
+      discriminate. assumption.
+    + destruct H2 as [s' [c'' [r' [β' [tr' [H2 [H3 H4] ] ] ] ] ] ].
+      subst.
+      apply operator_deterministic with (c1 := ConfigOut (RelationWrapped s' r') β' tr') in H.
+      inversion H. subst. intuition.
+      apply finalize_trace_same in H1. subst. assumption.
+      assumption.
 Qed.
 
 End SecurityMain.
