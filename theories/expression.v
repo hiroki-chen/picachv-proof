@@ -74,6 +74,7 @@ Inductive expression: Type :=
   | ExprBinary: binary_func → expression → expression → expression
   (* fold *)
   | ExprAgg: agg_func → expression → expression
+  | ExprUDFSingleArg: ∀ args ret, trans_op → nary args ret → expression → expression
   (* UDFs: trans_op × f *)
   | ExprUDF: ∀ args ret, trans_op → nary args ret → list expression → expression
 .
@@ -132,6 +133,18 @@ Definition try_get_policy (tr: trace) (id: option nat) :=
   | None => ∎
   end.
 
+Lemma try_get_policy_nonempty_implies: ∀ tr id,
+  try_get_policy tr id ≠ ∎ →
+  ∃ id', id = Some id' ∧ label_lookup tr id' ≠ None.
+Proof.
+  destruct id; intros.
+  - exists n. simpl in H.
+    destruct (label_lookup tr n) eqn: Heq.
+    + intuition. discriminate.
+    + red in H. exfalso. apply H. reflexivity.
+  - simpl in H. red in H. exfalso. apply H. reflexivity.
+Qed.
+
 Definition try_get_new_trace (tr: trace) (id1 id2: option nat) op p :=
   let tr1 := match id1 with
              | Some id1' => label_lookup tr id1'
@@ -142,10 +155,10 @@ Definition try_get_new_trace (tr: trace) (id1 id2: option nat) op p :=
              | None => None
              end in
     match tr1, tr2 with
-    | Some tr1', Some tr2' => TrBranch op p (tr1' :: tr2' :: nil)
-    | Some tr1', None => TrBranch op p (tr1' :: nil)
-    | None, Some tr2' => TrBranch op p (tr2' :: nil)
-    | None, None => TrBranch op p nil
+    | Some tr1', Some tr2' => TrBinary op p tr1' tr2'
+    | Some tr1', None => TrBinary op p tr1' (TrEmpty ∎)
+    | None, Some tr2' => TrBinary op p (TrEmpty ∎) tr2'
+    | None, None => TrBinary op p (TrEmpty ∎) (TrEmpty ∎)
     end.
 
 Definition concat (col: e_value) (rest: list udf_arg_list) :=
@@ -221,13 +234,19 @@ Fixpoint index (x: string) (env: list string): nat :=
     In other words, ℓ ⇝ p ⪯ ∘ (op) ==> p_new = p.
 *)
 Definition get_new_policy cur op: Policy.policy :=
-  match cur with
-  | ∎ => cur
-  | ℓ ⇝ p =>
-    match Policy.can_declassify_dec ℓ op with
-    | left _ => p
-    | right _ => cur
+  let new_p :=
+    match cur with
+    | ∎ => cur
+    | ℓ ⇝ p =>
+      match Policy.can_declassify_dec ℓ op with
+      | left _ => p
+      | right _ => cur
+      end
     end
+  in
+  match new_p with
+  | (∘ Policy.policy_bot) => ∎
+  | _ => new_p
   end.
 
 Inductive eval_unary_expression_in_cell: ∀ bt,
@@ -247,7 +266,7 @@ Inductive eval_unary_expression_in_cell: ∀ bt,
       extract_policy tr_cur = p_cur →
       f = UnaryFunc op bt1 bt2 lambda →
       bt = bt1 → 
-      let p_f := ∘ (Policy.policy_transform ((unary_trans_op op) :: nil)) in
+      let p_f := ∘ (Policy.policy_transform ((UnaryTransOp op) :: nil)) in
         ¬ (p_cur ⪯ p_f) →
         eval_unary_expression_in_cell bt f (arg, id) (β, tr, tp, proxy) None
   | E_UnaryPolicyOk: ∀ bt bt1 bt2 f op lambda (arg: type_to_coq_type bt) id tp proxy
@@ -255,7 +274,7 @@ Inductive eval_unary_expression_in_cell: ∀ bt,
       label_lookup tr id = Some tr_cur →
       extract_policy tr_cur = p_cur →
       f = UnaryFunc op bt1 bt2 lambda →
-      ∀ (eq: bt = bt1), let p_f := (Policy.policy_transform ((unary_trans_op op) :: nil)) in
+      ∀ (eq: bt = bt1), let p_f := (Policy.policy_transform ((UnaryTransOp op) :: nil)) in
         p_cur ⪯ (∘ p_f) →
           let p_new := get_new_policy p_cur p_f in
             let tr_new := TrLinear (prov_trans_unary op) p_new tr_cur in
@@ -322,32 +341,59 @@ Inductive eval_binary_expression_in_cell: ∀ bt1 bt2,
       f = BinFunc op bt1' bt2' bt lambda →
       bt1 ≠ bt1' ∨ bt2 ≠ bt2' →
       eval_binary_expression_in_cell bt1 bt2 f arg1 arg2 (ee, tr, proxy) None
-  | E_BinaryPolicyError:
+  (* If two arguments all carry a policy we return the result with high-confidential label. *)
+  | E_BinaryPolicyDefault:
       ∀ bt1 bt2 bt1' bt2' bt f op lambda
         arg1 arg2 id1 id2 id1' id2'
         tp proxy β tr
-        p_cur1 p_cur2,
-      f = BinFunc op bt1' bt2' bt lambda →
-      let p_f := Policy.policy_transform ((binary_trans_op op) :: nil) in
-        p_cur1 = try_get_policy tr id1' →
-        p_cur2 = try_get_policy tr id2' →
-        ¬ (p_cur1 ⪯ (∘ p_f)) ∨ ¬ (p_cur2 ⪯ (∘ p_f)) →
-        eval_binary_expression_in_cell bt1 bt2 f (arg1, id1) (arg2, id2) (β, tr, tp, proxy) None
-   | E_BinaryPolicyOk:
-      ∀ bt1 bt2 bt1' bt2' bt f op lambda
-        arg1 arg2 id1 id2 id1' id2'
-        tp proxy β tr
-        p_cur1 p_cur2 p_new
+        p_cur1 p_cur2
         (eq1: bt1 = bt1')
         (eq2: bt2 = bt2'),
       f = BinFunc op bt1' bt2' bt lambda →
-      let p_f := Policy.policy_transform ((binary_trans_op op) :: nil) in
       let new_id := next_available_id tr 0 in
-      let tr_new := try_get_new_trace tr id1' id2' (prov_trans_binary op) p_new in
-        p_cur1 ↑ p_cur2 = p_new →
+      let p_new := ∘ (Policy.policy_top) in
+      let tr_new := try_get_new_trace tr id1' id2' (prov_trans_binary bt2 op arg2) p_new in
         p_cur1 = try_get_policy tr id1' →
         p_cur2 = try_get_policy tr id2' →
-        p_cur1 ⪯ (∘ p_f) ∧ p_cur2 ⪯ (∘ p_f) →
+        p_cur1 ≠ ∎ ∧ p_cur2 ≠ ∎ →
+        eval_binary_expression_in_cell bt1 bt2 f (arg1, id1) (arg2, id2) (β, tr, tp, proxy)
+          (Some ((β, ((new_id, tr_new) :: tr), tp, proxy),
+            ValuePrimitive bt (lambda (eq1 ♯ arg1) (eq2 ♯ arg2), Some new_id)))
+  (* When rhs = ⊥ *)
+  | E_BinaryPolicyRhsOk:
+      ∀ bt1 bt2 bt1' bt2' bt f op lambda
+        arg1 arg2 id1 id2 id1' id2'
+        tp proxy β tr
+        p_cur1 p_new
+        (eq1: bt1 = bt1')
+        (eq2: bt2 = bt2'),
+      f = BinFunc op bt1' bt2' bt lambda →
+      let p_f := Policy.policy_transform ((BinaryTransOp bt2 op arg2) :: nil) in
+      let new_id := next_available_id tr 0 in
+      let tr_new := try_get_new_trace tr id1' id2' (prov_trans_binary bt2 op arg2) p_new in
+        p_cur1 = try_get_policy tr id1' →
+        ∎ = try_get_policy tr id2' →
+        p_cur1 ⪯ (∘ p_f) →
+        p_new = get_new_policy p_cur1 p_f →
+        eval_binary_expression_in_cell bt1 bt2 f (arg1, id1) (arg2, id2) (β, tr, tp, proxy)
+          (Some ((β, ((new_id, tr_new) :: tr), tp, proxy),
+            ValuePrimitive bt (lambda (eq1 ♯ arg1) (eq2 ♯ arg2), Some new_id)))
+  (* When lhs = ⊥ *)
+  | E_BinaryPolicyLhsOk:
+      ∀ bt1 bt2 bt1' bt2' bt f op lambda
+        arg1 arg2 id1 id2 id1' id2'
+        tp proxy β tr
+        p_cur2 p_new
+        (eq1: bt1 = bt1')
+        (eq2: bt2 = bt2'),
+      f = BinFunc op bt1' bt2' bt lambda →
+      let p_f := Policy.policy_transform ((BinaryTransOp bt1 op arg1) :: nil) in
+      let new_id := next_available_id tr 0 in
+      let tr_new := try_get_new_trace tr id1' id2' (prov_trans_binary bt1 op arg1) p_new in
+        ∎ = try_get_policy tr id1' →
+        p_cur2 = try_get_policy tr id2' →
+        p_cur2 ⪯ (∘ p_f) →
+        p_new = get_new_policy p_cur2 p_f →
         eval_binary_expression_in_cell bt1 bt2 f (arg1, id1) (arg2, id2) (β, tr, tp, proxy)
           (Some ((β, ((new_id, tr_new) :: tr), tp, proxy),
             ValuePrimitive bt (lambda (eq1 ♯ arg1) (eq2 ♯ arg2), Some new_id)))
@@ -788,19 +834,20 @@ Inductive eval: nat → expression → bool → eval_env → option (eval_env * 
       let v := list_of_length_n (List.length gb_indices) (f, None) in
         eval step e b (β, tr, tp, proxy) (Some ((β, tr, tp, proxy), (ValuePrimitiveList _ v)))
   (* Cast to the unary expression. *)
-  | EvalUdfSingleArg: ∀ step step' b e e' arg_type arg ret op f tp β tr proxy res,
+  | EvalUdfSingleArg: ∀ step step' b e arg_type arg ret op op' f f' tp tp' β β' tr tr' proxy proxy' res v,
       step = S step' →
-      e = ExprUDF (arg_type :: nil) ret op f (arg :: nil) →
-      let thm := udf_single_helper arg_type arg in
-        coerce_udf_to_unary (arg_type :: nil) (arg :: nil) ret op f (proj1 thm) (proj2 thm) =
-        Some e' →
-        eval step e' b (β, tr, tp, proxy) res →
-        eval step e b (β, tr, tp, proxy) res
+      e = ExprUDFSingleArg (arg_type :: nil) ret op f arg →
+      eval step' arg b (β, tr, tp, proxy) (Some ((β', tr', tp', proxy'), ValuePrimitive ret v)) →
+      op = UnaryTransOp op' →
+      f' = UnaryFunc op' arg_type ret f →
+      eval_unary_expression_prim ret f' (β', tr', tp', proxy') v res →
+      eval step e b (β, tr, tp, proxy) res
   (* The rest case. *)
   | EvalUdf: ∀ step step' b e arg_types args ret op f tp β tr proxy env arg_list res res',
     step = S step' →
     e = ExprUDF arg_types ret op f args →
     List.length arg_types > 1 →
+    b = false →
     eval_udf_expr step' args b (β, tr, tp, proxy) res →
     res = Some (env, arg_list) →
     eval_udf arg_types ret op f env arg_list res' →
@@ -833,7 +880,7 @@ eval_udf_expr: nat → list expression → bool → eval_env → option (eval_en
       e = hd :: tl →
       eval step' hd b env (Some (env', res)) →
       res = ValuePrimitive bt v →
-      eval_udf_expr step' tl b env' (Some (env'', res')) →
+      eval_udf_expr step tl b env' (Some (env'', res')) →
       eval_udf_expr step e b env (Some (env'', UdfArgCons bt v res'))
 with
 (* Evaluate each sub-expression as value list. *)
@@ -848,7 +895,7 @@ eval_udf_expr_list: nat → list expression → bool → eval_env → option (ev
       step = S step' →
       e = hd :: tl →
       eval step' hd b env None →
-      eval_udf_expr_list step tl b env None
+      eval_udf_expr_list step e b env None
   | EvalUdfExprListOk: ∀ step step' b e hd tl env env' env'' res res' res'' bt v,
       step = S step' →
       e = hd :: tl →
@@ -878,10 +925,43 @@ Proof.
   - simpl. assumption.
   - destruct p1; simpl.
     + destruct H. discriminate.
-    + destruct H, H3. inversion H. subst.
-      destruct Policy.can_declassify_dec.
-      * apply Policy.preceq_implies in H0. assumption.
-      * assumption.
+    + destruct H, H3. inversion H. subst. unfold get_new_policy.
+      destruct (Policy.can_declassify_dec ℓ1 op); destruct p1'.
+      * constructor. assumption.
+      * destruct p. destruct p1'.
+        -- constructor. assumption.
+        -- apply Policy.preceq_implies in H0. assumption.
+        -- apply Policy.preceq_implies in H0. assumption.
+        -- apply Policy.preceq_implies in H0. assumption.
+        -- apply Policy.preceq_implies in H0. assumption.
+        -- apply Policy.preceq_implies in H0. assumption.
+        -- apply Policy.preceq_implies in H0. assumption.
+      * destruct ℓ1; intuition.
+        constructor. assumption.
+      * destruct ℓ1; intuition.
+Qed.
+
+Lemma coerce_udf_to_unary_some: ∀ arg_types args ret op f e
+  (len: Datatypes.length args = Datatypes.length arg_types)
+  (len_1: Datatypes.length args = 1),
+  coerce_udf_to_unary arg_types args ret op f len len_1 = Some e →
+  ∃ f e', e = ExprUnary f e'.
+Proof.
+  intros.
+  destruct args eqn: Heq.
+  - inversion len_1.
+  - destruct arg_types.
+    + inversion len.
+    + inversion len_1. cut (l = nil); intros.
+      * subst. cut (arg_types = nil); intros.
+        -- subst. simpl in H.
+           destruct op.
+           ++ inversion H. exists (UnaryFunc u b ret f), e0. reflexivity.
+           ++ inversion H.
+           ++ inversion H.
+        -- assert (List.length (b :: arg_types) = 1) by (etransitivity; eauto).
+           inversion H0. destruct arg_types; try discriminate; auto.
+      * destruct l; try discriminate; auto.
 Qed.
 
 Lemma expr_type_eqb_refl: ∀ τ, expr_type_eqb τ τ = true.

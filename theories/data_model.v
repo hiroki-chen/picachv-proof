@@ -654,6 +654,12 @@ Proof.
       * assumption.
 Qed.
 
+(* A helper lemma to avoid `inversion` on the premise. *)
+Lemma preceq_implies_valid: ∀ p1 p2, p1 ⪯ p2 → valid_policy p1 ∧ valid_policy p2.
+Proof.
+  intros. inversion H; subst; intuition. constructor.
+Qed.
+
 Lemma max_policy_max: ∀ p1 p2 p3,
   max_policy p1 p2 p3 → p1 ⪯ p3 ∧ p2 ⪯ p3.
 Proof.
@@ -810,7 +816,7 @@ Example policy_res' := (policy_select ⇝ (∘ policy_bot)).
 Example policy_lhs'' := ∎.
 Example policy_rhs'' := (∘ policy_select).
 Example policy_trans_lhs := (policy_transform nil) ⇝ (∘ (policy_agg nil)).
-Example policy_trans_rhs := (∘ (policy_transform (unary_trans_op Identity :: nil))).
+Example policy_trans_rhs := (∘ (policy_transform (UnaryTransOp Identity :: nil))).
 
 Example join_correct: policy_lhs ∪ policy_rhs = policy_res.
 Proof.

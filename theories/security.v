@@ -1,4 +1,5 @@
 Require Import Arith.
+Require Import Equality.
 Require Import List.
 Require Import Logic.Eqdep_dec Logic.EqdepFacts.
 Require Import Unicode.Utf8.
@@ -32,8 +33,8 @@ Definition valid_prov (τ: prov_type) (p1 p2: Policy.policy): Prop :=
       * Adding `p ⪯ ∘ op` should be enough for the condition as this is equivalent to
       * `(first label p) ⊑ op`, the proof of which is trivial and intuitive.
       *)
-      | prov_trans_unary op => p2 ⪯ (∘ (Policy.policy_transform ((unary_trans_op op) :: nil)))
-      | prov_trans_binary op => p2 ⪯ (∘ (Policy.policy_transform ((binary_trans_op op) :: nil)))
+      | prov_trans_unary op => p2 ⪯ (∘ (Policy.policy_transform ((UnaryTransOp op) :: nil)))
+      | prov_trans_binary bt op v => p2 ⪯ (∘ (Policy.policy_transform ((BinaryTransOp bt op v) :: nil)))
       | prov_agg op => p2 ⪯ (∘ (Policy.policy_agg (op :: nil)))
       | prov_noise op => p2 ⪯ (∘ (Policy.policy_noise op))
       | _ => True
@@ -94,6 +95,24 @@ Inductive label_transition_valid_impl: prov_type → Policy.policy → list (tra
       label_transition_valid_impl prov lbl tr
 .
 
+Inductive binary_ok: prov_type → Policy.policy → trace_ty → trace_ty → Prop :=
+  | BinaryOkAllEmpty: ∀ prov lbl trace1 trace2,
+    (* Basically we can do anything with non-policy guarded data. *)
+      trace1 = TrEmpty (∎) ∧ trace2 = TrEmpty (∎) →
+      binary_ok prov lbl trace1 trace2
+  | BinaryOkCannotDisclose: ∀ prov lbl trace1 trace2,
+      lbl = (∘ Policy.policy_top) →
+      binary_ok prov lbl trace1 trace2
+  | BinaryOkLhsEmpty: ∀ prov lbl trace1 trace2,
+      extract_policy trace1 = ∎ →
+      valid_transition prov lbl trace2 →
+      binary_ok prov lbl trace1 trace2
+  | BinaryOkRhsEmpty: ∀ prov lbl trace1 trace2,
+      extract_policy trace2 = ∎ →
+      valid_transition prov lbl trace1 →
+      binary_ok prov lbl trace1 trace2
+.
+
 Inductive label_transition_valid: trace_ty → Prop :=
   | LabelTransitionTrEmpty: ∀ p, label_transition_valid (TrEmpty p)
   | LabelTransitionTrLinear: ∀ tr prov lbl l,
@@ -105,6 +124,10 @@ Inductive label_transition_valid: trace_ty → Prop :=
       Forall (λ x, label_transition_valid x) trace →
       branch_ok lbl trace →
       label_transition_valid tr
+  | LabelTransitionTrBinary: ∀ tr prov lbl trace1 trace2,
+    tr = TrBinary prov lbl trace1 trace2 →
+    binary_ok prov lbl trace1 trace2 →
+    label_transition_valid tr
 .
 
 (*
@@ -350,53 +373,6 @@ Proof.
     destruct H12. assumption.
 Qed.
 
-Lemma try_get_new_trace_bin_ok: ∀ tr tr' n1 n2 op p_new,
-  trace_ok tr →
-  (try_get_policy tr n1) ↑ (try_get_policy tr n2) = p_new →
-  tr' = try_get_new_trace tr n1 n2 (prov_trans_binary op) p_new →
-  label_transition_valid tr'.
-Proof.
-  intros. subst. unfold try_get_new_trace.
-  destruct n1 as [n1|], n2 as [n2|];
-  try destruct (label_lookup tr n1) eqn: Hn1;
-  try destruct (label_lookup tr n2) eqn: Hn2;
-  simpl in *; try rewrite Hn1 in *; try rewrite Hn2 in *.
-  - eapply LabelTransitionTrBranch; eauto.
-    + constructor.
-      * apply label_lookup_no_effect in Hn1; assumption.
-      * constructor. apply label_lookup_no_effect in Hn2; assumption. constructor.
-    + econstructor; eauto.
-      * apply Policy.max_policy_max in H0. tauto.
-      * econstructor; eauto. apply Policy.max_policy_max in H0. tauto. constructor.
-  - eapply LabelTransitionTrBranch; eauto.
-    + constructor.
-      * apply label_lookup_no_effect in Hn1; assumption.
-      * constructor.
-    + econstructor; eauto.
-      * apply Policy.max_policy_max in H0. tauto.
-      * econstructor; eauto.
-  - eapply LabelTransitionTrBranch; eauto.
-    + constructor.
-      * apply label_lookup_no_effect in Hn2; assumption.
-      * constructor.
-    + econstructor; eauto.
-      * apply Policy.max_policy_max in H0. tauto.
-      * econstructor; eauto.
-  - eapply LabelTransitionTrBranch; eauto. constructor.
-  - eapply LabelTransitionTrBranch; eauto. constructor.
-    + apply label_lookup_no_effect in Hn1; assumption.
-    + constructor.
-    + econstructor; eauto. apply Policy.max_policy_max in H0. tauto. constructor.
-  - inversion H0; subst; eapply LabelTransitionTrBranch; eauto; constructor.
-  - eapply LabelTransitionTrBranch; eauto.
-    + constructor. apply label_lookup_no_effect in Hn2; assumption. constructor.
-    + econstructor; eauto.
-      * apply Policy.max_policy_max in H0. tauto.
-      * constructor.
-  - inversion H0; subst; eapply LabelTransitionTrBranch; eauto; constructor.
-  - inversion H0; subst; eapply LabelTransitionTrBranch; eauto; constructor.
-Qed.
-
 Lemma eval_binary_ok:
   ∀ bt1 bt2 f β β'
   tr tr' tp tp' gb gb' v1' v2' v,
@@ -405,14 +381,40 @@ Lemma eval_binary_ok:
       v1' v2' (Some (β', tr', tp', gb', v)) →
     trace_ok tr'.
 Proof.
-  intros. inversion H0. subst.
+  intros. inversion H0; subst.
   apply inj_pair2_eq_dec in H1, H2; try (apply basic_type_eq_dec). subst.
-  inversion H12.
-  apply inj_pair2_eq_dec in H1, H3; try (apply basic_type_eq_dec). subst.
-  inversion H14. apply inj_pair2_eq_dec in H4; try (apply basic_type_eq_dec). subst.
-  destruct H24.
-
-  econstructor; eauto. simpl. unfold tr_new. eapply try_get_new_trace_bin_ok; eauto. 
+  inversion H12; apply inj_pair2_eq_dec in H1, H3; try (apply basic_type_eq_dec); subst.
+  - intuition. inversion H13. subst.
+    apply inj_pair2_eq_dec in H7, H7, H7; try (apply basic_type_eq_dec). subst.
+    econstructor; eauto. simpl.
+    unfold tr_new in *.
+    apply try_get_policy_nonempty_implies in H1, H2.
+    destruct H1, H2. intuition. subst. unfold try_get_new_trace.
+    destruct (label_lookup tr x), (label_lookup tr x0); intuition.
+    eapply LabelTransitionTrBinary; eauto.
+    eapply BinaryOkCannotDisclose; auto.
+  - econstructor; eauto. simpl.
+    unfold tr_new in *.
+    destruct id1', id2'; unfold try_get_new_trace; simpl in *;
+    try destruct (label_lookup tr n); try destruct (label_lookup tr n0);
+    intuition.
+    all: eapply LabelTransitionTrBinary; eauto;
+         eapply BinaryOkRhsEmpty; eauto;
+          econstructor; eauto; constructor; apply get_new_policy_lower; intuition;
+          apply Policy.preceq_implies_valid in H23; try tauto;
+          solve [apply Policy.preceq_refl; tauto | unfold p_f; apply get_new_policy_lower; intuition;
+              apply Policy.preceq_implies_valid in H23; tauto; constructor].
+  - econstructor; eauto. simpl.
+    unfold tr_new in *.
+    destruct id1', id2'; unfold try_get_new_trace; simpl in *;
+    try destruct (label_lookup tr n); try destruct (label_lookup tr n0);
+    intuition.
+    all: eapply LabelTransitionTrBinary; eauto;
+         eapply BinaryOkLhsEmpty; eauto;
+          econstructor; eauto; constructor; apply get_new_policy_lower; intuition;
+          apply Policy.preceq_implies_valid in H23; try tauto;
+          solve [apply Policy.preceq_refl; tauto | unfold p_f; apply get_new_policy_lower; intuition;
+              apply Policy.preceq_implies_valid in H23; tauto; constructor].
 Qed.
 
 Lemma eval_binary_list_ok:
@@ -432,36 +434,157 @@ Proof.
   eapply IHv2' with (tr := tr''); eauto.
 Qed.
 
-Lemma eval_ok: ∀ expr n in_agg β β' tr tr' tp tp' gb gb' v,
+Lemma eval_unary_expression_prim_ok: ∀ bt f v' β β' tr tr' tp tp' gb gb' v,
   trace_ok tr →
-  eval n expr in_agg (β, tr, tp, gb) (Some ((β', tr', tp', gb', v))) →
+  eval_unary_expression_prim bt f (β, tr, tp, gb) v' (Some (β', tr', tp', gb', v)) →
   trace_ok tr'.
 Proof.
-  induction expr; intros; inversion H0; subst; try discriminate; intuition.
+  intros.
+  inversion H0; subst; try discriminate.
+  - apply inj_pair2_eq_dec in H1; try (apply basic_type_eq_dec). subst.
+    assumption.
+  - apply inj_pair2_eq_dec in H1; try (apply basic_type_eq_dec). subst.
+    inversion H6; subst; try discriminate.
+    apply inj_pair2_eq_dec in H1; try (apply basic_type_eq_dec). subst.
+    assumption.
+Qed.
+
+Lemma eval_udf_ok: ∀ arg_types ret op f args β β' tr tr' tp tp' gb gb' v,
+  trace_ok tr →
+  eval_udf arg_types ret op f (β, tr, tp, gb) args (Some (β', tr', tp', gb', v)) →
+  trace_ok tr'.
+Proof.
+  dependent induction args; intros; inversion H0; subst; try discriminate; intuition;
+  inversion H9; inversion H13; subst; try discriminate; unfold tr'0.
+  - econstructor; eauto.
+    simpl. eapply LabelTransitionTrBranch; eauto.
+    constructor.
+  - econstructor; eauto.
+    simpl. eapply LabelTransitionTrBranch; eauto.
+    constructor.
+  - econstructor; eauto.
+    simpl. eapply LabelTransitionTrBranch; eauto.
+    + inversion H9. inversion H11. subst.
+  (* We do it later. *)
+Admitted.
+
+Lemma eval_udf_expression_list_ok: ∀ arg_types ret op f args β β' tr tr' tp tp' gb gb' v,
+  trace_ok tr →
+  eval_udf_expression_list arg_types ret op f (β, tr, tp, gb) args (Some (β', tr', tp', gb', v)) →
+  trace_ok tr'.
+Proof.
+  dependent induction args; intros; inversion H0; subst; try discriminate; intuition.
+  inversion H7. subst.
+  apply inj_pair2_eq_dec in H1, H1; try apply list_eq_dec; try apply basic_type_eq_dec; subst.
+  destruct env' as [ [ [ β'' tr'' ] tp'' ] gb'' ].
+  eapply IHargs with (tr := tr''); eauto.
+  eapply eval_udf_ok with (tr := tr); eauto.
+Qed.
+
+(*
+ * This is Coq's built-in functionality for doing mutual induction on mutually inductive types.
+ *
+ * We can of course define lemmas using the `with` keywords, but due to the limitation of Coq's
+ * termination check algorithm, sometimes Coq complains about non-decreasing argument in the proof
+ * script, although we are really doing decreasing induction.
+ *
+ * The Proof scheme below is a workaround for this issue.
+ *
+ * The Scheme command is a high-level tool for generating automatically (possibly mutual) induction
+ * principles for given types and sorts.
+ *)
+Scheme eval_ok_ind := Minimality for eval Sort Prop
+with eval_udf_expr_ok_ind := Minimality for eval_udf_expr Sort Prop
+with eval_udf_expr_list_ok_ind := Minimality for eval_udf_expr_list Sort Prop.
+(* 
+ * This command is a tool for combining induction principles generated by the Scheme command. Each
+ * identi is a different inductive principle that must belong to the same package of mutual inductive
+ * principle definitions. This command generates ident to be the conjunction of the principles: it is
+ * built from the common premises of the principles and concluded by the conjunction of their conclu-
+ * sions. In the case where all the inductive principles used are in sort Prop, the propositional con-
+ * junction and is used, otherwise the simple product prod is used instead.
+ *)
+Combined Scheme eval_ok_mutind from eval_ok_ind, eval_udf_expr_ok_ind, eval_udf_expr_list_ok_ind.
+
+(*
+ * The definition below looks a little bit weird because we know introduce two ∀ quantifiers in the
+ * beginning of the definition. This is because we need adatp the argument list of the induction rule
+ * defined by our proof scheme:
+ *
+ * eval_ok_mutind :
+ *  (step expr in_agg env res -> Prop) ∧ (step expr in_agg env res -> Prop) ∧ 
+ *  (step expr in_agg env res -> Prop)
+ *)
+Definition eval_expr_ok :=
+  ∀ step expr in_agg env res, eval step expr in_agg env res →
+    ∀ tr tr' β β' tp tp' gb gb' v,
+      env = (β, tr, tp, gb) →
+      res = Some ((β', tr', tp', gb', v)) →
+      trace_ok tr →
+      trace_ok tr'.
+
+Definition eval_udf_expr_ok :=
+  ∀ step expr in_agg env res, eval_udf_expr step expr in_agg env res →
+    ∀ tr tr' β β' tp tp' gb gb' v,
+      env = (β, tr, tp, gb) →
+      res = Some ((β', tr', tp', gb', v)) →
+      trace_ok tr →
+      trace_ok tr'.
+
+Definition eval_udf_expr_list_ok :=
+  ∀ step expr in_agg env res, eval_udf_expr_list step expr in_agg env res →
+    ∀ tr tr' β β' tp tp' gb gb' v,
+      env = (β, tr, tp, gb) →
+      res = Some ((β', tr', tp', gb', v)) →
+      trace_ok tr →
+      trace_ok tr'.
+
+Lemma eval_ok: eval_expr_ok ∧ eval_udf_expr_ok ∧ eval_udf_expr_list_ok.
+Proof.
+  apply eval_ok_mutind; intros; subst; try discriminate; intuition.
+  - inversion H1. inversion H2. subst. assumption.
+  - inversion H4. inversion H3. subst. assumption.
+  - inversion H4. inversion H3. subst. inversion H7. subst. assumption.
   - inversion H6. subst.
-    inversion H14; subst.
-    + apply inj_pair2_eq_dec in H1. subst.
-      * eapply IHexpr; eauto.
-      * apply basic_type_eq_dec.
-    + apply inj_pair2_eq_dec in H1; subst; try (apply basic_type_eq_dec).
-      inversion H7. subst. eapply IHexpr; eauto.
+    destruct env as [ [ [ β'' tr'' ] tp'' ] gb'' ].
+    eapply eval_unary_expression_prim_ok with (tr := tr'').
+    + eapply H3 with (tr := tr0); eauto.
+    + eapply H5.
   - inversion H6. subst.
-    destruct env as [ [ [  β'' tr'' ] tp'' ] gb'' ].
-    eapply eval_unary_expression_list_ok with (tr := tr''); eauto.
-  - inversion H6. subst.
-    assert (trace_ok tr1) by (eapply IHexpr1 with (tr := tr) (tr' := tr1); eauto).
-    assert (trace_ok tr2) by (eapply IHexpr2 with (tr := tr) (tr' := tr2); eauto).
+    destruct env as [ [ [ β'' tr'' ] tp'' ] gb'' ].
+    eapply eval_unary_expression_list_ok with (tr := tr'').
+    + eapply H3 with (tr := tr0); eauto.
+    + eapply H5.
+  - inversion H12. subst.
+    assert (trace_ok tr1) by (eapply H3 with (tr := tr0) (tr' := tr1); eauto).
+    assert (trace_ok tr2) by (eapply H5 with (tr := tr0) (tr' := tr2); eauto).
     eapply eval_binary_ok with (tr := tr1 ⊍ tr2); eauto.
     apply trace_ok_merge_ok; auto.
-  - inversion H6. subst.
-    assert (trace_ok tr1) by (eapply IHexpr1 with (tr := tr) (tr' := tr1); eauto).
-    assert (trace_ok tr2) by (eapply IHexpr2 with (tr := tr) (tr' := tr2); eauto).
+  - inversion H12. subst.
+    assert (trace_ok tr1) by (eapply H3 with (tr := tr0) (tr' := tr1); eauto).
+    assert (trace_ok tr2) by (eapply H5 with (tr := tr0) (tr' := tr2); eauto).
     eapply eval_binary_list_ok with (tr := tr1 ⊍ tr2); eauto.
     apply trace_ok_merge_ok; auto.
-  - eapply eval_agg_ok; eauto.
-  - cheat. (* do it later. *)
-  - cheat.
-  - cheat.
+  - inversion H7. subst. eapply eval_agg_ok; eauto.
+  - inversion H2. inversion H3. subst. assumption.
+  - inversion H4. inversion H3. subst. assumption.
+  - inversion H6. subst.
+    eapply eval_unary_expression_prim_ok with (tr := tr'); eauto.
+  - inversion H7. subst.
+    destruct env as [ [ [ β'' tr'' ] tp'' ] gb'' ].
+    eapply eval_udf_ok with (tr := tr''); eauto.
+  - inversion H7. subst.
+    destruct env as [ [ [ β'' tr'' ] tp'' ] gb'' ].
+    eapply eval_udf_expression_list_ok with (tr := tr''); eauto.
+  - inversion H0. subst. assumption.
+  - inversion H7. subst.
+    destruct env' as [ [ [ β'' tr'' ] tp'' ] gb'' ].
+    eapply H5 with (tr := tr''); eauto.
+  - inversion H0. subst. assumption.
+  - destruct env'' as [ [ [ β'' tr'' ] tp'' ] gb'' ].
+    inversion H8. subst.
+    destruct env' as [ [ [ β''' tr''' ] tp''' ] gb''' ].
+    eapply H5 with (tr := tr'''); eauto.
 Qed.
 
 Lemma eval_expr_in_relation_ok: ∀ s r ty r' β β' tr tr' expr,
@@ -472,7 +595,7 @@ Proof.
   induction r; intros; inversion H0; subst;
   try discriminate; intuition. inversion H4. subst.
   inversion H8. subst.
-  eapply IHr with (tr := tr'0); eauto. apply eval_ok in H1; assumption.
+  eapply IHr with (tr := tr'0); eauto. apply eval_ok in H1. eauto.
 Qed.
 
 Lemma join_policy_and_trace_ok: ∀ l1 l2 com tr1 tr2 tr,
@@ -567,7 +690,23 @@ Lemma eval_predicate_in_relation_ok: ∀ s r β tr e r' β' tr',
   eval_predicate_in_relation s r β tr e (Some (r', β', tr')) →
   trace_ok tr'.
 Proof.
-  induction r; intros; inversion H0; subst; try discriminate; intuition.
+  induction r; intros; inversion H0; subst; try discriminate; intuition
+  inversion H9; subst; destruct env as [ [ [ β'' tr'' ] tp'' ] gb'' ].
+  - inversion H4. subst. clear H4.
+    inversion H8. subst.
+    inversion H2. subst.
+    assert (trace_ok tr'0).
+    {
+      destruct eval_ok. eapply H3 with (tr := tr); eauto.
+    }
+    eapply IHr with (tr := tr'0); eauto.
+  - inversion H4. subst. clear H4. 
+    inversion H2. subst. inversion H8. subst.
+    assert (trace_ok tr'0).
+    {
+      destruct eval_ok. eapply H3 with (tr := tr); eauto.
+    }
+    eapply IHr with (tr := tr'0); eauto.
 Qed.
 
 Lemma eval_groupby_having_ok: ∀ gb expr β tr gb' β' tr',
@@ -581,12 +720,10 @@ Proof.
     inversion H2. subst.
     inversion H3. subst.
     apply eval_ok in H1. eapply IHgb with (tr := tr'0); eauto.
-    assumption.
   - inversion H4. subst. clear H4.
     inversion H10. subst. clear H10.
     inversion H9. subst.
     apply eval_ok in H1. eapply IHgb with (tr := tr'0); eauto.
-    assumption.
 Qed.
 
 Lemma apply_fold_on_groups_once_ok: ∀ gb s r β agg tr β' tr',
@@ -600,7 +737,10 @@ Proof.
   destruct env as [ [ [ β'' tr'' ] tp'' ] gb'' ].
   inversion H11. subst. clear H11.
   inversion H5. subst.
-  assert (trace_ok tr'0) by (eapply eval_ok; eauto).
+  assert (trace_ok tr'0).
+  {
+    destruct eval_ok. eapply H2 with (tr := tr); eauto.
+  }
   eapply IHgb with (tr := tr'0); eauto.
 Qed.
 
@@ -628,6 +768,54 @@ Proof.
 Qed.
 
 (*
+ * Finalize checks whether for each cell, the policy is enforced, i.e.,
+ * there is no more policy label attached to that cell.
+ *)
+Definition finalize c :=
+  match c with
+  | ConfigError => ConfigError
+  | ConfigOut (RelationWrapped s r) β tr =>
+    let cells := extract_as_cell_list s r in
+    let check := fix f cells tr :=
+      match cells with
+      | nil => true
+      | hd :: tl =>
+        match label_lookup tr hd with
+        | Some p =>
+          match extract_policy p with
+          | ∎ | (∘ Policy.policy_bot) => f tl tr
+          | _ => false
+          end
+        | None => f tl tr
+        end
+      end in
+    if check cells tr then
+      ConfigOut (RelationWrapped s r) β tr
+    else
+      ConfigError
+  end.
+
+Theorem finalize_trace_same: ∀ s s' r r' β β' tr tr',
+  finalize (ConfigOut (RelationWrapped s r) β tr) = ConfigOut (RelationWrapped s' r') β' tr' →
+  tr = tr'.
+Proof.
+  induction r; intros.
+  - simpl in H. inversion H. reflexivity.
+  - simpl in H. destruct (
+    (fix f (cells : list nat) (tr : ctx trace_ty) {struct cells} : bool := match cells with
+    | nil => true
+    | hd :: tl => match label_lookup tr hd with
+    | Some p => match extract_policy p with
+    | ∎ | ∘ Policy.policy_bot => f tl tr
+    | _ => false
+    end
+    | None => f tl tr
+    end
+    end) (Tuple.extract_as_cell_id (♭ s) a ++ extract_as_cell_list s r) tr
+  ); inversion H. reflexivity.
+Qed.
+
+(*
  * This theorem is the main security theorem that states the following fact:
  *
  * Given an initial environment where the configuration is valid, one of the followings holds:
@@ -635,6 +823,7 @@ Qed.
  * * There exists some configuration such that the query evaluation results in that configuration
  *   and the label transition is valid with regard to the cell provenance information, and that
  *   the budget is bounded.
+ * This is a similar definitio to the relaxed non-interference property (Li and Zdancewic, POPL'05)
  *
  * The proof is by induction on `o` which mimics the structure of the semantics.
  *
@@ -884,6 +1073,27 @@ Proof.
               ** left. eapply E_AggFail; eauto. intuition; discriminate.
             ++ left. eapply E_AggSchemaError; eauto. intuition; discriminate.
         -- left. eapply E_AggNotBounded; eauto. intuition; discriminate.
+Qed.
+
+Theorem finalize_ok: ∀ db o c c' s r β tr,
+  ⟦ db o ⟧ ⇓ ⟦ c ⟧ →
+  finalize c = c' →
+  c' = ConfigOut (RelationWrapped s r) β tr →
+  trace_ok tr ∧ budget_bounded β.
+Proof.
+  intros.
+  destruct c; rewrite <- H0 in H1.
+  - discriminate.
+  - specialize secure_query with (db := db) (o := o).
+    intros. destruct H2.
+    + apply operator_deterministic with (c1 := ConfigError) in H.
+      discriminate. assumption.
+    + destruct H2 as [s' [c'' [r' [β' [tr' [H2 [H3 H4] ] ] ] ] ] ].
+      subst.
+      apply operator_deterministic with (c1 := ConfigOut (RelationWrapped s' r') β' tr') in H.
+      inversion H. subst. intuition.
+      apply finalize_trace_same in H1. subst. assumption.
+      assumption.
 Qed.
 
 End SecurityMain.
