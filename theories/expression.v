@@ -921,7 +921,6 @@ Proof.
       * destruct ℓ1; intuition.
         constructor. assumption.
       * destruct ℓ1; intuition.
-Qed.
 
 Lemma expr_type_eqb_refl: ∀ τ, expr_type_eqb τ τ = true.
 Proof.
