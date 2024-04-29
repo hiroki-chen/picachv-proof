@@ -84,24 +84,6 @@ Inductive udf_arg_list: Type :=
   | UdfArgCons: ∀ bt, (type_to_coq_type bt * option nat) → udf_arg_list → udf_arg_list
 .
 
-Definition coerce_udf_to_unary
-  arg_types (args: list expression) ret (op: trans_op) (f: nary arg_types ret)
-: List.length args = List.length arg_types → List.length args = 1 → option expression.
-  refine (
-    match arg_types as arg_types' return arg_types = arg_types' → _ with
-    | nil => fun _ _ _ => False_rect _  _
-    | hd :: nil => fun _ _ _ => _
-    | _ => fun _ _ _ => False_rect _ _
-    end eq_refl ); try rewrite y in y0; try discriminate.
-  subst. simpl in *.
-  destruct op.
-  - destruct args.
-    + inversion y.
-    + exact (Some (ExprUnary (UnaryFunc u hd ret f) e)).
-  - exact None.
-  - exact None.
-Defined.
-
 Inductive e_value: Type :=
   (*
     A value can be associated with a unique identifier for looking up in the context;
@@ -939,29 +921,6 @@ Proof.
       * destruct ℓ1; intuition.
         constructor. assumption.
       * destruct ℓ1; intuition.
-Qed.
-
-Lemma coerce_udf_to_unary_some: ∀ arg_types args ret op f e
-  (len: Datatypes.length args = Datatypes.length arg_types)
-  (len_1: Datatypes.length args = 1),
-  coerce_udf_to_unary arg_types args ret op f len len_1 = Some e →
-  ∃ f e', e = ExprUnary f e'.
-Proof.
-  intros.
-  destruct args eqn: Heq.
-  - inversion len_1.
-  - destruct arg_types.
-    + inversion len.
-    + inversion len_1. cut (l = nil); intros.
-      * subst. cut (arg_types = nil); intros.
-        -- subst. simpl in H.
-           destruct op.
-           ++ inversion H. exists (UnaryFunc u b ret f), e0. reflexivity.
-           ++ inversion H.
-           ++ inversion H.
-        -- assert (List.length (b :: arg_types) = 1) by (etransitivity; eauto).
-           inversion H0. destruct arg_types; try discriminate; auto.
-      * destruct l; try discriminate; auto.
 Qed.
 
 Lemma expr_type_eqb_refl: ∀ τ, expr_type_eqb τ τ = true.
