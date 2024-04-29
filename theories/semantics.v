@@ -105,7 +105,7 @@ Fixpoint determine_bt_from_expr_helper (s: schema) (arg: expression) (env: ty_en
             end
           | _ => None
         end
-    | ExprUDF _ ret _ _ _ => Some (ExprTypeBasic ret)
+    | ExprUDFSingleArg _ ret _ _ _ | ExprUDF _ ret _ _ _ => Some (ExprTypeBasic ret)
     end.
 
 Definition determine_bt_from_expr (s: schema) (arg: expression): option basic_type :=

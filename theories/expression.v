@@ -74,6 +74,7 @@ Inductive expression: Type :=
   | ExprBinary: binary_func → expression → expression → expression
   (* fold *)
   | ExprAgg: agg_func → expression → expression
+  | ExprUDFSingleArg: ∀ args ret, trans_op → nary args ret → expression → expression
   (* UDFs: trans_op × f *)
   | ExprUDF: ∀ args ret, trans_op → nary args ret → list expression → expression
 .
@@ -833,19 +834,20 @@ Inductive eval: nat → expression → bool → eval_env → option (eval_env * 
       let v := list_of_length_n (List.length gb_indices) (f, None) in
         eval step e b (β, tr, tp, proxy) (Some ((β, tr, tp, proxy), (ValuePrimitiveList _ v)))
   (* Cast to the unary expression. *)
-  | EvalUdfSingleArg: ∀ step step' b e e' arg_type arg ret op f tp β tr proxy res,
+  | EvalUdfSingleArg: ∀ step step' b e arg_type arg ret op op' f f' tp tp' β β' tr tr' proxy proxy' res v,
       step = S step' →
-      e = ExprUDF (arg_type :: nil) ret op f (arg :: nil) →
-      let thm := udf_single_helper arg_type arg in
-        coerce_udf_to_unary (arg_type :: nil) (arg :: nil) ret op f (proj1 thm) (proj2 thm) =
-        Some e' →
-        eval step e' b (β, tr, tp, proxy) res →
-        eval step e b (β, tr, tp, proxy) res
+      e = ExprUDFSingleArg (arg_type :: nil) ret op f arg →
+      eval step' arg b (β, tr, tp, proxy) (Some ((β', tr', tp', proxy'), ValuePrimitive ret v)) →
+      op = UnaryTransOp op' →
+      f' = UnaryFunc op' arg_type ret f →
+      eval_unary_expression_prim ret f' (β', tr', tp', proxy') v res →
+      eval step e b (β, tr, tp, proxy) res
   (* The rest case. *)
   | EvalUdf: ∀ step step' b e arg_types args ret op f tp β tr proxy env arg_list res res',
     step = S step' →
     e = ExprUDF arg_types ret op f args →
     List.length arg_types > 1 →
+    b = false →
     eval_udf_expr step' args b (β, tr, tp, proxy) res →
     res = Some (env, arg_list) →
     eval_udf arg_types ret op f env arg_list res' →
@@ -878,7 +880,7 @@ eval_udf_expr: nat → list expression → bool → eval_env → option (eval_en
       e = hd :: tl →
       eval step' hd b env (Some (env', res)) →
       res = ValuePrimitive bt v →
-      eval_udf_expr step' tl b env' (Some (env'', res')) →
+      eval_udf_expr step tl b env' (Some (env'', res')) →
       eval_udf_expr step e b env (Some (env'', UdfArgCons bt v res'))
 with
 (* Evaluate each sub-expression as value list. *)
@@ -893,7 +895,7 @@ eval_udf_expr_list: nat → list expression → bool → eval_env → option (ev
       step = S step' →
       e = hd :: tl →
       eval step' hd b env None →
-      eval_udf_expr_list step tl b env None
+      eval_udf_expr_list step e b env None
   | EvalUdfExprListOk: ∀ step step' b e hd tl env env' env'' res res' res'' bt v,
       step = S step' →
       e = hd :: tl →
@@ -937,6 +939,29 @@ Proof.
       * destruct ℓ1; intuition.
         constructor. assumption.
       * destruct ℓ1; intuition.
+Qed.
+
+Lemma coerce_udf_to_unary_some: ∀ arg_types args ret op f e
+  (len: Datatypes.length args = Datatypes.length arg_types)
+  (len_1: Datatypes.length args = 1),
+  coerce_udf_to_unary arg_types args ret op f len len_1 = Some e →
+  ∃ f e', e = ExprUnary f e'.
+Proof.
+  intros.
+  destruct args eqn: Heq.
+  - inversion len_1.
+  - destruct arg_types.
+    + inversion len.
+    + inversion len_1. cut (l = nil); intros.
+      * subst. cut (arg_types = nil); intros.
+        -- subst. simpl in H.
+           destruct op.
+           ++ inversion H. exists (UnaryFunc u b ret f), e0. reflexivity.
+           ++ inversion H.
+           ++ inversion H.
+        -- assert (List.length (b :: arg_types) = 1) by (etransitivity; eauto).
+           inversion H0. destruct arg_types; try discriminate; auto.
+      * destruct l; try discriminate; auto.
 Qed.
 
 Lemma expr_type_eqb_refl: ∀ τ, expr_type_eqb τ τ = true.
