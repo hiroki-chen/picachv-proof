@@ -690,23 +690,7 @@ Lemma eval_predicate_in_relation_ok: ∀ s r β tr e r' β' tr',
   eval_predicate_in_relation s r β tr e (Some (r', β', tr')) →
   trace_ok tr'.
 Proof.
-  induction r; intros; inversion H0; subst; try discriminate; intuition;
-  inversion H9; subst; destruct env as [ [ [ β'' tr'' ] tp'' ] gb'' ].
-  - inversion H4. subst. clear H4.
-    inversion H8. subst.
-    inversion H2. subst.
-    assert (trace_ok tr'0).
-    {
-      destruct eval_ok. eapply H3 with (tr := tr); eauto.
-    }
-    eapply IHr with (tr := tr'0); eauto.
-  - inversion H4. subst. clear H4. 
-    inversion H2. subst. inversion H8. subst.
-    assert (trace_ok tr'0).
-    {
-      destruct eval_ok. eapply H3 with (tr := tr); eauto.
-    }
-    eapply IHr with (tr := tr'0); eauto.
+  induction r; intros; inversion H0; subst; try discriminate; intuition.
 Qed.
 
 Lemma eval_groupby_having_ok: ∀ gb expr β tr gb' β' tr',
