@@ -409,13 +409,13 @@ Inductive eval_predicate_in_relation (s: schema) (r: relation s):
       eval_expr false (β, tr) (TupleWrapped s hd) None e (Some (env, ValuePrimitive BoolType (true, id))) →
       fst (fst env) = (β', tr') →
       eval_predicate_in_relation s tl β' tr' e (Some (tl', β'', tr'')) →
-      eval_predicate_in_relation s r β tr e (Some (hd :: tl', β'', tr''))
+      eval_predicate_in_relation s r β tr e (Some (hd :: tl', β'', tr))
   | E_EvalExprConsFalse: ∀  β β' β'' tr tr' tr'' e env hd tl tl' id,
       r = hd :: tl →
       eval_expr false (β, tr) (TupleWrapped s hd) None e (Some (env, ValuePrimitive BoolType (false, id))) →
       fst (fst env) = (β', tr') →
       eval_predicate_in_relation s tl β' tr' e (Some (tl', β'', tr'')) →
-      eval_predicate_in_relation s r β tr e (Some (tl', β'', tr''))
+      eval_predicate_in_relation s r β tr e (Some (tl', β'', tr))
   | E_EvalError: ∀ res v β tr e env hd tl,
       r = hd :: tl →
       eval_expr false (β, tr) (TupleWrapped s hd) None e (Some (env, res)) →
