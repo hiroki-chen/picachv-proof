@@ -690,7 +690,7 @@ Lemma eval_predicate_in_relation_ok: ∀ s r β tr e r' β' tr',
   eval_predicate_in_relation s r β tr e (Some (r', β', tr')) →
   trace_ok tr'.
 Proof.
-  induction r; intros; inversion H0; subst; try discriminate; intuition
+  induction r; intros; inversion H0; subst; try discriminate; intuition;
   inversion H9; subst; destruct env as [ [ [ β'' tr'' ] tp'' ] gb'' ].
   - inversion H4. subst. clear H4.
     inversion H8. subst.
