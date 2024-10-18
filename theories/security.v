@@ -449,24 +449,24 @@ Proof.
     assumption.
 Qed.
 
+Lemma do_eval_udf_ok: ∀ args_types ret op f β tr tp gb args policy trace res,
+  trace_ok tr →
+  do_eval_udf args_types ret op f (β, tr, tp, gb) args (Some (policy, trace, res)) →
+  Forall (λ x, label_transition_valid x) trace ∧ branch_ok policy trace.
+Proof.
+Admitted.
+
 Lemma eval_udf_ok: ∀ arg_types ret op f args β β' tr tr' tp tp' gb gb' v,
   trace_ok tr →
   eval_udf arg_types ret op f (β, tr, tp, gb) args (Some (β', tr', tp', gb', v)) →
   trace_ok tr'.
 Proof.
-  dependent induction args; intros; inversion H0; subst; try discriminate; intuition;
-  inversion H9; inversion H13; subst; try discriminate; unfold tr'0.
-  - econstructor; eauto.
-    simpl. eapply LabelTransitionTrBranch; eauto.
-    constructor.
-  - econstructor; eauto.
-    simpl. eapply LabelTransitionTrBranch; eauto.
-    constructor.
-  - econstructor; eauto.
-    simpl. eapply LabelTransitionTrBranch; eauto.
-    + inversion H9. inversion H11. subst.
-  (* We do it later. *)
-Admitted.
+  intros.
+  inversion H0; subst. inversion H9. subst.
+  clear H9. apply do_eval_udf_ok in H13. destruct H13.
+  econstructor; eauto. eapply LabelTransitionTrBranch; simpl; eauto.
+  assumption.
+Qed.
 
 Lemma eval_udf_expression_list_ok: ∀ arg_types ret op f args β β' tr tr' tp tp' gb gb' v,
   trace_ok tr →

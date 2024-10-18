@@ -43,5 +43,6 @@
         }
       }
     ]
-  }
+  },
+  "coqtop.binPath": "/home/haobchen/.opam/default/bin"
 }
