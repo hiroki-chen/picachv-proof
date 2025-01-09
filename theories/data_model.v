@@ -127,10 +127,10 @@ Theorem can_declassify_dec: ∀ ℓ ℓop, {can_declassify ℓ ℓop} + {~ can_d
 Proof.
   intros. destruct ℓ; destruct ℓop; auto with *;
   try solve [(left; simpl; auto) | (right; red; intros; discriminate)].
-  - destruct (subset_dec trans_op_eq_dec s0 s).
+  - destruct (subset_dec transop_dec s0 s).
     + left. simpl. assumption.
     + right. red. intros. apply n. simpl in H. assumption.
-  - destruct (subset_dec agg_op_eq_dec s0 s).
+  - destruct (subset_dec aggop_dec s0 s).
     + left. simpl. assumption.
     + right. red. intros. apply n. simpl in H. assumption.
   - destruct n, n0, d, d0.

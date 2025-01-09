@@ -428,11 +428,6 @@ Inductive eval_predicate_in_relation (s: schema) (r: relation s):
       eval_predicate_in_relation s r β tr e None
 .
 
-Theorem eval_predicate_in_relation_terminate:
-  ∀ s r β tr e, ∃ res, eval_predicate_in_relation s r β tr e res.
-Proof.
-Admitted.
-
 (*
   @param bt The basic type of the elements in the resulting list of tuples.
   @param budget The budget available for the operation.
@@ -582,11 +577,6 @@ Inductive eval_aggregate:
         eval_groupby_having gb_proxy_raw f β tr None →
         eval_aggregate s s_agg gb bounded agg f β tr r None
 .
-
-Theorem eval_aggregate_terminate:
-  ∀ s s_agg gb b agg expr β tr r, ∃ res, eval_aggregate s s_agg gb b agg expr β tr r res.
-Proof.
-Admitted.
 
 (*
   `step_config` is an inductive type representing the transition rules for configurations. 
