@@ -728,10 +728,10 @@ Proof.
   induction p3; intros; inversion H; subst; try constructor; auto.
   - inversion H7; subst; try (econstructor; eauto); inversion H2; subst.
     + assumption.
-    + apply join_upper_bound; assumption.
+    + assert (ℓ1 ⊔ ℓ2 ⊑ p) by (apply join_upper_bound; assumption). auto.
   - inversion H7; subst; (econstructor; eauto); inversion H3; subst.
     + assumption.
-    + apply join_upper_bound; assumption.
+    + assert (ℓ1 ⊔ ℓ2 ⊑ p) by (apply join_upper_bound; assumption). auto.
   - inversion H2; subst; inversion H3; subst.
     + inversion H8; subst; constructor.
     + inversion H8; subst; constructor; intuition.
@@ -748,7 +748,7 @@ Proof.
       -- apply join_preserve_flowsto_lhs with (c := ℓ1) in H9.
          assumption.
       -- eapply IHp3. eapply H8.
-      -- apply join_upper_bound'; assumption.
+      -- assert (ℓ3 ⊔ ℓ4 ⊑ ℓ1 ⊔ ℓ2) by (apply join_upper_bound'; assumption). auto.
 Qed.
 
 Lemma policy_join_stronger: ∀ p1 p2 p3,

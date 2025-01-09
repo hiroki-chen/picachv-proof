@@ -74,6 +74,15 @@ Section LatticeProperties.
       compatR: ∀ (x1 y1 x2 y2 : A), x1 === x2 → y1 === y2 → f x1 y1 ↔ f x2 y2
     }.
 
+  (* Declare "join" as a morphism w.r.t. that setoid relation. *)
+  Add Parametric Morphism
+    : join
+      with signature (eq ==> eq ==> eq)
+      as join_mor.
+  Proof.
+    intros x1 x2 Hx y1 y2 Hy.
+    now apply join_compat.
+  Qed.
 
 Global Instance eq_rewrite2_Proper (f : A → A → A) `{Morphism2 f}:
   Proper (eq ==> eq ==> eq) f.
@@ -92,7 +101,6 @@ Proof.
   eapply compatR; eassumption.
 Qed.
 Hint Resolve eq_rewrite3_Proper : typeclass_instances.
-
 
 Global Instance join_inst: Morphism2 join := { compat2 := join_compat }.
 Global Instance meet_inst: Morphism2 meet := { compat2 := meet_compat }.
@@ -127,29 +135,99 @@ Qed.
 
 (* Some additional properties and proofs. *)
 Lemma join_upper_lhs: ∀ a b, a ⊑ a ⊔ b.
-Admitted.
+Proof.
+  intros a b.
+  unfold "⊑".  (* means a ⊔ (a ⊔ b) === (a ⊔ b) *)
+  rewrite join_assoc.    (* use associativity *)
+  rewrite join_idem. 
+  reflexivity.
+Qed.
 Hint Resolve join_upper_lhs: core.
 
-Lemma join_upper_rhs: ∀ a b, b ⊑ a ⊔ b.
-Admitted.
-Hint Resolve join_upper_rhs: core.
-
-Lemma join_upper_bound: ∀ (A : Type) (l: lattice A) (a b c: A),
+Lemma join_upper_bound: ∀ (a b c: A),
   a ⊑ c → b ⊑ c → a ⊔ b ⊑ c.
-Admitted.
+Proof.
+  intros.
+  unfold "⊑" in *.
+  rewrite <- join_assoc.
+  symmetry in H0, H1.
+  rewrite H0 at 2.
+  rewrite H1 at 2.
+  reflexivity.
+Qed.
 Hint Resolve join_upper_bound: core.
 
-Lemma join_upper_bound': ∀ (A : Type) (l: lattice A) (a b c d: A),
-  a ⊑ b → c ⊑ d → a ⊔ c ⊑ b ⊔ d.
-Admitted.
-Hint Resolve join_upper_bound': core.
-
 Lemma join_preserve_flowsto_lhs: ∀ a b c, a ⊑ b → a ⊑ c ⊔ b.
-Admitted.
+Proof.
+  intros a b c Ha.
+  unfold "⊑" in *.
+  rewrite join_comm at 1.
+  rewrite <- join_assoc.
+  symmetry in Ha.
+  rewrite Ha at 2.
+  assert (a ⊔ b === b ⊔ a) by apply join_comm.
+  rewrite H0.
+  reflexivity.
+Qed.
 Hint Resolve join_preserve_flowsto_lhs: core.
 
+Lemma join_upper_bound': ∀ (a b c d: A),
+  a ⊑ b → c ⊑ d → a ⊔ c ⊑ b ⊔ d.
+Proof.
+  unfold "⊑" in *.
+  intros.
+  symmetry in H0, H1.
+  rewrite H0 at 2.
+  rewrite H1 at 2.
+  rewrite <- join_assoc.
+  rewrite <- join_assoc.
+
+  assert (c ⊔ (b ⊔ d) === b ⊔ (c ⊔ d)).
+  {
+    assert (c ⊔ d === d ⊔ c) by apply join_comm.
+    rewrite H2.
+    rewrite join_assoc.
+    rewrite join_assoc.
+    assert (c ⊔ b ⊔ d === c ⊔ (b ⊔ d)).
+    {
+      rewrite join_assoc.
+      reflexivity.
+    }
+    rewrite H3.
+    rewrite join_comm.
+    reflexivity.
+  }
+  rewrite H2.
+  reflexivity.
+Qed.
+Hint Resolve join_upper_bound': core.
+
+Lemma join_upper_rhs: ∀ a b, b ⊑ a ⊔ b.
+Proof.
+  intros.
+  unfold "⊑".
+  rewrite join_comm.
+  rewrite <- join_assoc.
+  rewrite join_idem.
+  reflexivity.
+Qed.
+Hint Resolve join_upper_rhs: core.
+
 Lemma join_preserve_flowsto_rhs: ∀ a b c, a ⊑ b → a ⊑ b ⊔ c.
-Admitted.
+Proof.
+  intros a b c Ha.
+  unfold "⊑" in *.
+  rewrite join_comm.
+  symmetry in Ha.
+  rewrite Ha at 2.
+  rewrite <- join_assoc.
+  assert (c ⊔ a === a ⊔ c) by apply join_comm.
+  rewrite H0.
+  rewrite join_assoc.
+  assert (b ⊔ a === a ⊔ b) by apply join_comm.
+  rewrite H1.
+  reflexivity.
+Qed.
 Hint Resolve join_preserve_flowsto_rhs: core.
 
 Global Instance flowsto_refl: Reflexive flowsto.
