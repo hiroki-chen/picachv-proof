@@ -1375,7 +1375,56 @@ Qed.
 
 End Tuple.
 
-Ltac str_eq:= auto; simpl in *; unfold char_eq in *; unfold char_lt in *; lia.
+Section Collection.
+
+  Hypothesis elt: Set.
+  Hypothesis E: Ordered elt.
+
+  Definition collection := @list elt.
+
+  Fixpoint collection_eq' (b1 b2: collection): Prop :=
+    match b1 with
+    | nil => match b2 with
+            | nil => True
+            | _ => False
+            end
+    | e :: b1' => match b2 with
+                  | nil => False
+                  | e' :: b2' => match cmp e e' with
+                                | OrderedType.EQ _ => collection_eq' b1' b2'
+                                | OrderedType.GT _ => False
+                                | OrderedType.LT _ => False
+                                end
+                  end
+    end.
+
+  Global Instance collection_is_setoid: Setoid collection.
+  Proof.
+    refine (
+      @Build_Setoid _ collection_eq' _
+    ).
+    constructor.
+    - unfold Reflexive. intros. induction x; try intuition auto with *.
+      simpl in *. destruct (cmp a a); intuition; apply neq in l; intuition auto with *.
+    - unfold Symmetric. induction x; destruct y; auto. intros.
+      simpl in *. destruct (cmp e a); destruct (cmp a e);
+      try assumption; try red in e0; try apply neq in l; auto with *.
+    - unfold Transitive. induction x; destruct y; destruct z; auto with *.
+      intuition. simpl in *.
+      destruct (cmp a e); destruct (cmp e e0); destruct (cmp a e0);
+      try intuition auto with *.
+      + apply neq in l. red in e1. red in e2. eapply transitivity in e2. eauto. assumption.
+      + specialize (IHx _ _ H H0). assumption.
+      + destruct (SetoidDec.equiv_dec e0 a).
+        * apply neq in l. intuition.
+        * apply neq in l. intuition.
+          red in e1. red in e2. assert (a == e0). eapply transitivity. eauto. assumption.
+          symmetry in H1. intuition.
+  Defined.
+
+End Collection.
+
+Ltac str_eq := auto; simpl in *; unfold char_eq in *; unfold char_lt in *; lia.
 
 Section Facts.
   Context {ty: Tuple.tuple_type}.

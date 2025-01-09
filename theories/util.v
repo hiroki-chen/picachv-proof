@@ -628,6 +628,3 @@ Proof.
     intuition.
 Qed.
 
-Section Tests.
-
-End Tests.

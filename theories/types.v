@@ -76,7 +76,7 @@ Definition dp_param := (nat * nat)%type.
 Definition budget := nat%type.
 
 (* We assume there is a well-defined mechanism for doing this. *)
-Definition calculate_budget (ε1 ε2: budget): budget. Admitted.
+Axiom calculate_budget: ∀ (ε1 ε2: budget), budget. 
 
 (* Note that these operators are not designed to be exhaustive. *)
 (* Logical connections. *)
@@ -205,44 +205,13 @@ Definition try_cast (t1 t2: basic_type): type_to_coq_type t1 → option (type_to
   | StringType, BoolType => fun _ _ _ => None
   end eq_refl eq_refl.
 
-Definition trans_op_eqb (op1 op2: trans_op): bool.
-  refine (match op1, op2 with
-  | UnaryTransOp op1, UnaryTransOp op2 => un_op_eqb op1 op2
-  | BinaryTransOp bt1 v1 op1, BinaryTransOp bt2 v2 op2 => _
-  | OtherTransOp, OtherTransOp => true
-  | _, _ => false
-  end).
-  destruct (basic_type_eq_dec bt1 bt2).
-  - destruct (bin_op_eqb v1 v2).
-    + subst. destruct bt2; simpl in *.
-      * destruct (Nat.eqb op1 op2).
-        -- exact true.
-        -- exact false.
-      * destruct (Bool.eqb op1 op2).
-        -- exact true.
-        -- exact false.
-      * destruct (String.eqb op1 op2).
-        -- exact true.
-        -- exact false.
-    + exact false.
-  - destruct (try_cast bt1 bt2 op1).
-    + rename op2 into lhs. rename t into rhs. destruct bt2; simpl in *.
-      * destruct (Nat.eqb lhs rhs).
-        -- exact true.
-        -- exact false.
-      * destruct (Bool.eqb lhs rhs).
-        -- exact true.
-        -- exact false.
-      * destruct (String.eqb lhs rhs).
-        -- exact true.
-        -- exact false.
-    + exact false.
-Defined.
-
-Definition noise_op_eqb op1 op2: bool :=
-  match op1, op2 with
-  | differential_privacy (ε1, δ1), differential_privacy (ε2, δ2) => (ε1 =? ε2) && (δ1 =? δ2)
-  end.
+Definition value_eq (t1 t2: basic_type) (v1: type_to_coq_type t1) (v2: type_to_coq_type t2) : bool :=
+  match t1, t2 return type_to_coq_type t1 → type_to_coq_type t2 → bool with
+  | IntegerType, IntegerType => Nat.eqb
+  | BoolType, BoolType => Bool.eqb
+  | StringType, StringType => String.eqb
+  | _, _ => λ _ _, false
+  end v1 v2.
 
 Definition type_matches (lhs rhs: basic_type): bool :=
   match lhs, rhs with
@@ -252,6 +221,21 @@ Definition type_matches (lhs rhs: basic_type): bool :=
   | _, _ => false
   end.
 
+(* TODO: Using `basic_type_eq_dec` seems problematic. *)
+
+Definition trans_op_eqb (op1 op2: trans_op): bool :=
+  match op1, op2 with
+  | UnaryTransOp op1, UnaryTransOp op2 => un_op_eqb op1 op2
+  | BinaryTransOp bt1 op1 v1, BinaryTransOp bt2 op2 v2 =>
+        bin_op_eqb op1 op2 && value_eq bt1 bt2 v1 v2
+  | OtherTransOp, OtherTransOp => true
+  | _, _ => false
+  end.
+
+Definition noise_op_eqb op1 op2: bool :=
+  match op1, op2 with
+  | differential_privacy (ε1, δ1), differential_privacy (ε2, δ2) => (ε1 =? ε2) && (δ1 =? δ2)
+  end.
 
 Definition type_coerce (t1 t2: basic_type): basic_type :=
   match t1, t2 with
@@ -265,14 +249,6 @@ Definition type_coerce (t1 t2: basic_type): basic_type :=
   | StringType, IntegerType => StringType
   | StringType, BoolType => StringType
   end.
-
-Definition value_eq (t1 t2: basic_type) (v1: type_to_coq_type t1) (v2: type_to_coq_type t2) : bool :=
-  match t1, t2 return type_to_coq_type t1 → type_to_coq_type t2 → bool with
-  | IntegerType, IntegerType => Nat.eqb
-  | BoolType, BoolType => Bool.eqb
-  | StringType, StringType => String.eqb
-  | _, _ => λ _ _, false
-  end v1 v2.
 
 (* A helper instance that allows us to perform ordering, equivalence check on types
    that are wrapped by a another layer called `type_to_coq_type`.
@@ -408,14 +384,6 @@ Proof.
   - destruct b, b0; try (right; discriminate); try (left; congruence).
 Qed.
 
-Lemma transop_dec: ∀ (op1 op2: trans_op), {op1 = op2} + {op1 ≠ op2}.
-Proof.
-  intros.
-  destruct op1, op2; try (destruct (unop_dec u u0)); try (destruct (binop_dec b b0));
-  try (right; discriminate); try (left; congruence).
-  unfold not in *; right; subst.
-Admitted.
-
 Lemma aggop_dec: ∀ (op1 op2: agg_op), {op1 = op2} + {op1 ≠ op2}.
 Proof.
   intros.
@@ -476,16 +444,31 @@ Qed.
 
 Lemma trans_op_eq_eqb: ∀ op1 op2, trans_op_eqb op1 op2 = true ↔ op1 = op2.
 Proof.
-  (* intros.
-  destruct op1, op2; simpl; split; intros; try discriminate; auto;
-  inversion H;
-  try solve [apply un_op_eq_eqb in H; subst; simpl; auto | apply bin_op_eq_eqb in H; subst; auto].
-  - destruct u0; simpl; auto. apply Nat.eqb_refl.
-  - destruct b0; simpl; auto.
-    + apply log_op_eq_eqb. auto.
-    + apply com_op_eq_eqb. auto.
-    + apply bin_arith_op_eq_eqb. auto. *)
-Admitted.
+  intros.
+  destruct op1; destruct op2; split; intros; simpl in *; auto with *.
+  - destruct u; destruct u0; simpl in *; try discriminate; auto.
+    apply Nat.eqb_eq in H. subst. reflexivity.
+  - inversion H. subst. simpl. destruct u0; auto.
+    simpl. apply Nat.eqb_refl.
+  - inversion H.
+  - inversion H.
+  - inversion H.
+  - apply andb_true_iff in H. destruct H. apply bin_op_eq_eqb in H. subst.
+    destruct bt, bt0; try discriminate; simpl in *.
+    + apply Nat.eqb_eq in H0. subst. reflexivity.
+    + apply Bool.eqb_prop in H0. subst. reflexivity.
+    + apply String.eqb_eq in H0. subst. reflexivity.
+  - inversion H. subst.
+    apply andb_true_iff. split.
+    + apply bin_op_eq_eqb. reflexivity.
+    + destruct bt0; simpl in *; intuition.
+      * apply Nat.eqb_refl.
+      * apply Bool.eqb_reflx.
+      * apply String.eqb_refl.
+  - inversion H.
+  - inversion H.
+  - inversion H.
+Qed.
 
 Lemma type_matches_eq: ∀ t1 t2, type_matches t1 t2 = true ↔ t1 = t2.
 Proof.
@@ -494,26 +477,5 @@ Proof.
   - destruct t1, t2; simpl; intros; try discriminate; auto.
   - intros. subst. destruct t2; auto.
 Qed.
-
-Lemma trans_op_eq_dec: ∀ (op1 op2: trans_op),
-  {op1 = op2} + {op1 ≠ op2}.
-Proof.
-  destruct op1; destruct op2;
-  try (destruct u, u0); try (destruct b, b0);
-  try (destruct (Nat.eq_dec n n0));
-  try (destruct l, l0);
-  try (destruct c, c0);
-  try (destruct b, b0);
-  try solve [(left; simpl; subst; auto) | (right; red; simpl; intros; discriminate)].
-  right. unfold not in *. intros. apply n1.
-  inversion H. reflexivity.
-Admitted.
-
-Lemma agg_op_eq_dec: ∀ (op1 op2: agg_op),
-  {op1 = op2} + {op1 ≠ op2}.
-Proof.
-  destruct op1; destruct op2;
-  solve [(left; simpl; subst; auto) | (right; red; simpl; intros; discriminate)].
-Admitted.
 
 End Facts.

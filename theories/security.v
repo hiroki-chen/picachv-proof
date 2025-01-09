@@ -13,6 +13,7 @@ Require Import semantics.
 Require Import trace.
 Require Import types.
 Require Import util.
+Require Import termination.
 
 Section SecurityMain.
 

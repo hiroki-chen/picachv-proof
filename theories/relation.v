@@ -9,7 +9,6 @@ Require Import String.
 Require Import Unicode.Utf8.
 
 Require Import data_model.
-Require Import finite_bags.
 Require Import ordering.
 Require Import trace.
 Require Import types.
@@ -22,7 +21,7 @@ Require Import util.
   @param s   The schema of the relation.
   @return    A finite bag (fbag) of tuples of type [ty].
 *)
-Definition relation_np (s: schema) := fbag (Tuple.tuple_np (♭ s)).
+Definition relation_np (s: schema) := collection (Tuple.tuple_np (♭ s)).
 
 (** 
   [relation] is a function that takes a tuple type [ty] as an argument and returns a finite bag (fbag) of tuples of type [ty]. 
@@ -31,7 +30,7 @@ Definition relation_np (s: schema) := fbag (Tuple.tuple_np (♭ s)).
   @param s   The schema of the relation.
   @return    A finite bag (fbag) of tuples of type [ty].
 *)
-Definition relation (s: schema) := fbag (Tuple.tuple (♭ s)).
+Definition relation (s: schema) := collection (Tuple.tuple (♭ s)).
 Hint Unfold relation: core.
 
 Inductive relation_wrapped: Type :=
@@ -42,7 +41,7 @@ Inductive relation_wrapped: Type :=
 Fixpoint dataframe (s: schema): Type :=
   match s with
   | nil => unit
-  | (bt, _) :: t => (fbag (type_to_coq_type bt * nat) * dataframe t)%type
+  | (bt, _) :: t => (collection (type_to_coq_type bt * nat) * dataframe t)%type
   end.
 
 Definition db_entry s := (Tuple.tuple_np (♭ s) * Policy.policy_store (♭ s))%type.
@@ -250,7 +249,7 @@ Proof.
   - reflexivity.
   - inversion H.
   - inversion H.
-  - unfold relation. unfold fbag.
+  - unfold relation.
     simpl. destruct a, a0. simpl in *. inversion H. subst. auto.
 Qed.
 
