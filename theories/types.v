@@ -2,6 +2,7 @@
 Require Import Ascii.
 Require Import Arith.
 Require Import Bool.
+Require Import Coq.Program.Equality.
 Require Import Decidable.
 Require Import Lia.
 Require Import List.
@@ -382,6 +383,33 @@ Proof.
   - destruct l, l0; try (right; discriminate); try (left; congruence).
   - destruct c, c0; try (right; discriminate); try (left; congruence).
   - destruct b, b0; try (right; discriminate); try (left; congruence).
+Qed.
+
+Ltac solve_eq_dec eq_dec_expr :=
+  destruct eq_dec_expr as [Heq | Hneq];
+  [ left; subst; auto
+  | right; intros ?; dependent destruction H; intuition ].
+
+Lemma transop_dec: ∀ (op1 op2: trans_op), {op1 = op2} + {op1 ≠ op2}.
+Proof.
+  destruct op1, op2; try (right; discriminate); try (left; congruence).
+  - destruct u, u0; try (right; discriminate); try (left; congruence).
+    destruct (eq_nat_dec n n0); try (right; discriminate); try (left; congruence).
+    right. unfold not in *. intros. inversion H. exfalso. auto.
+  - destruct (binop_dec b b0); subst.
+    + destruct bt, bt0; subst; try (right; discriminate); try (left; congruence).
+     (*
+      * Do not `simpl t` or `simpl t0` as this unfolds or changes the syntactic structure.
+      * For example by inlining definitions or partially evaluating a function—then the
+      * original constructor pattern may no longer be visible to the tactic. As a result,
+      * dependent destruction may fail because it cannot match on the constructor in the
+      * same way it does when the term is in its “raw” form.
+      *)
+      (* simpl in *. *)
+      * solve_eq_dec (Nat.eq_dec t t0).
+      * solve_eq_dec (Bool.bool_dec t t0).
+      * solve_eq_dec (String.string_dec t t0).
+    + right. unfold not in *. intros. dependent destruction H. intuition.
 Qed.
 
 Lemma aggop_dec: ∀ (op1 op2: agg_op), {op1 = op2} + {op1 ≠ op2}.
