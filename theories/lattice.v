@@ -125,6 +125,33 @@ Proof.
   repeat rewrite meet_absorp. reflexivity.
 Qed.
 
+(* Some additional properties and proofs. *)
+Lemma join_upper_lhs: ∀ a b, a ⊑ a ⊔ b.
+Admitted.
+Hint Resolve join_upper_lhs: core.
+
+Lemma join_upper_rhs: ∀ a b, b ⊑ a ⊔ b.
+Admitted.
+Hint Resolve join_upper_rhs: core.
+
+Lemma join_upper_bound: ∀ (A : Type) (l: lattice A) (a b c: A),
+  a ⊑ c → b ⊑ c → a ⊔ b ⊑ c.
+Admitted.
+Hint Resolve join_upper_bound: core.
+
+Lemma join_upper_bound': ∀ (A : Type) (l: lattice A) (a b c d: A),
+  a ⊑ b → c ⊑ d → a ⊔ c ⊑ b ⊔ d.
+Admitted.
+Hint Resolve join_upper_bound': core.
+
+Lemma join_preserve_flowsto_lhs: ∀ a b c, a ⊑ b → a ⊑ c ⊔ b.
+Admitted.
+Hint Resolve join_preserve_flowsto_lhs: core.
+
+Lemma join_preserve_flowsto_rhs: ∀ a b c, a ⊑ b → a ⊑ b ⊔ c.
+Admitted.
+Hint Resolve join_preserve_flowsto_rhs: core.
+
 Global Instance flowsto_refl: Reflexive flowsto.
   unfold Reflexive. intros.
   red. rewrite join_idem. reflexivity.

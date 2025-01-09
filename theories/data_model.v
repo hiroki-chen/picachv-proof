@@ -45,7 +45,6 @@ Definition policy_base_label_eq (lhs rhs: policy_label): Prop :=
   end.
 Notation "x '≃' y" := (policy_base_label_eq x y) (at level 10, y at next level, no associativity).
 
-
 Lemma policy_base_label_eq_dec: ∀ (lhs rhs: policy_label), {lhs ≃ rhs} + {~ (lhs ≃ rhs)}.
 Proof.
   intros. destruct lhs; destruct rhs;
@@ -712,6 +711,14 @@ Inductive policy_join: policy → policy → policy → Prop :=
       (ℓ1 ⇝ p1) ∪ p2 = p3 →
       (* ------------- *)
       (ℓ1 ⇝ p1) ∪ (ℓ2 ⇝ p2) = (ℓ2 ⇝ p3)
+  | policy_join_merge_transform: ∀ ℓ1 ℓ2 ℓ3 p1 p2 p3,
+      valid_policy (ℓ1 ⇝ p1) →
+      valid_policy (ℓ2 ⇝ p2) →
+      policy_base_label_eq ℓ1 ℓ2 →
+      policy_label_join ℓ1 ℓ2 = ℓ3 →
+      p1 ∪ p2 = p3 →
+      (* ------------- *)
+      (ℓ1 ⇝ p1) ∪ (ℓ2 ⇝ p2) = (ℓ3 ⇝ p3)
 where "x '∪' y '=' z" := (policy_join x y z).
 
 Lemma policy_join_valid: ∀ p1 p2 p3,
@@ -719,8 +726,29 @@ Lemma policy_join_valid: ∀ p1 p2 p3,
 Proof.
   intros p1 p2 p3. generalize dependent p2. generalize dependent p1.
   induction p3; intros; inversion H; subst; try constructor; auto.
-  - inversion H7; subst; try (econstructor; eauto). inversion H2. subst. assumption.
-  - inversion H7; subst; (econstructor; eauto). inversion H3. subst. assumption.
+  - inversion H7; subst; try (econstructor; eauto); inversion H2; subst.
+    + assumption.
+    + apply join_upper_bound; assumption.
+  - inversion H7; subst; (econstructor; eauto); inversion H3; subst.
+    + assumption.
+    + apply join_upper_bound; assumption.
+  - inversion H2; subst; inversion H3; subst.
+    + inversion H8; subst; constructor.
+    + inversion H8; subst; constructor; intuition.
+      apply join_preserve_flowsto_lhs with (c := ℓ1) in H6.
+      assumption.
+    + inversion H8; subst; constructor; intuition.
+      apply join_preserve_flowsto_rhs with (c := ℓ2) in H6.
+      assumption.
+    + inversion H8; subst; constructor; intuition.
+      -- eapply IHp3. eapply H8.
+      -- apply join_preserve_flowsto_rhs with (c := ℓ2) in H6.
+         assumption.
+      -- eapply IHp3. eapply H8.
+      -- apply join_preserve_flowsto_lhs with (c := ℓ1) in H9.
+         assumption.
+      -- eapply IHp3. eapply H8.
+      -- apply join_upper_bound'; assumption.
 Qed.
 
 Lemma policy_join_stronger: ∀ p1 p2 p3,
@@ -745,6 +773,10 @@ Proof.
     apply preceq_implies in H4. assumption.
   - econstructor; eauto. reflexivity.
     apply IHpolicy_join. apply valid_policy_implies in H0. assumption.
+  - econstructor; eauto. assert (ℓ1 ⊑ ℓ1 ⊔ ℓ2) by apply join_upper_lhs; assumption.
+    apply valid_policy_implies in H0. apply IHpolicy_join. assumption.
+  - econstructor; eauto. assert (ℓ2 ⊑ ℓ1 ⊔ ℓ2) by apply join_upper_rhs; assumption.
+    apply valid_policy_implies in H0. apply IHpolicy_join. assumption.
 Qed.
 
 Axiom policy_join_terminate: ∀ p1 p2, ∃ p3, p1 ∪ p2 = p3.
