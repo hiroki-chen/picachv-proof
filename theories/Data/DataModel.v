@@ -9,10 +9,10 @@ Require Import SetoidClass.
 Require Import String.
 Require Import Unicode.Utf8.
 
-Require Import lattice.
-Require Import ordering.
-Require Import types.
-Require Import util.
+Require Import Base.Lattice.
+Require Import Base.Ordering.
+Require Import Base.Types.
+Require Import Base.Util.
 
 Module Policy.
 (*

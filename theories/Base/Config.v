@@ -1,8 +1,8 @@
 Require Import Utf8.
 
-Require Import relation.
-Require Import trace.
-Require Import types.
+Require Import Relation.
+Require Import Trace.
+Require Import Types.
 
 (*
   `config` is an inductive type that defines a configuration for the query evaluation.

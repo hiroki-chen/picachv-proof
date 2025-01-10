@@ -8,11 +8,11 @@ Require Import SetoidClass.
 Require Import String.
 Require Import Unicode.Utf8.
 
-Require Import data_model.
-Require Import ordering.
-Require Import trace.
-Require Import types.
-Require Import util.
+Require Import DataModel.
+Require Import Base.Ordering.
+Require Import Base.Trace.
+Require Import Base.Types.
+Require Import Base.Util.
 
 (** 
   [relation_np] is a function that takes a tuple type [ty] as an argument and returns a finite bag (fbag) of tuples of type [ty]. 

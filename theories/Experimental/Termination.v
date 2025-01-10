@@ -7,16 +7,18 @@ Require Import Logic.Eqdep_dec Logic.EqdepFacts.
 Require Import String.
 Require Import Unicode.Utf8.
 
-Require Import config.
-Require Import data_model.
-Require Import expression.
-Require Import trace.
-Require Import types.
-Require Import lattice.
-Require Import ordering.
-Require Import relation.
-Require Import util.
-Require Import semantics.
+Require Import Base.Config.
+Require Import Base.Trace.
+Require Import Base.Types.
+Require Import Base.Lattice.
+Require Import Base.Ordering.
+Require Import Base.Util.
+
+Require Import Data.DataModel.
+Require Import Data.Relation.
+
+Require Import Operational.Expression.
+Require Import Operational.Semantics.
 
 Lemma join_policy_and_trace_terminate: ∀ l1 l2 com tr1 tr2, ∃ res,
   join_policy_and_trace l1 l2 com tr1 tr2 res.
@@ -131,7 +133,6 @@ Theorem apply_proj_in_relation_terminate: ∀ s s' r pl β tr,
   ∃ res, apply_proj_in_relation s s' r pl β tr res.
 Proof. Admitted.
 
-(* For Hongbo: can you help me prove this theorem? *)
 Theorem operator_deterministic: ∀ db o c1 c2, 
   ⟦ db o ⟧ ⇓ ⟦ c1 ⟧ →
   ⟦ db o ⟧ ⇓ ⟦ c2 ⟧ →
@@ -394,9 +395,7 @@ Proof.
   - inversion H0; inversion H; subst; intuition; auto; subst; try discriminate. *)
 Admitted.
 
-(* This theorem ensures the "sanity" of the semantics to ensure that operators won't get stuck.
-  For Hongbo: also can you finish the remaining part?
- *)
+
 Theorem operator_always_terminate: ∀ db o, ∃ c, ⟦ db o ⟧ ⇓ ⟦ c ⟧.
 Proof.
   (* induction o; unfold not; intros; destruct c.

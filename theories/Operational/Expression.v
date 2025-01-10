@@ -4,14 +4,15 @@ Require Import List.
 Require Import String.
 Require Import Unicode.Utf8.
 
-Require Import config.
-Require Import data_model.
-Require Import lattice.
-Require Import ordering.
-Require Import relation.
-Require Import trace.
-Require Import types.
-Require Import util.
+Require Import Base.Config.
+Require Import Base.Lattice.
+Require Import Base.Ordering.
+Require Import Base.Trace.
+Require Import Base.Types.
+Require Import Base.Util.
+
+Require Import Data.DataModel.
+Require Import Data.Relation.
 
 Fixpoint nary (arg_types: list basic_type) (ret: basic_type): Type :=
   match arg_types with

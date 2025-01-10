@@ -7,16 +7,17 @@ Require Import Logic.Eqdep_dec Logic.EqdepFacts.
 Require Import String.
 Require Import Unicode.Utf8.
 
-Require Import config.
-Require Import data_model.
-Require Import expression.
-Require Import finite_bags.
-Require Import trace.
-Require Import types.
-Require Import lattice.
-Require Import ordering.
-Require Import relation.
-Require Import util.
+Require Import Base.Config.
+Require Import Base.Lattice.
+Require Import Base.Ordering.
+Require Import Base.Trace.
+Require Import Base.Types.
+Require Import Base.Util.
+
+Require Import Data.DataModel.
+Require Import Data.Relation.
+
+Require Import Operational.Expression.
 
 (* A typing environment `Γ ⊢ ...` for evaluating the schema. *)
 Definition ty_env := (list expr_type)%type.

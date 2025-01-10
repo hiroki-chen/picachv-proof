@@ -11,7 +11,7 @@ Require Import SetoidClass.
 Require Import String.
 Require Import Unicode.Utf8.
 
-Require Import ordering.
+Require Import Ordering.
 
 Definition digit_to_string (n: nat): string :=
   match n with
