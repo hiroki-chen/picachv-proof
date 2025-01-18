@@ -1,6 +1,18 @@
-# Picachv-Proof
+# Coq Proof Library for Picachv
 
 This repository officially hosts the Coq formalism of the $\sf RA^{P}$ language of the Picachv paper. For detailed information, please check our USENIX Security paper.
+
+To cite this repository, please use the following bibtex format.
+
+```tex
+@inproceedings{chen2025picachv,
+  title={Picachv: Formally Verified Data Use Policy Enforcement for Secure Data Analytics},
+  author={Chen, Haobin Hiroki and Chen, Hongbo and Sun, Mingshen and Wang, Chenghong and Wang, XiaoFeng},
+  booktitle={34th USENIX Security Symposium (USENIX Security 25)},
+  year={2025},
+  location={Seattle, WA, USA}
+}
+```
 
 ## Codebase layout
 
@@ -14,6 +26,16 @@ We provide a quick introduction on how this Coq codebase relates to the on-paper
   - Differential privacy budget control and monitoring.
 - `Operational`: The formalism of the $\sf RA^P$ operational semantics and security proofs (The evaluation rules shown in Section 5.).
 
+## Installation and Usage
+
+We provide users with a simple wrapper script in Python called `run`. You can easily type check the Coq proofs by using the following command.
+
+```sh
+./run --allow_admitted
+```
+
+Because there are some experimental features, `admitted` proofs will exist. You may check all the `admitted` proofs under the `theories/Experimental` directory.
+
 # LICENCE
 
-The code is subject to Apache 2.0 LICENSE.
+The code is subject to the Apache-2.0 license.
